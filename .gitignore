@@ -14,3 +14,7 @@ node_modules/
 data/raw/
 data/cache/
 results/
+
+# The submission archive is built from HEAD; committing it embeds a stale
+# copy of itself in the next one.
+signal-*.zip

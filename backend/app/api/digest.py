@@ -18,11 +18,12 @@ be able to tell the fixture from the engine:
     hand-picked so it cannot be accused of being curated to look good.
 
 The *funnel*'s middle number needs a definition, and it is a coarser one than
-the detector's. "Moved" here means the close moved at least `MOVED_THRESHOLD`
-against the previous session — a plain price screen over `bar`, deliberately
-independent of the residual model, because the funnel's job is to show how much
-the model threw away. Attribution is what narrows 24 movements to 3; using
-attribution to define "movement" too would make the funnel tautological.
+the detector's. "Moved" here means the close moved at least
+`MOVED_DISPLAY_THRESHOLD_PCT` against the previous session — a plain price
+screen over `bar`, deliberately independent of the residual model, because the
+funnel's job is to show how much the model threw away. Attribution is what
+narrows 23 movements to 2; using attribution to define "movement" too would
+make the funnel tautological.
 """
 from __future__ import annotations
 
@@ -48,26 +49,58 @@ WATCHLIST_SIZE = 30
 
 DEFAULT_DATABASE_URL = "postgresql://signal:signal@localhost:5433/signal"
 
-# The digest window. "Since you last looked" is a cursor in production
-# (BIGSERIAL event_id, hard rule 4); for the demo it is the last N sessions,
-# and `since` is the first session inside the window.
+# **DEMO DEFAULT ONLY.**
 #
-# One session, because the funnel only says something at that granularity. Over
-# a trading week every liquid large cap clears MOVED_THRESHOLD at least once,
-# so a 5-session window reports "30 watched, 30 moved" — true, and useless: it
-# makes the screen look like it discards nothing. Widen this and the card count
-# rises (5 sessions yields five cards and exercises the sector cap); the
-# honest funnel is the one that fits in a day.
-WINDOW_SESSIONS = 1
+# The real "since you last looked" boundary is `visit_cursor.last_seen_event_id`
+# — a BIGSERIAL event_id, never a timestamp and never a session count (hard
+# rule 4). That cursor is what makes the digest monotonic and device-convergent
+# under GREATEST advance; a lookback in sessions has none of those properties
+# and is not a substitute for one.
+#
+# This constant is the fallback used when no cursor is supplied, which in the
+# MVP is always, because there is no auth to attach a cursor to yet. It is a
+# default argument and nothing more: `build_digest` already takes `lookback` as
+# a parameter, so an explicit value passed by a caller wins over this one. When
+# cursor support lands it takes precedence over this constant outright — the
+# cursor decides the window, and this value is consulted only for a user who
+# has no cursor row at all (a first visit).
+#
+# Two sessions is the value where both steps of the funnel still narrow. The
+# ends of the range are each worse in one direction: over a trading week every
+# liquid large cap clears the display threshold at least once, so a 5-session
+# lookback reports "30 watched, 30 moved" — true, and useless, because it makes
+# the screen look like it discards nothing; a single session gives the sharpest
+# funnel but only two cards, so the slate's per-sector cap never visibly does
+# anything. At two sessions the funnel reads 30 / 22 / 4.
+#
+# Widening this raises `surfaced` and `moved` together — more sessions means
+# more events clear the §7 gates *and* more symbols cross the display threshold
+# at some point in the window. They are not independent knobs.
+DEMO_DEFAULT_LOOKBACK_SESSIONS = 2
 
 # The market factor the funnel screens against.
 MARKET_INDEX = "Nifty 50"
 
 # -- funnel thresholds ------------------------------------------------------
 
-# "Moved": a close-to-close move of at least 0.5 %. Below this the day is noise
-# to a human reader regardless of what the standardized residual says.
-MOVED_THRESHOLD = 0.005
+# **DISPLAY THRESHOLD — the funnel line only.**
+#
+# This is the middle number in "30 watched · 23 moved · 2 deserve your
+# attention", and it exists to answer a human question: how many of these did I
+# see move at all? A 1 % close-to-close move is roughly where a move stops being
+# noise to a reader. That is a presentation judgement, not a statistical one.
+#
+# It must never feed detection, salience, or the slate. Nothing downstream of
+# the funnel counter may read it: the detector has its own thresholds (`h1`,
+# `h2`, `k` in `configs/thresholds.json`), salience has the §7 gates, and the
+# slate ranks on tier and U. A symbol moving 0.4 % is still detected, still
+# scored, and can still be surfaced as a card — it simply is not counted in
+# `moved`. Wiring this constant into any of those paths would make a cosmetic
+# number silently change what the engine finds.
+#
+# Expressed in percent, matching `total_return_pct` on the card, so the number
+# in the constant is the number a reader would compare against.
+MOVED_DISPLAY_THRESHOLD_PCT = 1.0
 # A move is "explained by the market" when the stock-specific residual accounts
 # for less than half of it — i.e. most of what the user saw was the index.
 EXPLAINED_RESIDUAL_FRACTION = 0.5
@@ -277,9 +310,15 @@ def _reason(cand: slate_mod.Candidate | None, move: _Move) -> str:
     return slate_mod.REASON_THRESHOLD
 
 
-def build_digest(conn, user_id: str = DEMO_USER_ID, window: int = WINDOW_SESSIONS) -> dict:
+def build_digest(
+    conn,
+    user_id: str = DEMO_USER_ID,
+    lookback: int = DEMO_DEFAULT_LOOKBACK_SESSIONS,
+) -> dict:
+    """The digest for one user. `lookback` is the demo stand-in for a cursor;
+    an explicit value overrides `DEMO_DEFAULT_LOOKBACK_SESSIONS`."""
     with conn.cursor() as cur:
-        cur.execute(_SESSIONS, (window,))
+        cur.execute(_SESSIONS, (lookback,))
         sessions = sorted(r[0] for r in cur.fetchall())
         if not sessions:
             return _empty()
@@ -296,12 +335,14 @@ def build_digest(conn, user_id: str = DEMO_USER_ID, window: int = WINDOW_SESSION
             return _empty(since)
 
         # One extra fortnight of closes so the first session in the window has a
-        # previous close to difference against.
-        lookback = since - timedelta(days=14)
-        cur.execute(_BARS, (isins, lookback, latest))
+        # previous close to difference against. Named apart from `lookback`,
+        # which counts sessions in the window — this is a calendar date bound on
+        # the price query and the two must not be confused.
+        bars_from = since - timedelta(days=14)
+        cur.execute(_BARS, (isins, bars_from, latest))
         rets = _returns(cur.fetchall())
 
-        cur.execute(_INDEX, (MARKET_INDEX, lookback, latest))
+        cur.execute(_INDEX, (MARKET_INDEX, bars_from, latest))
         mkt = _index_returns(cur.fetchall())
 
         cur.execute(_EVENTS, (isins, since, latest))
@@ -316,7 +357,9 @@ def build_digest(conn, user_id: str = DEMO_USER_ID, window: int = WINDOW_SESSION
         for d, r in series:
             if d in window_set and abs(r) > abs(best.ret):
                 best = _Move(ret=r, excess=r - mkt.get(d, 0.0), session=d)
-        if abs(best.ret) >= MOVED_THRESHOLD:
+        # Compared in percent against the display threshold — the same units
+        # the card shows, so "moved" means what a reader would call moved.
+        if abs(best.ret) * 100.0 >= MOVED_DISPLAY_THRESHOLD_PCT:
             moves[isin] = best
 
     cands = _candidates(event_rows, meta)
