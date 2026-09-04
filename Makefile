@@ -10,7 +10,7 @@ shell-db:
 	docker compose exec db psql -U signal signal
 
 evaluate:
-	@echo "TODO: make evaluate (B0/B1/B2)"
+	cd backend && python -m app.evaluate --config ../configs/bench.yaml
 
 probe:
 	python scripts/probe_bhavcopy.py

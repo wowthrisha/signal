@@ -1,0 +1,56 @@
+# Replay / benchmark configuration — spec §13, §14.
+# Every run is fully determined by this file plus `seed`. Change nothing here
+# without a matching ops/ACTION-LOG.md entry.
+
+seed: 20260904
+
+window:
+  # Replay window. Defaults to the full ingested history when omitted.
+  start: 2026-03-02
+  end: 2026-09-03
+
+# The event source used for replay. B0 is the spec §14 baseline
+# (fixed threshold |return| > 3%). The real D1/D2 detector lands in S1 and will
+# be selectable here as `b2`; F2 deliberately does not depend on it, so Gate 2
+# proves determinism of the harness rather than of an unwritten detector.
+source: b0
+
+b0:
+  threshold: 0.03
+
+confidence:
+  # Below this, an event is suppressed from the digest, not down-ranked (§7).
+  floor: 0.3
+  # Applied when a fault makes the observation untrustworthy.
+  stale: 0.0
+  uncertain: 0.25
+  default: 0.8
+
+# Fault injection (§13). Comment a line out to disable that fault.
+# `runs` defines the ablation: each named run overrides the fault block.
+faults: {}
+
+runs:
+  clean:
+    faults: {}
+  stale:
+    faults:
+      stale: 3
+  delayed:
+    faults:
+      delayed: 2
+  missing:
+    faults:
+      missing: 0.05
+  duplicate:
+    faults:
+      duplicate: 0.02
+  out_of_order:
+    faults:
+      out_of_order: 3
+  conflicting:
+    faults:
+      conflicting: 0.02
+  api_failure:
+    faults:
+      api_failure: 40

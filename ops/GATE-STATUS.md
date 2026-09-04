@@ -3,7 +3,7 @@
 | Gate | Phase | Deadline | Criterion | Status |
 |------|-------|----------|-----------|--------|
 | G1   | F1    | T+4h     | Bars in DB, or hardcoded CSV | ✅ **PASS** (2026-09-04) — 127 distinct sessions, 0 null ISINs, 311,769 bars. Evidence: ACTION-LOG [F1.5] |
-| G2   | F2    | T+9h     | Replay produces deterministic output twice | ⬜ PENDING |
+| G2   | F2    | T+9h     | Replay produces deterministic output twice | ✅ **PASS** (2026-09-04) — md5 e972c9ec… identical on both runs, diff clean, REPLAY DIGEST 6979368b… stable across 8 fault scenarios. Evidence: ACTION-LOG [F2.6] |
 | G3   | S1    | T+20h    | z-scores sane on real data | ⬜ PENDING |
 | G4   | S2    | T+24h    | CUSUM stable, or ship D1 only | ⬜ PENDING |
 | G5   | S4    | T+35h    | SUBMIT v1.0 non-negotiable | ⬜ PENDING |

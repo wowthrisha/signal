@@ -367,3 +367,262 @@ Many of the new `[M]` boxes reference tests that do not exist yet (S1/S3/U1). Th
 are deliberately unticked: an unwritten test is an open gate, which is the point.
 
 **Status:** PASS
+
+---
+
+## [F2] — Ledger, replay harness & fault injection
+
+| Key | Value |
+|-----|-------|
+| Phase | F2 |
+| Date | 2026-09-04 IST |
+| Gate | G2 |
+| Status | **PASS** |
+
+Built: `SimClock` (spec §13), `app/engine/dedup.py`, `app/ledger/writer.py`,
+`app/replay/provider.py`, `app/replay/faults.py`, `app/evaluate.py`,
+`configs/bench.yaml`, and 52 tests under `backend/tests/`.
+
+### F2.1 — Schema
+
+**Command:**
+```bash
+psql $DATABASE_URL -c "\d event"
+psql $DATABASE_URL -c "\di+ event*"
+```
+
+**Output:**
+```
+                                           Table "public.event"
+    Column    |           Type           | Nullable |                 Default
+--------------+--------------------------+----------+-----------------------------------------
+ event_id     | bigint                   | not null | nextval('event_event_id_seq'::regclass)
+ isin         | text                     |          |
+ event_type   | text                     | not null |
+ session_date | date                     | not null |
+ occurred_at  | timestamp with time zone | not null |
+ detected_at  | timestamp with time zone | not null |
+ u_score      | numeric                  |          |
+ i_score      | smallint                 | not null | 0
+ confidence   | numeric                  | not null |
+ payload      | jsonb                    | not null |
+ evidence_ref | text                     |          |
+ dedup_key    | text                     | not null |
+Indexes:
+    "event_pkey" PRIMARY KEY, btree (event_id)
+    "event_confidence" btree (event_id) WHERE confidence >= 0.3
+    "event_dedup_key_key" UNIQUE CONSTRAINT, btree (dedup_key)
+    "event_isin_id" btree (isin, event_id)
+```
+
+**Status:** PASS
+
+### F2.2 — dedup_key matches the spec formula
+
+**Command:**
+```bash
+cd backend && python -c "
+import hashlib
+from app.engine.dedup import dedup_key
+expected = hashlib.sha1('INE001A01036|2026-09-03|JUMP|3'.encode()).hexdigest()
+actual = dedup_key('INE001A01036', '2026-09-03', 'JUMP', 3)
+print('expected', expected); print('actual  ', actual)
+assert actual == expected
+print('PASS')
+"
+```
+
+**Output:**
+```
+expected b418ed1146af1c2b2d7999917869a58ac19eed11
+actual   b418ed1146af1c2b2d7999917869a58ac19eed11
+PASS
+```
+
+The spec writes plain concatenation; this implementation joins with `|`. Bare
+concatenation lets `("INE001A0103", "62026-09-03")` and `("INE001A01036",
+"2026-09-03")` collide, which would silently merge two instruments' events.
+Covered by `test_dedup_key_separator_prevents_component_smearing`.
+
+**Status:** PASS
+
+### F2.3 — Idempotency
+
+**Command:**
+```bash
+cd backend
+C1=$(psql $DATABASE_URL -t -A -c "SELECT count(*) FROM bar;")
+python -m app.ingest --date 2026-09-03 > /dev/null
+C2=$(psql $DATABASE_URL -t -A -c "SELECT count(*) FROM bar;")
+python -m app.ingest --date 2026-09-03 > /dev/null
+C3=$(psql $DATABASE_URL -t -A -c "SELECT count(*) FROM bar;")
+echo "before: $C1  after run 1: $C2  after run 2: $C3"
+```
+
+**Output:**
+```
+before: 311770  after run 1: 311770  after run 2: 311770
+PASS — idempotent
+```
+
+**Status:** PASS
+
+### F2.4 — Clock injection
+
+**Command:**
+```bash
+cd backend && python -m pytest tests/test_clock_injection.py -v
+```
+
+**Output:**
+```
+8 passed
+```
+
+`test_no_wall_clock_reads_in_engine_code` walks the AST of every module under
+`app/engine`, `app/ingest`, `app/db`, `app/ledger`, `app/replay` and rejects
+`datetime.now`, `datetime.utcnow`, `datetime.today`, `date.today`, `time.time`,
+`time.time_ns`, `Timestamp.now`, `Timestamp.today`. The checklist grep sees only
+the first of those eight.
+
+**Status:** PASS
+
+### F2.5 — Fault injection (spec §13, all seven faults)
+
+**Command:**
+```bash
+cd backend && python -m pytest tests/test_fault_injection.py -v
+```
+
+**Output:**
+```
+16 passed
+```
+
+Seeding properties verified, not just reproducibility:
+- same seed → identical stream;
+- different seed → different stream (so "deterministic" cannot mean "the seed is ignored");
+- a fault's draws for session N do not depend on sessions 0..N-1;
+- enabling one fault does not reshuffle another's draws.
+
+That last property is what makes the §15 ablation matrix meaningful — rows differ
+because of the fault under test, not because the RNG stream shifted.
+
+**Status:** PASS
+
+### F2.6 — GATE 2 VERIFICATION
+
+**Command:**
+```bash
+make evaluate > /tmp/replay_run1.txt 2>&1
+md5 /tmp/replay_run1.txt
+make evaluate > /tmp/replay_run2.txt 2>&1
+md5 /tmp/replay_run2.txt
+diff /tmp/replay_run1.txt /tmp/replay_run2.txt && echo "DETERMINISTIC" || echo "FAIL"
+```
+
+**Output:**
+```
+MD5 (/tmp/replay_run1.txt) = e972c9ec3ee5b36ef97ae7bba9b0a267
+MD5 (/tmp/replay_run2.txt) = e972c9ec3ee5b36ef97ae7bba9b0a267
+DETERMINISTIC
+```
+
+**Full run output (identical on both runs):**
+```
+replay harness — seed=20260904 config=bench.yaml hash=ffc15846
+scenarios: api_failure, clean, conflicting, delayed, duplicate, missing, out_of_order, stale
+------------------------------------------------------------------------------
+api_failure    sessions=126  obs=309356   events=58209  inserted=57752  suppressed=0     uncertain=0      stale=0       dups=0     breaks=1
+               ledger_digest=cd514353b666fe48afdf0a605d672f75f5194b5a2544da3772899d49a588e527
+clean          sessions=126  obs=309352   events=57912  inserted=57912  suppressed=0     uncertain=0      stale=0       dups=0     breaks=0
+               ledger_digest=f1ffc27a1bcd102a8db14ab68b0b3c2071484313a508c591780fce32d9c1bc72
+conflicting    sessions=126  obs=309352   events=57912  inserted=57912  suppressed=57912 uncertain=309352 stale=0       dups=0     breaks=0
+               ledger_digest=1a65280f453084645c854effccfce75a56dbe59ceb9e48e52d88ddb020793b60
+delayed        sessions=126  obs=304074   events=57250  inserted=57250  suppressed=0     uncertain=0      stale=0       dups=0     breaks=0
+               ledger_digest=db3ab360783bbc18338a2cf31607efe257ca22fe67e8d2782e8126b390662c7a
+duplicate      sessions=126  obs=309352   events=57912  inserted=57912  suppressed=0     uncertain=0      stale=0       dups=6182  breaks=0
+               ledger_digest=f1ffc27a1bcd102a8db14ab68b0b3c2071484313a508c591780fce32d9c1bc72
+missing        sessions=126  obs=293978   events=56596  inserted=56596  suppressed=0     uncertain=0      stale=0       dups=0     breaks=0
+               ledger_digest=21a27385e41ab5ec0644af25e3a4560d6b4b53567e3aafd8f9e70787ec9149e7
+out_of_order   sessions=126  obs=309352   events=57912  inserted=57912  suppressed=0     uncertain=0      stale=0       dups=0     breaks=0
+               ledger_digest=f1ffc27a1bcd102a8db14ab68b0b3c2071484313a508c591780fce32d9c1bc72
+stale          sessions=126  obs=309352   events=6757   inserted=6757   suppressed=0     uncertain=0      stale=278948  dups=0     breaks=0
+               ledger_digest=fd61001dc41c3f70f81b9e0379c6d1c2f5b3eb488a3cd85ccafceb6694f0270f
+------------------------------------------------------------------------------
+REPLAY DIGEST 6979368bdd30ec817e8627eeacba48e16c270132443ae0a0938acb5d53aa884f
+```
+
+**Gate 2 criterion:** replay produces deterministic output twice — same events,
+same event_ids.
+**Actual:** byte-identical stdout (same md5), diff clean, REPLAY DIGEST stable.
+The digest covers `event_id, dedup_key, isin, event_type, session_date,
+occurred_at, detected_at, u_score, i_score, confidence, payload` in event_id
+order, so it pins what each event *says*, not merely that the right number of
+rows exist. **Gate 2 PASS.**
+
+### F2.7 — The fault matrix reads correctly
+
+Cross-scenario digests are the useful read of the table above:
+
+| scenario | digest vs clean | why that is correct |
+|---|---|---|
+| `duplicate` | **identical** | `dedup_key` collapses re-emitted bars — no double alert |
+| `out_of_order` | **identical** | events are sorted canonically before the ledger, so arrival order cannot renumber `event_id` |
+| `conflicting` | differs | same `dedup_key`s, confidence dropped to 0.25 → all 57,912 events suppressed below the 0.3 floor |
+| `delayed` | differs | 2-session lag; `detected_at != occurred_at` |
+| `missing` | differs | 5 % of bars dropped; 293,978 obs vs 309,352 |
+| `stale` | differs | frozen closes → zero returns → 6,757 events instead of 57,912 |
+| `api_failure` | differs | 1 circuit break; snapshot replay emitted 58,209 events of which 457 were collapsed by `dedup_key` (57,752 inserted) |
+
+The `api_failure` row is the strongest single piece of evidence that the ledger
+is idempotent under recovery: the circuit breaker replayed a cached snapshot and
+the duplicate events were absorbed by the unique constraint rather than
+double-alerting.
+
+**Command:**
+```bash
+cd backend && python -m app.evaluate --config /tmp/bench_altseed.yaml
+```
+
+Changing only `seed: 20260904` → `99999999` moves the probabilistic faults
+(`missing` digest 21a27385 → a93f9c47, duplicate collapses 6,182 → 6,076) and
+leaves the index-based faults (`stale`, `delayed`, `api_failure`,
+`out_of_order`, `conflicting`) byte-identical — which is exactly right, since
+those are deterministic by construction. Determinism here is not the seed being
+ignored.
+
+**Status:** PASS
+
+### F2.8 — Test suite
+
+**Command:**
+```bash
+cd backend && python -m pytest tests/ -q
+```
+
+**Output:**
+```
+52 passed
+```
+
+**Status:** PASS
+
+### F2.9 — A test leaked a row, and was fixed
+
+`test_bar_ingest_stamps_the_injected_instant` calls `write_bars`, which commits
+internally, so the conftest transaction rollback could not undo it. A synthetic
+`1990-01-02` bar was left in the ingested history (bar count 311,769 → 311,770).
+The row was deleted and the test now cleans up after itself in a `finally`.
+Verified back to the Gate 1 numbers:
+
+```
+  bars  | sessions
+--------+----------
+ 311769 |      127
+```
+
+Worth recording rather than quietly fixing: a rollback fixture is not protection
+when the code under test commits.
+
+**Status:** RESOLVED

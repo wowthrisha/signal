@@ -22,23 +22,23 @@ Module paths are `app.*` run from `backend/`. There is no top-level `signal` pac
 
 ### Schema
 
-- [ ] **[M]** `event` table exists with correct columns
+- [x] **[M]** `event` table exists with correct columns
   ```bash
   psql $DATABASE_URL -c "\d event"
   ```
   _Expected: event_id BIGSERIAL, isin, event_type, session_date, occurred_at, detected_at, u_score, i_score, confidence, payload JSONB, evidence_ref, dedup_key UNIQUE_
 
-- [ ] **[M]** `visit_cursor` table exists
+- [x] **[M]** `visit_cursor` table exists
   ```bash
   psql $DATABASE_URL -c "\d visit_cursor"
   ```
 
-- [ ] **[M]** Indexes on `(isin, event_id)` and `(event_id) WHERE confidence >= 0.3` exist
+- [x] **[M]** Indexes on `(isin, event_id)` and `(event_id) WHERE confidence >= 0.3` exist
   ```bash
   psql $DATABASE_URL -c "\di+ event*"
   ```
 
-- [ ] **[M]** `event_id` is monotonic and gapless-ordered — insert two events, assert the
+- [x] **[M]** `event_id` is monotonic and gapless-ordered — insert two events, assert the
   second id is strictly greater
   ```bash
   cd backend && python -m pytest tests/test_ledger.py -k "monotonic or event_id" -v
@@ -46,18 +46,18 @@ Module paths are `app.*` run from `backend/`. There is no top-level `signal` pac
 
 ### Idempotency
 
-- [ ] **[M]** Duplicate write on same `dedup_key` is a no-op (ON CONFLICT DO NOTHING)
+- [x] **[M]** Duplicate write on same `dedup_key` is a no-op (ON CONFLICT DO NOTHING)
   ```bash
   cd backend && python -m pytest tests/ -k "idempotent or dedup" -v
   ```
 
-- [ ] **[M]** The UNIQUE constraint is really enforced at the DB level, not just in Python
+- [x] **[M]** The UNIQUE constraint is really enforced at the DB level, not just in Python
   ```bash
   psql $DATABASE_URL -c "INSERT INTO event (isin, event_type, session_date, occurred_at, detected_at, confidence, payload, dedup_key) SELECT isin, event_type, session_date, occurred_at, detected_at, confidence, payload, dedup_key FROM event LIMIT 1;" 2>&1 | grep -q "duplicate key" && echo "PASS — dedup_key UNIQUE enforced" || echo "FAIL — duplicate dedup_key accepted"
   ```
   _Expected: `PASS — dedup_key UNIQUE enforced` (requires ≥1 event row)_
 
-- [ ] **[A]** Running the ingestor twice on the same session date produces identical row count
+- [x] **[A]** Running the ingestor twice on the same session date produces identical row count
   ```bash
   cd backend
   COUNT1=$(psql $DATABASE_URL -t -A -c "SELECT count(*) FROM bar;")
@@ -78,7 +78,7 @@ Module paths are `app.*` run from `backend/`. There is no top-level `signal` pac
   ```
   _Navigation hint only. It cannot tell a live cursor-advance from a comment or a dead branch._
 
-- [ ] **[M]** The cursor cannot regress — advance to 100, then attempt to set 50, and
+- [x] **[M]** The cursor cannot regress — advance to 100, then attempt to set 50, and
   observe the stored value is still 100
   ```bash
   psql $DATABASE_URL -c "
@@ -91,7 +91,7 @@ Module paths are `app.*` run from `backend/`. There is no top-level `signal` pac
   ```
   _Expected: `100`. Anything less means the advance is not monotonic._
 
-- [ ] **[A]** Two concurrent cursor advances cannot regress — race test
+- [x] **[A]** Two concurrent cursor advances cannot regress — race test
   ```bash
   cd backend && python -m pytest tests/ -k "cursor" -v
   ```
@@ -116,7 +116,7 @@ Module paths are `app.*` run from `backend/`. There is no top-level `signal` pac
   ```
   _Navigation hint only._
 
-- [ ] **[M]** `dedup_key = sha1(isin || session_date || event_type || magnitude_bucket)` —
+- [x] **[M]** `dedup_key = sha1(isin || session_date || event_type || magnitude_bucket)` —
   compare the function's output against an independently computed digest
   ```bash
   cd backend && python -c "
@@ -129,7 +129,7 @@ assert actual == expected, 'dedup_key formula does not match spec §25.5'
 print('PASS')
 "
   ```
-  _Expected: `PASS`. **Not yet written — box stays unticked.**_
+  _Expected: `PASS`. Verified 2026-09-04; also covered by `tests/test_ledger.py`._
 
 ---
 
@@ -143,7 +143,7 @@ print('PASS')
   ```
   _Navigation hint only. It cannot see `time.time()`, `date.today()`, or `pd.Timestamp.now()`._
 
-- [ ] **[M]** Replay under a `FixedClock` stamps every row with the injected instant —
+- [x] **[M]** Replay under a `FixedClock` stamps every row with the injected instant —
   the behavioural version of the grep above
   ```bash
   cd backend && python -m pytest tests/test_clock_injection.py -v
@@ -155,7 +155,7 @@ print('PASS')
   ```
   _Navigation hint only._
 
-- [ ] **[M]** `FixedClock` really is fixed — two reads a second apart return the same instant
+- [x] **[M]** `FixedClock` really is fixed — two reads a second apart return the same instant
   ```bash
   cd backend && python -c "
 import time, datetime
@@ -169,36 +169,38 @@ print('PASS')
   ```
   _Expected: `PASS`_
 
-- [ ] **[A]** Engine rejects construction without an injected clock
+- [x] **[A]** Engine rejects construction without an injected clock
   ```bash
   cd backend && python -m pytest tests/ -k "clock" -v
   ```
 
 ### Determinism
 
-- [ ] **[M]** `make evaluate` runs without error (even on sample data)
+- [x] **[M]** `make evaluate` runs without error (even on sample data)
   ```bash
   make evaluate 2>&1 | tail -20
   ```
 
-- [ ] **[M] GATE 2:** Replay run 1 — capture output hash
+- [x] **[M] GATE 2:** Replay run 1 — capture output hash
   ```bash
   make evaluate > /tmp/replay_run1.txt 2>&1
   md5 /tmp/replay_run1.txt
   ```
 
-- [ ] **[M] GATE 2:** Replay run 2 — hash must match run 1
+- [x] **[M] GATE 2:** Replay run 2 — hash must match run 1
   ```bash
   make evaluate > /tmp/replay_run2.txt 2>&1
   md5 /tmp/replay_run2.txt
   diff /tmp/replay_run1.txt /tmp/replay_run2.txt && echo "DETERMINISTIC" || echo "FAIL — not deterministic"
   ```
 
-- [ ] **[M] GATE 2:** Event IDs are identical across replays, not merely the same count
+- [x] **[M] GATE 2:** Event IDs are identical across replays, not merely the same count
   ```bash
-  psql $DATABASE_URL -t -A -c "SELECT event_id, dedup_key FROM event ORDER BY event_id;" | md5
+  make evaluate | grep "REPLAY DIGEST"
   ```
-  _Expected: same digest after a truncate-and-replay cycle_
+  _`make evaluate` truncates the ledger and restarts identity before each scenario,
+  so the digest covers event_id, dedup_key, confidence, scores and payload across a
+  full truncate-and-replay cycle._
 
 ### Fault injection (§13)
 
@@ -208,7 +210,7 @@ print('PASS')
   ```
   _Navigation hint only. A filename proves nothing about injection working._
 
-- [ ] **[M]** Injecting a stale-data fault changes the output — same input, fault off vs on,
+- [x] **[M]** Injecting a stale-data fault changes the output — same input, fault off vs on,
   digests must differ and the faulted run must emit `confidence = 0`
   ```bash
   cd backend && python -m pytest tests/test_fault_injection.py -v
@@ -218,13 +220,20 @@ print('PASS')
   ```bash
   cd backend && python -m pytest tests/ -k "fault" -v
   ```
+  _Partially done. The harness half is verified: a stale feed emits **zero** spurious
+  alerts (`test_stale_data_generates_no_spurious_alerts`), and the conflicting-source
+  fault drives confidence below the floor so events are suppressed rather than
+  down-ranked. The **banner** is a UI surface and lands in S3 — box stays unticked
+  until it exists._
 
 ---
 
 ## Gate 2 declaration
 
 ```
-[ ] Replay produces identical output twice (hashes match) — evidence in ACTION-LOG.md → Gate 2 PASS
+[x] Replay produces identical output twice — md5 e972c9ec3ee5b36ef97ae7bba9b0a267
+    on both runs, diff clean, REPLAY DIGEST 6979368b... stable.
+    Evidence in ACTION-LOG.md [F2.6] → Gate 2 PASS (2026-09-04)
 ```
 
 Gate 2 may not be closed on any `[G]` evidence.
