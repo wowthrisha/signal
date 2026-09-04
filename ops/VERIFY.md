@@ -41,7 +41,8 @@ Box state markers:
 | `[x]` | Done — command + output in ACTION-LOG.md |
 
 Both `[M]` and `[A]` items require ACTION-LOG evidence before ticking. A `[G]`
-never closes anything, so it never needs evidence.
+never closes anything, so it never needs evidence and is never ticked — an
+unticked `[G]` is the normal, correct state for a navigation hint.
 
 ---
 

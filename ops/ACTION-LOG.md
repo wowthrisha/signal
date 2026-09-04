@@ -93,14 +93,39 @@ grep -c "CREATE TABLE" backend/app/db/schema.sql
 11
 ```
 
-**Note:** the task brief expected `>= 12` tables. The committed `schema.sql` defines
-exactly **11** (`sector, instrument, symbol_alias, bar, symbol_state, event, app_user,
-watchlist_item, visit_cursor, acknowledgement, user_pref`). All 11 are present, so the
-schema is fully applied — but the real number is 11, not 12. No table was invented to
-reach the expected figure. Either the brief's threshold is stale or `schema.sql` is
-missing a table; flagged, not papered over.
+**Note:** an earlier `>= 12` threshold in CHK-F1 was wrong. Spec §5 defines exactly
+**11** tables (`sector, instrument, symbol_alias, bar, symbol_state, event, app_user,
+watchlist_item, visit_cursor, acknowledgement, user_pref`), `schema.sql` contains all
+eleven, and all eleven are present in the database. The checklist threshold has been
+corrected to 11. No table was invented to satisfy the checklist.
 
-**Status:** PASS (11/11 applied), threshold discrepancy flagged
+**Command:**
+```bash
+psql $DATABASE_URL -c "\d bar"
+```
+
+**Output:**
+```
+                            Table "public.bar"
+    Column    |           Type           | Collation | Nullable | Default
+--------------+--------------------------+-----------+----------+---------
+ isin         | text                     |           | not null |
+ session_date | date                     |           | not null |
+ o            | numeric                  |           |          |
+ h            | numeric                  |           |          |
+ l            | numeric                  |           |          |
+ c            | numeric                  |           |          |
+ v            | bigint                   |           |          |
+ adj_factor   | numeric                  |           | not null | 1.0
+ source       | text                     |           | not null |
+ ingested_at  | timestamp with time zone |           | not null |
+Indexes:
+    "bar_pkey" PRIMARY KEY, btree (isin, session_date)
+Foreign-key constraints:
+    "bar_isin_fkey" FOREIGN KEY (isin) REFERENCES instrument(isin)
+```
+
+**Status:** PASS — 11/11 tables applied, matching spec §5
 
 ### F1.2 — Pinned column map was WRONG (blocking, resolved)
 

@@ -23,13 +23,13 @@ machine and would silently answer instead of the container. See ACTION-LOG [F1].
 
 ### Bhavcopy downloader
 
-- [ ] **[M]** Probe script returns 0 exit code on real trading day
+- [x] **[M]** Probe script returns 0 exit code on real trading day
   ```bash
   python scripts/probe_bhavcopy.py; echo "exit=$?"
   ```
   _Expected: "✓ Parsed N,NNN rows" where N > 1000, and `exit=0`_
 
-- [ ] **[A]** Row-count assert fires on empty-body response (200-OK with 0 rows)
+- [x] **[A]** Row-count assert fires on empty-body response (200-OK with 0 rows)
   ```bash
   cd backend && python -c "
 from app.ingest.bhavcopy import parse_udiff
@@ -49,7 +49,7 @@ else:
   ```
   _Navigation hint only. Printing the config does not prove the ingestor reads it._
 
-- [ ] **[M]** The ingestor actually reads the URL from config rather than hardcoding it —
+- [x] **[M]** The ingestor actually reads the URL from config rather than hardcoding it —
   repoint `SIGNAL_DATA_SOURCES` at a doctored config and observe the built URL change
   ```bash
   cd backend && python -c "
@@ -74,7 +74,7 @@ print('PASS: url_pattern is config-driven')
   ```
   _Expected: passes. NSE already moved ClsPric 13→17 once (ACTION-LOG [F1]); position-only parsing would have written LwPric as the close._
 
-- [ ] **[M]** Offline re-run works from `data/cache/` with no network calls
+- [x] **[M]** Offline re-run works from `data/cache/` with no network calls
   ```bash
   cd backend && python -m app.ingest --date 2026-09-03 2>&1 | tee /tmp/f1_cached.txt
   grep -q "HTTP Request" /tmp/f1_cached.txt && echo "FAIL — hit the network" || echo "PASS — served from cache"
@@ -83,19 +83,19 @@ print('PASS: url_pattern is config-driven')
 
 ### ISIN as canonical identity (§16)
 
-- [ ] **[M]** Instrument master table populated; ISIN is the primary key
+- [x] **[M]** Instrument master table populated; ISIN is the primary key
   ```bash
   psql $DATABASE_URL -c "SELECT count(*) FROM instrument;"
   ```
   _Expected: > 1000 rows_
 
-- [ ] **[M]** ISIN is genuinely unique — a duplicate insert is rejected by the PK
+- [x] **[M]** ISIN is genuinely unique — a duplicate insert is rejected by the PK
   ```bash
   psql $DATABASE_URL -c "INSERT INTO instrument (isin, symbol, name) SELECT isin, symbol, name FROM instrument LIMIT 1;" 2>&1 | grep -q "duplicate key" && echo "PASS — PK enforced" || echo "FAIL — duplicate ISIN accepted"
   ```
   _Expected: `PASS — PK enforced`_
 
-- [ ] **[M]** Symbol rename cannot fracture ISIN history — every bar resolves to exactly
+- [x] **[M]** Symbol rename cannot fracture ISIN history — every bar resolves to exactly
   one instrument, and no bar is orphaned
   ```bash
   psql $DATABASE_URL -c "SELECT (SELECT count(*) FROM bar b LEFT JOIN instrument i USING (isin) WHERE i.isin IS NULL) AS orphan_bars, (SELECT count(*) FROM (SELECT isin FROM instrument GROUP BY isin HAVING count(*) > 1) x) AS split_isins;"
@@ -135,25 +135,27 @@ print('PASS: url_pattern is config-driven')
 
 ### Schema applied
 
-- [ ] **[M]** Schema migrations applied; `bar` table exists with the right shape
+- [x] **[M]** Schema migrations applied; `bar` table exists with the right shape
   ```bash
   psql $DATABASE_URL -c "\d bar"
   ```
 
-- [ ] **[M]** All tables in `schema.sql` are present in the database
+- [x] **[M]** All tables in `schema.sql` are present in the database
   ```bash
   psql $DATABASE_URL -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';"
   grep -c "CREATE TABLE" backend/app/db/schema.sql
   ```
-  _Expected: the two numbers are equal (11 as of 2026-09-04)_
+  _Expected: both numbers are **11**. Spec §5 defines exactly eleven tables —
+  sector, instrument, symbol_alias, bar, symbol_state, event, app_user,
+  watchlist_item, visit_cursor, acknowledgement, user_pref._
 
-- [ ] **[M]** Gate 1 criterion satisfied: rows in `bar` table
+- [x] **[M]** Gate 1 criterion satisfied: rows in `bar` table
   ```bash
   psql $DATABASE_URL -c "SELECT count(*) FROM bar;"
   ```
   _Expected: > 0 rows (> 1000 for a real ingest)_
 
-- [ ] **[M] GATE 1:** ≥ 120 distinct trading sessions ingested
+- [x] **[M] GATE 1:** ≥ 120 distinct trading sessions ingested
   ```bash
   psql $DATABASE_URL -c "SELECT count(DISTINCT session_date) FROM bar;"
   ```
@@ -161,19 +163,19 @@ print('PASS: url_pattern is config-driven')
 
 ### Data quality
 
-- [ ] **[M]** No null ISIN rows
+- [x] **[M]** No null ISIN rows
   ```bash
   psql $DATABASE_URL -c "SELECT count(*) FROM bar WHERE isin IS NULL;"
   ```
   _Expected: 0_
 
-- [ ] **[M]** Session dates are UTC-stored, business key is `(session_date, isin)` unique
+- [x] **[M]** Session dates are UTC-stored, business key is `(session_date, isin)` unique
   ```bash
   psql $DATABASE_URL -c "SELECT count(*) FROM (SELECT session_date, isin, count(*) FROM bar GROUP BY 1,2 HAVING count(*) > 1) dups;"
   ```
   _Expected: 0_
 
-- [ ] **[M]** Ingest is idempotent — re-running a session inserts zero additional rows
+- [x] **[M]** Ingest is idempotent — re-running a session inserts zero additional rows
   ```bash
   psql $DATABASE_URL -t -c "SELECT count(*) FROM bar;"
   cd backend && python -m app.ingest --date 2026-09-03 | tail -4
@@ -181,7 +183,7 @@ print('PASS: url_pattern is config-driven')
   ```
   _Expected: both counts identical, `bars_inserted=0`_
 
-- [ ] **[M]** Prices are plausible — no zero/negative closes, high ≥ low
+- [x] **[M]** Prices are plausible — no zero/negative closes, high ≥ low
   ```bash
   psql $DATABASE_URL -c "SELECT count(*) FILTER (WHERE c <= 0) AS bad_close, count(*) FILTER (WHERE h < l) AS inverted, count(*) FILTER (WHERE c IS NULL) AS null_close FROM bar;"
   ```
@@ -207,7 +209,7 @@ print('PASS: url_pattern is config-driven')
   ```
   _Expected: passes. **Not yet written — box stays unticked.**_
 
-- [ ] **[M]** `session_date` is the exchange trade date from the file, not the ingest date
+- [x] **[M]** `session_date` is the exchange trade date from the file, not the ingest date
   ```bash
   psql $DATABASE_URL -c "SELECT count(*) FROM bar WHERE session_date = ingested_at::date;"
   psql $DATABASE_URL -c "SELECT min(session_date), max(session_date), max(ingested_at)::date FROM bar;"
@@ -219,8 +221,8 @@ print('PASS: url_pattern is config-driven')
 ## Gate 1 declaration
 
 ```
-[ ] distinct session_date count >= 120  AND  null ISIN count = 0
-    — both numbers pasted into ACTION-LOG.md → Gate 1 PASS
+[x] distinct session_date count = 127 (>= 120)  AND  null ISIN count = 0
+    — both numbers pasted into ACTION-LOG.md [F1.5] → Gate 1 PASS (2026-09-04)
 [ ] If bhavcopy download fails: hardcoded CSV fallback confirmed → Gate 1 PASS (fallback mode)
 ```
 

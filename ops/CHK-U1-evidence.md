@@ -204,7 +204,7 @@ print('PASS — all six runs present')
 import re, pathlib
 text = pathlib.Path('docs/DECISIONS.md').read_text()
 found = set(re.findall(r'^## (ADR-\d+)', text, re.M))
-need = {f'ADR-{i:02d}' for i in range(1, 13)}
+need = {f'ADR-{i:03d}' for i in range(1, 13)}
 missing = sorted(need - found)
 print('found:', len(found), 'missing:', missing)
 assert not missing, f'missing ADRs: {missing}'
