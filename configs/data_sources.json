@@ -1,0 +1,82 @@
+{
+  "_comment": "Pinned data-source config. Update only with a matching ACTION-LOG entry.",
+  "bhavcopy_udiff": {
+    "description": "NSE CM bhavcopy, UDiFF format (switched from legacy /EQUITIES/ path ~2025).",
+    "url_pattern": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{YYYYMMDD}_F_0000.csv.zip",
+    "date_format": "%Y%m%d",
+    "probe_confirmed": "2026-09-04",
+    "probe_row_count": 3635,
+    "columns_observed": [
+      "TradDt",
+      "BizDt",
+      "Sgmt",
+      "Src",
+      "FinInstrmTp",
+      "FinInstrmId",
+      "ISIN",
+      "TckrSymb",
+      "SctySrs",
+      "XpryDt",
+      "FinInstrmNm",
+      "OpnPric",
+      "HghPric",
+      "LwPric",
+      "ClsPric",
+      "LastPric",
+      "PrvsClsgPric",
+      "UndrlygPric",
+      "SttlmPric",
+      "OpnIntrst",
+      "ChngInOpnIntrst",
+      "TtlTradgVol",
+      "TtlTrfVal",
+      "TtlNbOfTxsExctd",
+      "SsnId",
+      "NewBrdLotQty",
+      "Rmks",
+      "Rsvd01",
+      "Rsvd02",
+      "Rsvd03",
+      "Rsvd04"
+    ],
+    "key_column_indices": {
+      "ISIN": 6,
+      "TckrSymb": 7,
+      "SctySrs": 8,
+      "ClsPric": 13,
+      "TtlTradgVol": 21
+    },
+    "eq_series_filter": "SctySrs == 'EQ'",
+    "assert_rows_gt": 1000,
+    "notes": [
+      "Legacy URL pattern https://nseindia.com/content/historical/EQUITIES/YYYY/MON/cm*.zip is dead (404).",
+      "ISIN is at column index 6, series at index 8.",
+      "assert_rows_gt guard: 200-OK with zero rows looks like success — always assert row count."
+    ]
+  },
+  "nse_indices": {
+    "description": "NSE index EOD files for NIFTY 50 and sector indices.",
+    "base_url": "https://nsearchives.nseindia.com/content/indices/",
+    "primary_index": "NIFTY 50",
+    "sector_indices": [
+      "NIFTY AUTO",
+      "NIFTY BANK",
+      "NIFTY ENERGY",
+      "NIFTY FMCG",
+      "NIFTY IT",
+      "NIFTY MEDIA",
+      "NIFTY METAL",
+      "NIFTY PHARMA",
+      "NIFTY REALTY"
+    ]
+  },
+  "corporate_actions": {
+    "description": "NSE corporate actions CSV — used to compute adjustment factors before returns.",
+    "base_url": "https://nsearchives.nseindia.com/content/equities/",
+    "files": ["CA.csv"],
+    "notes": [
+      "Unadjusted corporate action is the largest source of false alarms (R-04).",
+      "Apply adjustment BEFORE computing log returns."
+    ]
+  }
+}
