@@ -33,8 +33,11 @@ from datetime import date, timedelta
 
 import psycopg
 from fastapi import APIRouter
+from pydantic import BaseModel
 
+from app.core.clock import WallClock
 from app.engine.salience import slate as slate_mod
+from app.ledger.writer import LedgerWriter
 from app.templates import headlines
 
 router = APIRouter()
@@ -181,7 +184,9 @@ _WATCHLIST = """
 SELECT w.isin, i.symbol, i.name, i.sector_id
 FROM watchlist_item w
 JOIN instrument i USING (isin)
-WHERE w.user_id = %s AND NOT w.muted
+-- COALESCE, not a bare NOT: `muted` is nullable, and `NOT NULL` is NULL,
+-- which this WHERE would drop — silently muting a row nobody muted.
+WHERE w.user_id = %s AND NOT coalesce(w.muted, FALSE)
 ORDER BY i.symbol
 """
 
@@ -202,6 +207,28 @@ LEFT JOIN corp_action ca ON ca.isin = e.isin AND ca.ex_date = e.session_date
 WHERE e.isin = ANY(%s) AND e.session_date BETWEEN %s AND %s
 ORDER BY e.session_date, e.event_id
 """
+
+# The cursor form. `event_id > %s` is the whole "since you last looked"
+# predicate — a BIGSERIAL comparison, not a date range (hard rule 4). It is
+# what makes the digest converge across devices: two tabs acking the same head
+# see the same empty digest, because they are comparing the same integer.
+_EVENTS_SINCE_CURSOR = """
+SELECT e.isin, e.session_date, e.event_type, e.u_score, e.i_score, e.confidence,
+       e.payload, ca.purpose
+FROM event e
+LEFT JOIN corp_action ca ON ca.isin = e.isin AND ca.ex_date = e.session_date
+WHERE e.isin = ANY(%s) AND e.event_id > %s
+ORDER BY e.session_date, e.event_id
+"""
+
+_READ_CURSOR = "SELECT last_seen_event_id FROM visit_cursor WHERE user_id = %s"
+
+# The advance target an ack carries. Global, not watchlist-scoped: "mark all as
+# seen" means the whole ledger up to here, and scoping it to the current
+# watchlist would leave a symbol added tomorrow replaying events from last week.
+_CURSOR_HEAD = "SELECT coalesce(max(event_id), 0) FROM event"
+
+_LATEST_SESSION = "SELECT max(session_date) FROM bar"
 
 _INDEX = """
 SELECT session_date, c FROM index_bar
@@ -310,20 +337,43 @@ def _reason(cand: slate_mod.Candidate | None, move: _Move) -> str:
     return slate_mod.REASON_THRESHOLD
 
 
+def read_cursor(conn, user_id: str = DEMO_USER_ID) -> int | None:
+    """`visit_cursor.last_seen_event_id`, or None when the user has never
+    acked. None and 0 are different states: 0 means "acked nothing, show me
+    everything", None means "no cursor row at all" and is what selects the
+    demo lookback."""
+    with conn.cursor() as cur:
+        cur.execute(_READ_CURSOR, (user_id,))
+        row = cur.fetchone()
+    return None if row is None else int(row[0])
+
+
+def cursor_head(conn) -> int:
+    with conn.cursor() as cur:
+        cur.execute(_CURSOR_HEAD)
+        return int(cur.fetchone()[0])
+
+
 def build_digest(
     conn,
     user_id: str = DEMO_USER_ID,
     lookback: int = DEMO_DEFAULT_LOOKBACK_SESSIONS,
 ) -> dict:
-    """The digest for one user. `lookback` is the demo stand-in for a cursor;
-    an explicit value overrides `DEMO_DEFAULT_LOOKBACK_SESSIONS`."""
-    with conn.cursor() as cur:
-        cur.execute(_SESSIONS, (lookback,))
-        sessions = sorted(r[0] for r in cur.fetchall())
-        if not sessions:
-            return _empty()
-        since, latest = sessions[0], sessions[-1]
+    """The digest for one user.
 
+    Two modes, and which one runs is decided by whether a `visit_cursor` row
+    exists — not by a flag:
+
+      * **cursor** — the user has acked before, so "new" is `event_id >
+        last_seen_event_id` and the reported window is whatever sessions those
+        events fall in. This is the real semantics (hard rule 4).
+      * **lookback** — no cursor row, so there is no "last looked" to measure
+        from. Falls back to `DEMO_DEFAULT_LOOKBACK_SESSIONS`.
+
+    The funnel's `moved` count is always taken over the sessions the digest
+    actually covers, so the three numbers describe one window in both modes.
+    """
+    with conn.cursor() as cur:
         cur.execute(_WATCHLIST, (user_id,))
         watch = cur.fetchall()
         meta = {
@@ -331,8 +381,39 @@ def build_digest(
             for isin, sym, name, sector in watch
         }
         isins = list(meta)
-        if not isins:
-            return _empty(since)
+
+        cur.execute(_LATEST_SESSION)
+        row = cur.fetchone()
+        latest_session = row[0] if row else None
+        cur.execute(_CURSOR_HEAD)
+        head = int(cur.fetchone()[0])
+
+        cur.execute(_READ_CURSOR, (user_id,))
+        row = cur.fetchone()
+        cursor = None if row is None else int(row[0])
+
+        if not isins or latest_session is None:
+            return _empty(latest_session, head=head, cursor=cursor)
+
+        if cursor is None:
+            cur.execute(_SESSIONS, (lookback,))
+            sessions = sorted(r[0] for r in cur.fetchall())
+            if not sessions:
+                return _empty(latest_session, head=head, cursor=cursor)
+            event_rows = []
+        else:
+            cur.execute(_EVENTS_SINCE_CURSOR, (isins, cursor))
+            event_rows = cur.fetchall()
+            # The window is the sessions the unseen events landed in. With
+            # nothing unseen there is no window at all, and the digest is
+            # honestly empty rather than falling back to a lookback — falling
+            # back would resurrect cards the user just dismissed.
+            sessions = sorted({r[1] for r in event_rows})
+            if not sessions:
+                return _empty(latest_session, head=head, cursor=cursor,
+                              watched=len(meta))
+
+        since, latest = sessions[0], sessions[-1]
 
         # One extra fortnight of closes so the first session in the window has a
         # previous close to difference against. Named apart from `lookback`,
@@ -345,8 +426,9 @@ def build_digest(
         cur.execute(_INDEX, (MARKET_INDEX, bars_from, latest))
         mkt = _index_returns(cur.fetchall())
 
-        cur.execute(_EVENTS, (isins, since, latest))
-        event_rows = cur.fetchall()
+        if cursor is None:
+            cur.execute(_EVENTS, (isins, since, latest))
+            event_rows = cur.fetchall()
 
     window_set = set(sessions)
 
@@ -400,6 +482,10 @@ def build_digest(
         "cards": [_card(c) for c in cards],
         "filtered_count": sum(reasons.values()),
         "filtered_reasons": reasons,
+        # What an ack should advance to. Read it here, send it back to
+        # /api/digest/ack — the client never invents a cursor value.
+        "cursor_head": head,
+        "cursor": cursor,
     }
 
 
@@ -418,10 +504,19 @@ def _card(c: slate_mod.Candidate) -> dict:
     }
 
 
-def _empty(since: date | None = None) -> dict:
+def _empty(
+    since: date | None = None,
+    *,
+    head: int = 0,
+    cursor: int | None = None,
+    watched: int = 0,
+) -> dict:
+    """The caught-up digest. `watched` is still reported because "you follow 30
+    things and none of them did anything new" is the message, not "you follow
+    nothing"."""
     return {
         "since": since.isoformat() if since else None,
-        "funnel": {"watched": 0, "moved": 0, "surfaced": 0},
+        "funnel": {"watched": watched, "moved": 0, "surfaced": 0},
         "cards": [],
         "filtered_count": 0,
         "filtered_reasons": {
@@ -429,7 +524,13 @@ def _empty(since: date | None = None) -> dict:
             slate_mod.REASON_THRESHOLD: 0,
             slate_mod.REASON_CONFIDENCE: 0,
         },
+        "cursor_head": head,
+        "cursor": cursor,
     }
+
+
+class AckRequest(BaseModel):
+    cursor_head: int
 
 
 @router.get("/api/digest")
@@ -437,3 +538,20 @@ def digest() -> dict:
     with connect() as conn:
         seed_watchlist(conn)
         return build_digest(conn)
+
+
+@router.post("/api/digest/ack")
+def ack(req: AckRequest) -> dict:
+    """Advance the visit cursor. **Only an explicit ack moves it** — never a
+    page load (spec §5), which is why this is a POST the user triggers and not
+    a side effect of GET /api/digest.
+
+    The advance itself is `LedgerWriter.advance_cursor`, unchanged: a GREATEST
+    upsert, so a stale tab acking an older head is absorbed rather than
+    rewinding anyone. The clock is injected, as everywhere else.
+    """
+    with connect() as conn:
+        writer = LedgerWriter(conn, WallClock())
+        value = writer.advance_cursor(DEMO_USER_ID, req.cursor_head)
+        conn.commit()
+        return {"cursor": value, "requested": req.cursor_head}

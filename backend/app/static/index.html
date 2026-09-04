@@ -34,11 +34,37 @@
     <div id="funnel" class="num text-2xl sm:text-3xl leading-snug tracking-tight">
       <span class="text-neutral-600">loading…</span>
     </div>
+    <div class="mt-5 flex items-center gap-4">
+      <button id="ack-btn"
+              class="text-xs px-3 py-1.5 rounded border border-neutral-700
+                     text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100
+                     transition-colors disabled:opacity-30
+                     disabled:hover:bg-transparent">Mark all as seen</button>
+      <span id="cursor-state" class="num text-[11px] text-neutral-700"></span>
+    </div>
     <p class="mt-4 text-xs text-neutral-600 max-w-lg leading-relaxed">
       Movement is measured close-to-close. Attention is what survives
       attribution against the market and sector, the instrument's own history,
       and a confidence gate.
     </p>
+  </section>
+
+  <!-- Watchlist. The only state the user owns, so it is the only thing on
+       this page that is editable. -->
+  <section class="py-6 border-b border-neutral-800">
+    <div class="flex items-center gap-2">
+      <input id="add-input" type="text" placeholder="Add a symbol — e.g. TCS"
+             autocomplete="off" spellcheck="false"
+             class="num flex-1 bg-neutral-900 border border-neutral-800 rounded
+                    px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600
+                    focus:outline-none focus:border-neutral-600 uppercase">
+      <button id="add-btn"
+              class="text-sm px-4 py-2 rounded border border-neutral-700
+                     text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100
+                     transition-colors">Add</button>
+    </div>
+    <p id="add-error" class="hidden mt-2 text-xs text-rose-400"></p>
+    <div id="watchlist" class="mt-4 flex flex-wrap gap-1.5"></div>
   </section>
 
   <!-- 3. Cards -->
@@ -183,25 +209,122 @@ function filteredHTML(reasons) {
     </li>`).join('')}</ul>`;
 }
 
+function chipHTML(w) {
+  // Muted stays on the list and is dimmed rather than hidden: the distinction
+  // between "not mine" and "mine, quiet this week" is the reason mute exists,
+  // and hiding a muted row would collapse the two.
+  const dim = w.muted ? 'opacity-40' : '';
+  return `
+  <span class="num inline-flex items-center gap-1.5 text-[11px] rounded
+               border border-neutral-800 bg-neutral-900/60 pl-2 pr-1 py-1
+               text-neutral-300 ${dim}" title="${w.name || ''}">
+    ${w.symbol}
+    <button data-remove="${w.isin}" title="Remove ${w.symbol}"
+            class="text-neutral-600 hover:text-rose-400 transition-colors
+                   px-1 leading-none">&times;</button>
+  </span>`;
+}
+
+function renderWatchlist(items) {
+  el('watchlist').innerHTML = items.map(chipHTML).join('');
+}
+
+// The head the next ack will advance to. Held from the last render so the
+// client never invents a cursor value — it echoes back what the server said.
+let cursorHead = 0;
+
 function render(d) {
+  cursorHead = d.cursor_head || 0;
+  const caughtUp = d.cards.length === 0 && d.cursor !== null && d.cursor !== undefined;
+
   el('since').textContent = sinceLabel(d.since);
   el('funnel').innerHTML = funnelHTML(d.funnel);
-  el('cards').innerHTML = d.cards.map(cardHTML).join('')
-    || '<p class="py-10 text-sm text-neutral-600">Nothing cleared the gate in this window.</p>';
+  el('cards').innerHTML = d.cards.map(cardHTML).join('') || `
+    <p class="py-10 text-sm text-neutral-600">${caughtUp
+      ? 'You are caught up. Nothing new since you last looked.'
+      : 'Nothing cleared the gate in this window.'}</p>`;
   el('filtered-count').textContent = d.filtered_count;
   el('filtered-body').innerHTML = filteredHTML(d.filtered_reasons);
+
+  el('ack-btn').disabled = d.cards.length === 0;
+  el('cursor-state').textContent =
+    d.cursor === null || d.cursor === undefined
+      ? `no cursor yet — showing the last 2 sessions · head ${cursorHead}`
+      : `cursor ${d.cursor} · head ${cursorHead}`;
 }
 
 async function load() {
   try {
-    const r = await fetch('/api/digest', { cache: 'no-store' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    render(await r.json());
+    // Both in flight together: the watchlist and the digest are derived from
+    // the same rows, so showing one updated and the other stale would be a lie
+    // the user can see.
+    const [dRes, wRes] = await Promise.all([
+      fetch('/api/digest', { cache: 'no-store' }),
+      fetch('/api/watchlist', { cache: 'no-store' }),
+    ]);
+    if (!dRes.ok) throw new Error('HTTP ' + dRes.status);
+    render(await dRes.json());
+    if (wRes.ok) renderWatchlist(await wRes.json());
   } catch (e) {
     el('funnel').innerHTML =
       `<span class="text-rose-400 text-base">digest unavailable — ${e.message}</span>`;
   }
 }
+
+function showError(msg) {
+  const p = el('add-error');
+  p.textContent = msg;
+  p.classList.toggle('hidden', !msg);
+}
+
+async function addSymbol() {
+  const input = el('add-input');
+  const symbol = input.value.trim();
+  if (!symbol) return;
+  showError('');
+  try {
+    const r = await fetch('/api/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol }),
+    });
+    const body = await r.json();
+    if (!r.ok) { showError(body.detail || ('HTTP ' + r.status)); return; }
+    input.value = '';
+    await load();
+  } catch (e) { showError(e.message); }
+}
+
+async function removeIsin(isin) {
+  try {
+    await fetch('/api/watchlist/' + encodeURIComponent(isin), { method: 'DELETE' });
+    await load();
+  } catch (e) { showError(e.message); }
+}
+
+async function ackAll() {
+  if (!cursorHead) return;
+  try {
+    await fetch('/api/digest/ack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cursor_head: cursorHead }),
+    });
+    await load();
+  } catch (e) { showError(e.message); }
+}
+
+el('ack-btn').addEventListener('click', ackAll);
+el('add-btn').addEventListener('click', addSymbol);
+el('add-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addSymbol();
+});
+// Delegated, because the chips are re-rendered on every poll and per-chip
+// listeners would be re-attached five times a minute.
+el('watchlist').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-remove]');
+  if (btn) removeIsin(btn.dataset.remove);
+});
 
 el('filtered-toggle').addEventListener('click', () => {
   const body = el('filtered-body');
