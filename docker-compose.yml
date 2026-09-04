@@ -8,7 +8,9 @@ services:
       POSTGRES_USER: signal
       POSTGRES_PASSWORD: signal
     ports:
-      - "5432:5432"
+      # Host 5432 is often taken by a native postgres install; loopback
+      # connections would silently hit that instead of this container.
+      - "${PG_PORT:-5433}:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./backend/app/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro

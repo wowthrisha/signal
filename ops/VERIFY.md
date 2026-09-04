@@ -16,16 +16,32 @@ Tick flow:
 
 ## Phase-gate checklist structure
 
-Every phase uses two check types:
+Every phase uses three check types:
 
-| Symbol | Meaning |
+| Symbol | Proves | Can close a gate? |
+|--------|--------|-------------------|
+| `[G]` | a string exists in source | NO — never |
+| `[M]` | observed behaviour: test passes, SQL count, hash match, HTTP response | YES |
+| `[A]` | a hostile probe survives | YES |
+
+A `[G]` passing while its paired `[M]` is absent means NOT DONE. If any
+assistant reports a gate closed on grep evidence alone, that is a false
+report — reopen the gate. Greps are navigation hints, never proof.
+
+Every `[G]` in a checklist MUST be followed by the `[M]` (or `[A]`) that observes
+the corresponding behaviour. A run of closely related `[G]`s may share one paired
+check. A `[G]` with no paired check anywhere below it is an unfinished checklist
+item, not a check.
+
+Box state markers:
+
+| Marker | Meaning |
 |--------|---------|
 | `[ ]` | Not done |
 | `[x]` | Done — command + output in ACTION-LOG.md |
-| `[M]` | Machine check: automated command that can be copy-pasted and re-run |
-| `[A]` | Adversarial check: a deliberately hostile probe that must pass |
 
-Both `[M]` and `[A]` items require ACTION-LOG evidence before ticking.
+Both `[M]` and `[A]` items require ACTION-LOG evidence before ticking. A `[G]`
+never closes anything, so it never needs evidence.
 
 ---
 
@@ -74,12 +90,23 @@ Open risks tracked in [RISK-REGISTER.md](RISK-REGISTER.md). Review before each p
 
 Before Gate 3 and Gate 8, run:
 
+`[G]` — navigation hint only, cannot close a gate:
+
 ```bash
 grep -rn "datetime.now" backend/
 ```
 
 Expected: zero matches in `backend/app/engine/`, `backend/app/ingest/`, `backend/app/db/`.
 Permitted only in `backend/app/core/clock.py` (WallClock) and test fixtures.
+
+`[M]` — the behavioural check that actually closes it. A grep cannot prove the
+absence of a wall-clock read (`time.time()`, `date.today()`, `pd.Timestamp.now()`
+all evade it). Run the engine under a `FixedClock` and assert every persisted
+timestamp equals the injected instant:
+
+```bash
+cd backend && python -m pytest tests/test_clock_injection.py -v
+```
 
 ---
 

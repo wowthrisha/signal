@@ -17,6 +17,9 @@
       "TckrSymb",
       "SctySrs",
       "XpryDt",
+      "FininstrmActlXpryDt",
+      "StrkPric",
+      "OptnTp",
       "FinInstrmNm",
       "OpnPric",
       "HghPric",
@@ -34,25 +37,32 @@
       "SsnId",
       "NewBrdLotQty",
       "Rmks",
-      "Rsvd01",
-      "Rsvd02",
-      "Rsvd03",
-      "Rsvd04"
+      "Rsvd1",
+      "Rsvd2",
+      "Rsvd3",
+      "Rsvd4"
     ],
     "key_column_indices": {
+      "TradDt": 0,
       "ISIN": 6,
       "TckrSymb": 7,
       "SctySrs": 8,
-      "ClsPric": 13,
-      "TtlTradgVol": 21
+      "FinInstrmNm": 13,
+      "OpnPric": 14,
+      "HghPric": 15,
+      "LwPric": 16,
+      "ClsPric": 17,
+      "TtlTradgVol": 24
     },
     "eq_series_filter": "SctySrs == 'EQ'",
     "assert_rows_gt": 1000,
     "notes": [
       "Legacy URL pattern https://nseindia.com/content/historical/EQUITIES/YYYY/MON/cm*.zip is dead (404).",
-      "ISIN is at column index 6, series at index 8.",
-      "assert_rows_gt guard: 200-OK with zero rows looks like success — always assert row count."
-    ]
+      "2026-09-04: columns_observed was WRONG (31 cols). Live header has 34: NSE inserted FininstrmActlXpryDt, StrkPric, OptnTp at 10-12. ClsPric moved 13->17, TtlTradgVol 21->24. The old pinned index 13 pointed at FinInstrmNm, a string. Corrected against BhavCopy_NSE_CM_0_0_0_20260903. See ACTION-LOG [F1].",
+      "Parse by column NAME. key_column_indices is a fallback only \u2014 positions have already drifted once.",
+      "assert_rows_gt guard applies to the EQ-filtered row count: 200-OK with zero rows looks like success, so the assert is mandatory."
+    ],
+    "probe_eq_row_count": 2632
   },
   "nse_indices": {
     "description": "NSE index EOD files for NIFTY 50 and sector indices.",
@@ -71,9 +81,11 @@
     ]
   },
   "corporate_actions": {
-    "description": "NSE corporate actions CSV — used to compute adjustment factors before returns.",
+    "description": "NSE corporate actions CSV \u2014 used to compute adjustment factors before returns.",
     "base_url": "https://nsearchives.nseindia.com/content/equities/",
-    "files": ["CA.csv"],
+    "files": [
+      "CA.csv"
+    ],
     "notes": [
       "Unadjusted corporate action is the largest source of false alarms (R-04).",
       "Apply adjustment BEFORE computing log returns."
