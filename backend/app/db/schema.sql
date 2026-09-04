@@ -97,3 +97,51 @@ CREATE TABLE IF NOT EXISTS user_pref (
   user_id UUID, key TEXT, value JSONB,
   PRIMARY KEY (user_id, key)
 );
+
+-- ---------------------------------------------------------------------------
+-- S1 additions (spec §4 corporate actions, §8 attribution, §7 salience).
+-- This file is idempotent and is the single source of truth: `python -m app.db`
+-- applies it to an existing database as well as a fresh one.
+-- ---------------------------------------------------------------------------
+
+-- Index EOD closes: the market factor (NIFTY 50) and the sector factors (§8).
+CREATE TABLE IF NOT EXISTS index_bar (
+  index_name   TEXT NOT NULL,
+  session_date DATE NOT NULL,
+  o NUMERIC, h NUMERIC, l NUMERIC, c NUMERIC,
+  source       TEXT NOT NULL,
+  ingested_at  TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (index_name, session_date)
+);
+
+-- Corporate actions (§9 CORP_ACTION). Dual role: sets I=2 in the ontology AND
+-- supplies adj_factor. `adjustable = FALSE` means the feed named an action but
+-- carried no derivable ratio (demerger, scheme of arrangement) — the normalizer
+-- must then suppress detection rather than invent a factor.
+CREATE TABLE IF NOT EXISTS corp_action (
+  isin        TEXT NOT NULL REFERENCES instrument(isin),
+  ex_date     DATE NOT NULL,
+  purpose     TEXT NOT NULL,         -- verbatim subject line from the feed
+  ca_type     TEXT NOT NULL,         -- SPLIT|BONUS|RIGHTS|DIVIDEND|DEMERGER|BUYBACK|OTHER
+  ratio_num   NUMERIC,
+  ratio_den   NUMERIC,
+  face_from   NUMERIC,
+  face_to     NUMERIC,
+  cash_amount NUMERIC,               -- dividend/unit amount, or rights subscription price
+  adj_factor  NUMERIC,               -- NULL when price-dependent (rights) or not derivable
+  adjustable  BOOLEAN NOT NULL,
+  source      TEXT NOT NULL,
+  ingested_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (isin, ex_date, purpose)
+);
+
+CREATE INDEX IF NOT EXISTS corp_action_ex_date ON corp_action (ex_date);
+
+-- Salience trace (§7): the tier and the exact gate that admitted the card are
+-- stored, not regenerated. "Why am I seeing this?" is answered from fields.
+ALTER TABLE event ADD COLUMN IF NOT EXISTS tier TEXT;
+ALTER TABLE event ADD COLUMN IF NOT EXISTS gate TEXT;
+
+-- Attribution / detector state carried between sessions (§4, §8).
+ALTER TABLE symbol_state ADD COLUMN IF NOT EXISTS sigma NUMERIC;
+ALTER TABLE symbol_state ADD COLUMN IF NOT EXISTS cooldown_left INT DEFAULT 0;

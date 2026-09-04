@@ -626,3 +626,427 @@ Worth recording rather than quietly fixing: a rollback fixture is not protection
 when the code under test commits.
 
 **Status:** RESOLVED
+
+---
+
+# [S0] — Rectifications before S1
+
+## [S0.1] — Test isolation: a separate `signal_test` database per run
+
+Fixes the leak recorded at [F2.9] properly. That fix restored the invariant only
+when the test reached its `finally` block; this one makes a committed write
+incapable of reaching the ingested data at all. See ADR-016.
+
+**Command:**
+```bash
+cd /Users/thrisha/code/signal/backend
+export DATABASE_URL="postgresql://signal:signal@localhost:5433/signal"
+echo "BEFORE: $(psql "$DATABASE_URL" -t -A -c 'select count(*) from bar')"
+python -m pytest tests/ -q
+python -m pytest tests/ -q
+echo "AFTER : $(psql "$DATABASE_URL" -t -A -c 'select count(*) from bar')"
+psql "$DATABASE_URL" -t -A -c "select count(*) from bar where session_date < '2026-01-01'"
+psql "$DATABASE_URL" -t -A -c "select datname from pg_database where datname like 'signal%'"
+```
+
+**Output:**
+```
+BEFORE: 311769
+209 passed in 30.63s
+209 passed in 31.82s
+AFTER : 311769
+0
+signal
+```
+
+The suite ran twice. The ingested bar count is unchanged, no row exists outside
+the 2026 window, and `signal_test` is gone — created and dropped inside each
+run.
+
+`tests/test_isolation.py` asserts the property directly rather than inferring it
+from a count: it commits a sentinel bar, opens an **independent** connection to
+the dev database, and asserts the row is not there. A second test calls
+`LedgerWriter.reset()` (a `TRUNCATE`) and asserts the dev bar history survives.
+
+**Date:** 2026-09-05  **Status:** PASS
+
+---
+
+## [S0.2] — Corporate-action adjustment (spec §4, §9)
+
+Three feeds were needed and all three are the exchange's own structured data:
+
+**Command:**
+```bash
+python -m app.ingest --what corp-actions --from 2026-02-27 --to 2026-09-03
+python -m app.ingest --what sectors      --from 2026-02-27 --to 2026-09-03
+python -m app.ingest --what indices      --from 2026-02-27 --to 2026-09-03
+```
+
+**Output:**
+```
+corp actions: fetched=1107 parsed=1024 written=1016 remapped_isin=241 adjustable=1008 skipped_unknown_isin=8
+sector map: industries=22 isins_in_lists=754 instruments_mapped=750 unmapped_industries=0
+indices: sessions=127 holidays=8 failed=0 rows=19524
+```
+
+Parsed action types:
+
+```
+ ca_type  | count | adj | has_factor
+----------+-------+-----+------------
+ DIVIDEND |   708 | 708 |        708
+ SPLIT    |    18 |  18 |         18
+ BUYBACK  |    16 |  16 |         16
+ RIGHTS   |    15 |  14 |          0     <- price-dependent, computed at adjust time
+ BONUS    |    14 |  14 |         14
+ DEMERGER |    4  |   0 |          0     <- no derivable ratio; detection suppressed
+```
+
+### The regression
+
+Raw single-bar moves below −50 % in the ingested window — eleven, every one a
+corporate action:
+
+```
+   symbol   | session_date |   prev   |    c    |  pct
+------------+--------------+----------+---------+--------
+ AHCL       | 2026-04-24   |   143.79 |   15.87 | -88.96
+ ZFCVINDIA  | 2026-06-24   | 16086.00 | 2660.00 | -83.46
+ CUPID      | 2026-03-09   |   402.20 |   91.60 | -77.23
+ METROPOLIS | 2026-03-20   |  1823.80 |  441.10 | -75.81
+ GOODLUCK   | 2026-08-21   |  1439.40 |  490.90 | -65.90
+ VEDL       | 2026-04-30   |   773.60 |  271.55 | -64.90
+ MAHAPEXLTD | 2026-03-20   |   126.90 |   56.45 | -55.52
+ HIRECT     | 2026-03-27   |  1588.00 |  717.40 | -54.82
+ KILITCH    | 2026-03-24   |   313.60 |  152.70 | -51.31
+ LICI       | 2026-05-29   |   830.00 |  411.35 | -50.44
+ TRIVENI    | 2026-08-05   |   471.50 |  235.30 | -50.10
+```
+
+**Command:**
+```bash
+cd backend && python -m pytest tests/test_corporate_actions.py -q
+```
+
+**Output:**
+```
+32 passed in 9.47s
+```
+
+After adjustment, across all 2,883 symbols and 127 sessions:
+
+```
+status: {'OK': 311763, 'STALE': 11466, 'CORP_ACTION_UNADJUSTED': 9}
+
+-- 8 most negative ADJUSTED single-bar returns --
+    -45.25%  ABANSENT     2026-08-11
+    -42.54%  NOIDATOLL    2026-08-24
+    -36.08%  NAGREEKCAP   2026-07-27
+    -35.46%  DCMFINSERV   2026-07-27
+    -32.13%  BLUECHIP     2026-08-10
+    -31.13%  WEWIN        2026-08-17
+    -29.97%  INSPIRISYS   2026-08-31
+    -28.85%  TIGERLOGS    2026-08-17
+
+adjusted bars < -50%: 0
+```
+
+**Eleven to zero.** The survivors are ordinary small-cap moves, not arithmetic.
+
+`test_the_known_splits_are_adjusted_not_merely_suppressed` guards the obvious
+cheat: suppressing every large move would also pass the assertion above. It
+checks five real ex-dates (LICI 1:1, TRENT 1:2, METROPOLIS 3:1, ZFCVINDIA 5:1,
+AHCL 1:1 + 10→2) and requires each to carry the expected factor **and** a
+computed return within ±25 %.
+
+### Two things this took that the spec does not spell out
+
+1. **Demergers carry no ratio.** Four rows in the window say `Demerger` and
+   nothing else. They are marked unadjustable and detection is suppressed rather
+   than a factor being inferred from the price drop — which would make the
+   adjuster incapable of ever reporting a real crash. ADR-017.
+2. **A face-value split issues a new ISIN.** The feed names the pre-action ISIN
+   and the bhavcopy names the post-action one, so 241 of 1,016 actions arrived
+   keyed to an identifier with no bars. Resolved through the ISIN issuer prefix
+   under three conditions that separate the 19 genuine successions from
+   GATECH/GATECHDVR, the one real dual-line issuer. ADR-018.
+
+**Date:** 2026-09-05  **Status:** PASS
+
+---
+
+# [S1] — Detection: attribution, EWMA, D1/D2, salience
+
+## [S1.1] — Modules built
+
+```
+backend/app/normalize/          corporate_actions.py  adjust.py  identity.py  loader.py
+backend/app/engine/attribute/   ols.py       orthogonalized two-factor rolling OLS (§8)
+backend/app/engine/detect/      ewma.py  d1.py  d2.py  breadth.py                 (§4, §8)
+backend/app/engine/salience/    scores.py  tiers.py                               (§7)
+backend/app/engine/pipeline.py  the per-session orchestration
+backend/app/detect.py           CLI: python -m app.detect
+backend/app/calibrate.py        CLI: python -m app.calibrate    (Gate 4)
+```
+
+## [S1.2] — Scenario tests named in the S1 brief
+
+**Command:**
+```bash
+cd backend && python -m pytest tests/test_d1.py tests/test_d2.py -q
+```
+
+**Output:**
+```
+24 passed
+```
+
+| Scenario | Test | Result |
+|---|---|---|
+| Constant price series → zero alerts, no divide-by-zero | `test_constant_price_series_produces_no_alerts_and_no_division_by_zero` | PASS |
+| Synthetic +5σ bar → exactly one D1 | `test_a_five_sigma_bar_produces_exactly_one_d1` | PASS |
+| −0.8σ drift for 6 bars → one D2, zero D1 | `test_a_six_bar_drift_at_a_calibrated_h2_fires_exactly_once` | PASS |
+| Gap return → D1 only, CUSUM untouched | `test_a_gap_return_reaches_d1_but_never_the_cusum_accumulator` | PASS |
+
+Note on the third: at the spec's `h2 = 4.0`, six bars of −0.8σ accumulate only
+`6 × (0.8 − 0.5) = 1.8`, so they cannot cross. The test uses `h2 = 1.5`, where
+bar five reaches exactly 1.5 (not *greater* than `h2`) and bar six reaches 1.8 —
+one alarm, on bar six. `test_a_smaller_drift_takes_proportionally_longer` pins
+the same drift at the shipped `h2 = 4.0`: it fires on bar 14.
+
+## [S1.3] — Full suite
+
+**Command:**
+```bash
+cd backend && python -m pytest tests/ -q
+```
+
+**Output:**
+```
+209 passed in 31.83s
+```
+
+## [S1.4] — GATE 3: z-scores sane on real bhavcopy data
+
+**Command:**
+```bash
+cd backend && python -m app.detect --date 2026-09-03 --report-zscore
+```
+
+**Output:**
+```
+z-score summary — session 2026-09-03
+  symbols scored     : 2463 of 2883
+  non-finite / NaN   : 0 / 0
+  mean               : +0.3590
+  sd                 : 0.9574
+  min / max          : -7.227 / +8.967
+  p01 / p25 / median : -1.631 / -0.163 / +0.254
+  p75 / p99          : +0.824 / +3.219
+  fraction |z| > 2   : 0.0499
+  fraction |z| > 3   : 0.0154
+  thresholds         : h1=3.0 h2=4.0 k=0.5 d1_only=False
+  breadth            : 0.0499 (123/2463) regime=False
+  sigma floor        : 0.005542
+```
+
+**Command:**
+```bash
+cd backend && python -m app.detect --date 2026-09-03 --report-zscore --assert-sane; echo "exit=$?"
+```
+
+**Output:**
+```
+z distribution SANE
+exit=0
+```
+
+Pooled across all 86 sessions with ≥ 50 scored symbols (n = 205,383):
+
+```
+mean=-0.0221  sd=1.0993  non-finite=0  range [-23.65, 18.45]
+per-session mean: -0.0227 +- 0.2574   range [-0.854, +0.512]
+per-session sd  : 1.0622               range [0.892, 1.568]
+breadth: mean 0.0546  max 0.0961  regime sessions 0
+```
+
+Mean ≈ 0, sd ≈ 1, no infinities. **GATE 3 PASS.**
+
+Worth recording: the *first* run of this produced pooled `sd = 1.39` with a
+maximum `|z|` of 134.7, entirely from a warm-up defect — `σ̂²` seeded from one
+squared residual, and §4's cross-sectional σ prior never wired up. The pooled
+mean was −0.0022 and looked fine. A summary statistic that looks fine can be
+averaging over a pathology; the per-session breakdown is what exposed it. See
+ADR-021.
+
+**Date:** 2026-09-05  **Status:** PASS
+
+## [S1.5] — GATE 4: alert budget calibration
+
+**Command:**
+```bash
+cd backend && python -m app.calibrate
+```
+
+**Output (grid abridged to the `h2 = 4.0` rows; the full grid is 9 × 8):**
+```
+tracing 127 sessions x 2883 symbols (the pipeline runs once; the grid replays only the detectors)
+calibration — 127 sessions, 2883 symbols
+  warm from    : 2026-07-30 (index 101) — before this, U is unavailable for most symbols and the grid is flat
+  calibrate on : 2026-07-30 .. 2026-08-21 (17 sessions)
+  hold out     : 2026-08-24 .. 2026-09-03 (9 sessions)
+  target       : <= 3.0 cards/user/day at k=5
+------------------------------------------------------------------------------
+  h1=3.0  h2=4.0   D1=954    D2=454    cards/session=  46.06 alerts/user/day=0.0793
+  h1=3.5  h2=4.0   D1=673    D2=454    cards/session=  41.88 alerts/user/day=0.0729
+  h1=4.0  h2=4.0   D1=483    D2=454    cards/session=  38.18 alerts/user/day=0.0661
+  h1=4.5  h2=4.0   D1=353    D2=454    cards/session=  34.47 alerts/user/day=0.0600
+  h1=5.0  h2=4.0   D1=260    D2=454    cards/session=  33.71 alerts/user/day=0.0584
+  h1=5.5  h2=4.0   D1=192    D2=454    cards/session=  33.12 alerts/user/day=0.0573
+  h1=6.0  h2=4.0   D1=150    D2=454    cards/session=  32.65 alerts/user/day=0.0568
+  h1=7.0  h2=4.0   D1=100    D2=454    cards/session=  32.06 alerts/user/day=0.0559
+  h1=8.0  h2=4.0   D1=58     D2=454    cards/session=  31.76 alerts/user/day=0.0552
+------------------------------------------------------------------------------
+selected: h1=3.0 h2=4.0 d1_only=False
+
+HELD-OUT OPERATING POINT (2026-08-24 .. 2026-09-03)
+  sessions                 : 9
+  symbols                  : 2883
+  D1 signals               : 341
+  D2 signals               : 132
+  admitted cards           : 225 (25.00/session)
+  by tier                  : {'C': 145, 'B': 77, 'A': 3}
+  alerts_per_user_day      : 0.0446   (target <= 3.0)
+  alerts_per_user_day p90  : 0.1111
+  alerts_per_user_day p99  : 0.2222
+  alerts_per_user_day max  : 0.4444
+  analytic cross-check     : 0.0434
+
+FULL WARM WINDOW, for comparison (2026-07-30 .. 2026-09-03)
+  sessions                 : 26
+  symbols                  : 2883
+  D1 signals               : 1295
+  D2 signals               : 586
+  admitted cards           : 1008 (38.77/session)
+  by tier                  : {'C': 641, 'B': 330, 'A': 37}
+  alerts_per_user_day      : 0.0673   (target <= 3.0)
+  alerts_per_user_day p90  : 0.1538
+  alerts_per_user_day p99  : 0.1923
+  alerts_per_user_day max  : 0.3462
+  analytic cross-check     : 0.0672
+
+  GATE 4                   : PASS
+
+wrote /Users/thrisha/code/signal/configs/thresholds.json
+```
+
+**`alerts_per_user_day = 0.0446`** against a budget of 3.0 — **67× under**.
+Estimated two ways that agree to within 3 % (Monte Carlo over 2,000 seeded
+5-symbol watchlists: 0.0446; analytic from the per-symbol admission rate:
+0.0434), and confirmed on the full 26-session warm window at 0.0673.
+
+**GATE 4 PASS. D2 is NOT cut.** The cut rule exists and is one flag
+(`--d1-only`, `Thresholds.d1_only`), exercised by
+`test_d1_only_disables_d2_entirely`, but D2 contributes 132 signals over 9
+sessions across 2,883 symbols and floods nothing. Cutting a working drift
+detector because the rule was written down would be the wrong call.
+
+Selected `h1 = 3.0`, `h2 = 4.0` — the spec's starting values. The objective is
+the **loosest** operating point inside the budget, not the smallest alert count:
+minimizing alerts would pick `h1 = 8.0` and detect almost nothing. Every point
+on the grid fits the budget, so the loosest wins.
+
+### The limitation, stated
+
+The held-out window is **9 sessions**. With 127 sessions of history, `z` needs
+~43 sessions of attribution warm-up and `U` needs 60 trailing `z` on top,
+leaving 26 usable sessions in total. The transition is a cliff, not a ramp —
+U coverage is 0 % at session 100 and 90 % at session 104 — so there is no
+window choice that recovers more.
+
+The verdict does not turn on this: the margin is 67×, and *every* point on the
+9 × 8 grid lands between 0.055 and 0.079 alerts/user/day. But a tighter budget,
+or a claim finer than "does not flood", would need a longer ingest. Tracked as
+R-10, not hidden.
+
+**Date:** 2026-09-05  **Status:** PASS
+
+## [S1.6] — Gate 4 cut rule is executable
+
+**Command:**
+```bash
+cd backend
+psql $DATABASE_URL -t -A -c "SELECT count(*) FROM event WHERE event_type='DRIFT';"
+python -m app.detect --date 2026-09-03 --d1-only; echo "exit=$?"
+psql $DATABASE_URL -t -A -c "SELECT count(*) FROM event WHERE event_type='DRIFT';"
+```
+
+**Output:**
+```
+0
+session 2026-09-03
+  symbols scored : 2463
+  D1 jumps       : 38
+  D2 drifts      : 0 (D2 disabled)
+  breadth        : 0.0499 regime=False
+  admitted cards : 28 (A=2 B=4 C=22)
+  events, window : 4793
+exit=0
+0
+```
+
+Exit 0, DRIFT count does not grow, and the event set shrinks (5,962 → 4,793).
+
+## [S1.7] — Ledger populated from the real detector
+
+**Command:**
+```bash
+cd backend
+psql $DATABASE_URL -q -c "TRUNCATE event RESTART IDENTITY CASCADE;"
+python -m app.detect --from 2026-02-27 --to 2026-09-03 --write --as-of 2026-09-03
+psql $DATABASE_URL -c "SELECT event_type, count(*), round(avg(confidence),3) avg_c FROM event GROUP BY 1 ORDER BY 2 DESC;"
+psql $DATABASE_URL -c "SELECT payload->>'tier' AS tier, count(*) FROM event GROUP BY 1 ORDER BY 1;"
+psql $DATABASE_URL -c "SELECT min(i_score), max(i_score) FROM event;"
+psql $DATABASE_URL -c "SELECT count(*) FROM event WHERE confidence < 0.3;"
+```
+
+**Output:**
+```
+ledger: 5962 event(s) inserted
+
+ event_type  | count | avg_c
+-------------+-------+-------
+ JUMP        |  3806 | 0.553
+ DRIFT       |  1169 | 0.663
+ CORP_ACTION |   987 | 0.573
+
+ tier | count
+------+-------
+ A    |    58
+ B    |   846
+ C    |   932
+ D    |  4126
+
+ min | max
+-----+-----
+   0 |   2
+
+ count
+-------
+   277
+```
+
+`i_score` in [0, 2] — 3 requires `RESULTS`, which is the announcements feed in
+U2. The 277 sub-floor rows exist in the ledger and are Tier D; CHK-S1 is
+explicit that they may be stored but must never reach a digest payload, which
+S3 enforces.
+
+The ledger was truncated first: it still held the 6,757 B0-baseline rows from
+the F2 replay, and those share the `dedup_key` space (`isin|session|JUMP|bucket`)
+with the real detector's JUMPs. Left in place, 218 real events would have been
+silently absorbed as duplicates of baseline ones. The dedup key was doing its
+job; the ledger was mixing two detectors. `make evaluate` regenerates the F2
+artifacts on demand.
+
+**Date:** 2026-09-05  **Status:** PASS

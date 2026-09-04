@@ -1,4 +1,4 @@
-.PHONY: up down shell-db evaluate probe
+.PHONY: up down shell-db migrate ingest evaluate detect calibrate test probe
 
 up:
 	docker compose up --build
@@ -14,3 +14,18 @@ evaluate:
 
 probe:
 	python scripts/probe_bhavcopy.py
+
+migrate:
+	cd backend && python -m app.db
+
+ingest:
+	cd backend && python -m app.ingest --what all --from 2026-02-27 --to 2026-09-03
+
+detect:
+	cd backend && python -m app.detect --date 2026-09-03 --report-zscore --assert-sane
+
+calibrate:
+	cd backend && python -m app.calibrate
+
+test:
+	cd backend && python -m pytest tests/ -q

@@ -1,7 +1,14 @@
-"""CLI: python -m app.ingest --from YYYY-MM-DD --to YYYY-MM-DD
+"""CLI: python -m app.ingest [--what bars|indices|corp-actions|sectors|all]
+
+    python -m app.ingest --from YYYY-MM-DD --to YYYY-MM-DD
+    python -m app.ingest --what all --from 2026-02-27 --to 2026-09-03
 
 Run from backend/. Exit code is 0 only if every requested session either
 ingested or was a confirmed exchange holiday (upstream 404).
+
+`bars` is the EQ bhavcopy (§16). `indices` is the market and sector factors for
+attribution (§8). `corp-actions` is the adjustment feed the normalizer needs
+before any return is computed (§4, §9). `sectors` maps ISIN -> sector index.
 """
 from __future__ import annotations
 
@@ -15,6 +22,8 @@ import httpx
 import psycopg
 
 from app.core.clock import Clock, WallClock
+from app.ingest import corp_actions as ca_ingest
+from app.ingest import indices as index_ingest
 from app.ingest.bhavcopy import (
     BROWSER_HEADERS,
     BhavcopySource,
@@ -23,6 +32,8 @@ from app.ingest.bhavcopy import (
     ingest_session,
     trading_days,
 )
+
+WHAT_CHOICES = ("bars", "indices", "corp-actions", "sectors", "all")
 
 DEFAULT_DATABASE_URL = "postgresql://signal:signal@localhost:5433/signal"
 
@@ -55,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sessions", type=int, default=120,
                     help="window size when --from/--to are omitted (default 120)")
     ap.add_argument("--database-url", default=os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL))
+    ap.add_argument("--what", choices=WHAT_CHOICES, default="bars",
+                    help="which feed to ingest (default: bars)")
     ap.add_argument("--no-cache", action="store_true", help="ignore data/cache and refetch")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
@@ -77,9 +90,51 @@ def main(argv: list[str] | None = None) -> int:
     if start > end:
         ap.error(f"--from ({start}) is after --to ({end})")
 
+    wanted = set(WHAT_CHOICES[:-1]) if args.what == "all" else {args.what}
     source = BhavcopySource.from_config()
     days = list(trading_days(start, end))
-    print(f"ingest window {start} .. {end}  ({len(days)} weekdays)")
+    print(f"ingest window {start} .. {end}  ({len(days)} weekdays)  what={args.what}")
+
+    rc = 0
+    with psycopg.connect(args.database_url) as conn, httpx.Client(
+        headers=BROWSER_HEADERS, follow_redirects=True, timeout=30
+    ) as client:
+        if "corp-actions" in wanted:
+            stats = ca_ingest.ingest_window(
+                start, end, conn, clock=clock, client=client, use_cache=not args.no_cache
+            )
+            print(f"corp actions: fetched={stats['rows_fetched']} parsed={stats['parsed']} "
+                  f"written={stats['written']} remapped_isin={stats['remapped_isin']} "
+                  f"adjustable={stats['adjustable']} "
+                  f"skipped_unknown_isin={stats['skipped_unknown_isin']}")
+        if "sectors" in wanted:
+            stats = index_ingest.ingest_sector_map(
+                conn, clock=clock, client=client, use_cache=not args.no_cache
+            )
+            print(f"sector map: industries={stats['industries']} "
+                  f"isins_in_lists={stats['isins_in_lists']} "
+                  f"instruments_mapped={stats['instruments_mapped']} "
+                  f"unmapped_industries={stats['unmapped_industries']}")
+        if "indices" in wanted:
+            iok = iholiday = ifailed = irows = 0
+            for d in days:
+                try:
+                    n = index_ingest.ingest_index_session(
+                        d, conn, clock=clock, client=client, use_cache=not args.no_cache
+                    )
+                except NotPublishedError:
+                    iholiday += 1
+                except (ProviderError, ValueError) as exc:
+                    ifailed += 1
+                    print(f"  {d}  INDEX FAIL  {type(exc).__name__}: {exc}")
+                else:
+                    iok += 1
+                    irows += n
+            print(f"indices: sessions={iok} holidays={iholiday} failed={ifailed} rows={irows}")
+            rc = rc or (1 if ifailed else 0)
+
+    if "bars" not in wanted:
+        return rc
 
     ok = holidays = failed = 0
     bars_written = 0

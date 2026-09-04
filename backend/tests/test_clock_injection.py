@@ -16,7 +16,8 @@ import pytest
 
 from app.core.clock import FixedClock, SimClock, WallClock
 
-ENGINE_DIRS = ["app/engine", "app/ingest", "app/db", "app/ledger", "app/replay"]
+ENGINE_DIRS = ["app/engine", "app/ingest", "app/normalize", "app/db",
+               "app/ledger", "app/replay"]
 
 # Wall-clock entry points, not just the one the grep knows about.
 FORBIDDEN = {
@@ -97,9 +98,11 @@ SENTINEL_SESSION = date(1990, 1, 2)
 def test_bar_ingest_stamps_the_injected_instant(conn, sample_isin, fixed_instant):
     """write_bars must take ingested_at from the clock, never from the host.
 
-    write_bars commits internally, so the conftest rollback cannot undo this
-    one — the test cleans up after itself explicitly instead of leaving a
-    synthetic 1990 bar in the ingested history.
+    write_bars commits internally, so the conftest rollback cannot undo it. That
+    is now harmless: `conn` points at the throwaway `signal_test` database, which
+    is dropped when the run ends. This test used to clean up after itself and
+    leaked a synthetic 1990 bar into the ingested history whenever the assert
+    below fired first.
     """
     from app.ingest.bhavcopy import write_bars
 
@@ -118,6 +121,8 @@ def test_bar_ingest_stamps_the_injected_instant(conn, sample_isin, fixed_instant
             stored = cur.fetchone()[0]
         assert stored == fixed_instant
     finally:
+        # Belt and braces: the committed row is confined to signal_test, but
+        # leaving it would still be visible to a later test in this same run.
         with conn.cursor() as cur:
             cur.execute("DELETE FROM bar WHERE session_date = %s", (SENTINEL_SESSION,))
         conn.commit()

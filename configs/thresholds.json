@@ -1,0 +1,25 @@
+{
+  "_holdout": {
+    "alerts_per_user_day": 0.0446,
+    "by_tier": {
+      "A": 3,
+      "B": 77,
+      "C": 145
+    },
+    "cards_per_session": 25.0,
+    "d1_signals": 341,
+    "d2_signals": 132,
+    "k": 5,
+    "target": 3.0,
+    "window": "2026-08-24..2026-09-03"
+  },
+  "_note": "Empirical operating point on a held-out window, not a guarantee. Thresholds are read by app.engine.pipeline.Thresholds.load().",
+  "calibrated_on": "2026-07-30..2026-08-21",
+  "cooldown_bars": 3,
+  "d1_only": false,
+  "h1": 3.0,
+  "h2": 4.0,
+  "k": 0.5,
+  "u_unusual": 0.95,
+  "u_unusual_uncorroborated": 0.99
+}

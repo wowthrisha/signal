@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned data-source config. Update only with a matching ACTION-LOG entry.",
+  "_comment": "Pinned data-source config. Update only with a matching ACTION-LOG entry. Probe dates: bhavcopy 2026-09-04; corporate actions and indices 2026-09-05.",
   "bhavcopy_udiff": {
     "description": "NSE CM bhavcopy, UDiFF format (switched from legacy /EQUITIES/ path ~2025).",
     "url_pattern": "https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_{YYYYMMDD}_F_0000.csv.zip",
@@ -65,30 +65,73 @@
     "probe_eq_row_count": 2632
   },
   "nse_indices": {
-    "description": "NSE index EOD files for NIFTY 50 and sector indices.",
-    "base_url": "https://nsearchives.nseindia.com/content/indices/",
-    "primary_index": "NIFTY 50",
-    "sector_indices": [
-      "NIFTY AUTO",
-      "NIFTY BANK",
-      "NIFTY ENERGY",
-      "NIFTY FMCG",
-      "NIFTY IT",
-      "NIFTY MEDIA",
-      "NIFTY METAL",
-      "NIFTY PHARMA",
-      "NIFTY REALTY"
+    "description": "NSE index EOD closes and constituent lists \u2014 the market and sector factors for \u00a78 attribution.",
+    "close_all_url": "https://nsearchives.nseindia.com/content/indices/ind_close_all_{DDMMYYYY}.csv",
+    "constituents_url": "https://nsearchives.nseindia.com/content/indices/ind_{slug}list.csv",
+    "constituent_lists": [
+      "nifty50",
+      "nifty500",
+      "niftytotalmarket_"
+    ],
+    "primary_index": "Nifty 50",
+    "probe_confirmed": "2026-09-05",
+    "probe_sessions": 127,
+    "probe_index_rows": 19524,
+    "probe_instruments_mapped": 750,
+    "close_all_columns_used": [
+      "Index Name",
+      "Index Date",
+      "Open Index Value",
+      "High Index Value",
+      "Low Index Value",
+      "Closing Index Value"
+    ],
+    "constituent_columns_used": [
+      "Company Name",
+      "Industry",
+      "Symbol",
+      "Series",
+      "ISIN Code"
+    ],
+    "notes": [
+      "Real published index levels, not a cross-sectional proxy built from our own universe: a proxy is correlated with the residual attribution is trying to isolate.",
+      "The Industry -> sector index map is policy and lives in app/ingest/indices.py:INDUSTRY_TO_INDEX, published so a judge can disagree with a row without the system being wrong.",
+      "Coverage is ~750 of 2883 instruments. \u00a77 already specifies the degradation: no sector index -> market-only attribution, C *= 0.8. Tracked as R-11."
     ]
   },
   "corporate_actions": {
-    "description": "NSE corporate actions CSV \u2014 used to compute adjustment factors before returns.",
-    "base_url": "https://nsearchives.nseindia.com/content/equities/",
-    "files": [
-      "CA.csv"
+    "description": "NSE corporate actions API \u2014 CORP_ACTION events (\u00a79) and the adjustment factor applied before returns (\u00a74).",
+    "url": "https://www.nseindia.com/api/corporates-corporateActions",
+    "params": {
+      "index": "equities",
+      "from_date": "DD-MM-YYYY",
+      "to_date": "DD-MM-YYYY"
+    },
+    "referer_required": "https://www.nseindia.com/companies-listing/corporate-filings-actions",
+    "probe_confirmed": "2026-09-05",
+    "probe_row_count": 1107,
+    "fields_used": [
+      "isin",
+      "exDate",
+      "subject",
+      "series",
+      "faceVal",
+      "symbol"
     ],
+    "cache_file": "data/cache/nse_corporate_actions_{YYYYMMDD}_{YYYYMMDD}.json",
+    "ratio_conventions": {
+      "Bonus a:b": "a new shares for every b held -> factor b/(a+b)",
+      "Face Value Split ... From Rs X To Rs Y": "factor Y/X",
+      "Rights a:b @ Premium Rs P": "TERP/C, price-dependent; computed at adjustment time",
+      "Dividend / Buy Back": "factor 1.0 \u2014 a price series is not a total-return series",
+      "Demerger / Scheme Of Arrangement": "NO derivable ratio -> adjustable=false, detection suppressed"
+    },
     "notes": [
+      "The archive path https://nsearchives.nseindia.com/content/equities/CA.csv is dead (404). This API endpoint is the live source.",
       "Unadjusted corporate action is the largest source of false alarms (R-04).",
-      "Apply adjustment BEFORE computing log returns."
+      "Apply adjustment BEFORE computing log returns.",
+      "The feed names the PRE-action ISIN. A face-value split issues a new ISIN, so 241 of 1016 actions in the 2026-02-27..2026-09-03 window had to be re-keyed onto the ISIN the bar table uses. See ADR-018.",
+      "'Scheme Of Arrangement - Bonus Ncrps 4:1' contains the word Bonus and a ratio, but for PREFERENCE shares. Classify demerger/scheme BEFORE bonus."
     ]
   }
 }
