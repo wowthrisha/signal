@@ -32,9 +32,12 @@ _WL = ("SELECT isin FROM watchlist_item WHERE user_id = %(uid)s")
 
 TABLES = [
     ("sector", "SELECT * FROM sector", {}),
-    ("instrument",
-     "SELECT * FROM instrument WHERE isin IN (SELECT isin FROM watchlist_item "
-     "WHERE user_id = %(uid)s)", {}),
+    # Every instrument, not just the watchlisted ones. Bars stay restricted to
+    # the demo 30, but symbol resolution must work for anything a visitor
+    # types: exporting only the watchlist makes "add TCS" answer
+    # "Unknown symbol: TCS", which reads as a broken product rather than as
+    # a deliberately small dataset. ~3k narrow rows.
+    ("instrument", "SELECT * FROM instrument", {}),
     ("bar",
      "SELECT * FROM bar WHERE isin IN (SELECT isin FROM watchlist_item "
      "WHERE user_id = %(uid)s)", {}),
