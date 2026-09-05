@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi import Response
 from fastapi.responses import FileResponse
 
 from app.api import digest as digest_api
@@ -48,6 +49,14 @@ def seed_demo_watchlist() -> None:
 @app.get("/healthz")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/favicon.ico")
+def favicon() -> Response:
+    """204 rather than a file. Browsers request this on every page load, so
+    without it the only error in the server log is one the app causes itself —
+    which trains you to ignore the log."""
+    return Response(status_code=204)
 
 
 @app.get("/")
