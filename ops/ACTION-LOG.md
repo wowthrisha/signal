@@ -2579,3 +2579,86 @@ trustworthy when captured, and it is now one session old.*
 **Per 1c: the cause is not a bug, so the engine is unchanged.** No threshold,
 no scoring path, no stored value was touched. The reconciliation is in the UI,
 where the collision was manufactured.
+
+## [U14.2] Task 1c/1d — reconciled in the UI, engine untouched — PASS
+
+Confidence distribution is **identical before and after** — 414 distinct values,
+105 at exactly 1.0, across 5,962 events. No threshold, scoring path or stored
+value was touched.
+
+The four cards keep `conf 1.00`, because it is correct. What changed is that the
+card no longer presents it as contradicting the age badge:
+
+- `DELAYED` became `1 SESSION BEHIND` — a factual age, not a fault verdict.
+- The age carries a title: *"That is an age, not a data-quality problem:
+  capture confidence is scored against the session the bar belonged to."*
+- `conf` carries a title: *"Trust in the bar at the session it was scored on …
+  It is not a statement about the card's age."*
+
+1d is asserted structurally rather than by inspection: hold every other term at
+1.0 and drive staleness, and confidence falls 1.0 -> 0.5 -> 0.0 with
+`binding_factor == "freshness"`.
+
+## [U14.3] Task 2 — extremity, window-aware — PASS
+
+```
+ecdf_window from API : 250
+ANANTRAJ    u=1 -> "most extreme in its last 250 sessions"
+COALINDIA   u=1 -> "most extreme in its last 250 sessions"
+IFCI        u=1 -> "most extreme in its last 250 sessions"
+RBLBANK     u=1 -> "most extreme in its last 250 sessions"
+
+saturated renders 100.0% anywhere: false
+non-saturated form   : "more extreme than 99.2% of its last 250 sessions"
+no window supplied   : "most extreme in its reference window"
+```
+
+`250` is served from `scores.U_WINDOW` through `salience_config.ecdf_window`; a
+test fails if it appears as a literal in the page. The saturation cut is
+`pct >= 99.95` — at one displayed decimal, 99.96 % would print as 100.0 %.
+
+## [U14.4] Tasks 3/4 — density — PASS, with one deviation stated
+
+Measured on the same live payload, before at HEAD and after:
+
+```
+              BEFORE            AFTER
+ANANTRAJ      5217B  24 blocks  3168B  14 blocks    (-39% / -42%)
+COALINDIA     9346B  47 blocks  6140B  32 blocks    (-34% / -32%)
+IFCI          5251B  24 blocks  3342B  14 blocks    (-36% / -42%)
+RBLBANK      10159B  53 blocks  6312B  35 blocks    (-38% / -34%)
+```
+
+**Rendered pixel height was not measured** — there is no browser in this
+environment, so block-element count and serialised bytes are the proxy and are
+reported as such rather than converted into a px figure I cannot observe.
+
+Header is one row (dot, symbol, `TIER C · JUMP · 1 SESSION BEHIND · conf 1.00`,
+return). Attribution is three inline pairs above **one** segmented bar with an
+`aria-label` naming all three contributions. Verdict and extremity share a line.
+`Why this?` now carries only Admitted by / Detector / Importance — unusualness,
+the stock-specific split and confidence were removed because the face states
+them.
+
+**Deviation from 3d, stated rather than silently taken.** The brief says keep
+the full evidence block when present, and was written when every card had zero
+filings. After the announcements ingest RBLBANK carries **five** and COALINDIA
+**four**; five full blocks made one card four times taller than its neighbours
+for no extra insight. The strongest filing — ranked by temporal relation, so a
+`PRECEDES` document leads — keeps its full block; the rest collapse to one line
+each carrying title, ordering and link. **Nothing is hidden**: every filing is
+still listed and still linked.
+
+Task 4's shared-state line is derived from `all_cards_lack_evidence`, computed
+in `build_digest` from the payload. It is currently **false** — two of four
+cards now have filings — so the line correctly does not render, and the count
+in it comes from `d.cards.length`, never a literal.
+
+## [U14.5] Task 5 — verification
+
+```
+full suite            : 375 passed, 2 skipped, 1 xfailed in 285.50s
+guards still fire     : 55 passed (salience AST, advice language, a11y, lab, README/claims)
+contrast unchanged    : --text 16.34:1 · --text-2 7.58:1 · --accent 9.65:1
+confidence distribution: 414 distinct values, 105 at 1.0, 5,962 events (before == after)
+```

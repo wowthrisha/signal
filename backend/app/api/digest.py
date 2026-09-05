@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from app.api import evidence as evidence_mod
 from app.api import freshness as fresh_mod
 from app.core.clock import WallClock
+from app.engine.salience import scores as scores_mod
 from app.engine.salience import slate as slate_mod
 from app.ledger.writer import LedgerWriter
 from app.templates import headlines
@@ -619,6 +620,19 @@ def build_digest(
         # /api/digest/ack — the client never invents a cursor value.
         "cursor_head": head,
         "cursor": cursor,
+        # The ECDF reference window, so the card can say "its last 250
+        # sessions" without the template knowing the number. U is a percentile
+        # against a bounded window; a card that omits the window implies an
+        # unbounded one.
+        "salience_config": {
+            "ecdf_window": scores_mod.U_WINDOW,
+            "min_history": scores_mod.U_MIN_HISTORY,
+        },
+        # True when every surfaced card shares the no-evidence state. Derived
+        # here rather than in JS so the UI cannot disagree with the payload,
+        # and so the count is never hardcoded.
+        "all_cards_lack_evidence": bool(cards) and all(
+            not (evidence_by_key.get((c.isin, c.session_date)) or []) for c in cards),
         "freshness_policy": fresh_mod.Policy.load().as_dict(),
         "latest_session": all_sessions[-1].isoformat() if all_sessions else None,
         "evidence_chain": chain,
