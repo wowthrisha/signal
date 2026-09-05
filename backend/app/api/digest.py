@@ -36,6 +36,7 @@ import psycopg
 from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
+from app.api import freshness as fresh_mod
 from app.core.clock import WallClock
 from app.engine.salience import slate as slate_mod
 from app.ledger.writer import LedgerWriter
@@ -394,6 +395,7 @@ def _candidates(event_rows, meta) -> list[slate_mod.Candidate]:
             market_return=mkt,
             sector_return=sec,
             gate=payload.get("gate"),
+            status=payload.get("status"),
             headline=headlines.headline(etype, payload, purpose=purpose),
         ))
     return out
@@ -509,6 +511,13 @@ def build_digest(
             cur.execute(_EVENTS, (isins, since, latest))
             event_rows = cur.fetchall()
 
+    # The exchange calendar, from the sessions that exist rather than a weekday
+    # rule, so holidays are simply absent. Freshness is measured against this.
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT session_date FROM bar ORDER BY session_date")
+        all_sessions = [r[0] for r in cur.fetchall()]
+    policy = fresh_mod.Policy.load()
+
     window_set = set(sessions)
 
     # The funnel's middle number, per symbol: the biggest move it made.
@@ -558,18 +567,24 @@ def build_digest(
             "moved": len(moves),
             "surfaced": len(cards),
         },
-        "cards": [_card(c) for c in cards],
+        "cards": [_card(c, all_sessions, policy) for c in cards],
         "filtered_count": sum(reasons.values()),
         "filtered_reasons": reasons,
         # What an ack should advance to. Read it here, send it back to
         # /api/digest/ack — the client never invents a cursor value.
         "cursor_head": head,
         "cursor": cursor,
+        "freshness_policy": fresh_mod.Policy.load().as_dict(),
+        "latest_session": all_sessions[-1].isoformat() if all_sessions else None,
     }
 
 
-def _card(c: slate_mod.Candidate) -> dict:
+def _card(c: slate_mod.Candidate, calendar=(), policy=None) -> dict:
+    state, behind = fresh_mod.classify(
+        c.session_date, calendar, status=c.status, policy=policy)
     return {
+        "freshness": state,
+        "sessions_behind": behind,
         "symbol": c.symbol,
         "tier": c.tier,
         "total_return_pct": _pct(c.total_return),

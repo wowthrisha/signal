@@ -258,6 +258,29 @@ function whyHTML(c, i) {
     </div>`;
 }
 
+// Freshness is a server verdict, computed in sessions against the bar calendar.
+// The client renders it and does not recompute it — a JS date subtraction would
+// reintroduce exactly the Monday-morning bug the server avoids.
+const FRESHNESS = {
+  FRESH:   { text: 'text-neutral-600', label: 'FRESH' },
+  DELAYED: { text: 'text-amber-500/80', label: 'DELAYED' },
+  STALE:   { text: 'text-rose-400/80', label: 'STALE' },
+  UNKNOWN: { text: 'text-neutral-700', label: 'AGE UNKNOWN' },
+  CORP_ACTION_UNADJUSTED: { text: 'text-rose-400/80', label: 'UNADJUSTED CORP ACTION' },
+};
+
+function freshnessBadge(c) {
+  const f = FRESHNESS[c.freshness];
+  if (!f) return '';
+  const behind = (c.sessions_behind === null || c.sessions_behind === undefined)
+    ? '' : ` ${c.sessions_behind}`;
+  const suffix = (c.freshness === 'DELAYED' || c.freshness === 'STALE') && behind
+    ? `<span class="num">${behind} session${c.sessions_behind === 1 ? '' : 's'} behind</span>`
+    : '';
+  return `<span class="uppercase tracking-widest ${f.text} border border-current/25
+                rounded px-1.5 py-0.5">${f.label}${suffix ? ' · ' + suffix : ''}</span>`;
+}
+
 function decompositionHTML(c) {
   // The whole engine exists to produce this split, so it is the visual centre
   // of the card rather than three numbers in a row. Every value comes from the
@@ -341,6 +364,7 @@ function cardHTML(c, i) {
       <span class="num text-neutral-600">conf ${c.confidence === null || c.confidence === undefined
         ? 'n/a' : c.confidence.toFixed(2)}</span>
       ${c.session_date ? `<span class="num text-neutral-700">as of ${c.session_date}</span>` : ''}
+      ${freshnessBadge(c)}
     </div>
 
     ${decompositionHTML(c)}

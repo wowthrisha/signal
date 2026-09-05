@@ -1475,3 +1475,51 @@ $ git diff --name-only b93299a..HEAD | grep -E "backend/app/(engine|benchmark|no
 normalizer or ingest code changed between the two commits, so the metrics still
 describe the code that produced them. Reported rather than silently
 regenerated, per the task instruction.
+
+## [U6.1] Task 1 — freshness per card — PASS
+
+Source of truth stated in `app/api/freshness.py` and in the test names: a
+card's `session_date` against `max(session_date)` in `bar`, measured in
+**sessions**, never in wall-clock time. The exchange calendar is read from the
+sessions that exist, so a holiday is simply an absent date.
+
+Thresholds in `configs/freshness.json`, loaded by `Policy.load()`, not literals
+in the template.
+
+```
+$ python3 -c "...build_digest..."
+policy: {'fresh_max_sessions_behind': 0, 'delayed_max_sessions_behind': 2} latest: 2026-09-03
+  ANANTRAJ    2026-09-03  FRESH    behind=0
+  COALINDIA   2026-09-02  DELAYED  behind=1
+  IFCI        2026-09-02  DELAYED  behind=1
+  RBLBANK     2026-09-03  FRESH    behind=0
+
+$ python -m pytest tests/test_freshness.py -q
+13 passed in 0.04s
+```
+
+Required cases, all present as named tests:
+
+```
+test_the_latest_session_is_fresh
+test_a_weekend_does_not_age_the_bar
+test_monday_morning_is_not_stale
+test_an_exchange_holiday_does_not_age_the_bar
+test_a_delayed_session_is_within_the_configured_band
+test_a_stale_session_is_past_the_configured_band
+test_a_bar_three_sessions_behind_is_delayed_or_stale
+test_a_missing_session_is_unknown_not_a_guess
+test_a_null_session_date_is_unknown
+test_an_empty_calendar_is_unknown
+test_a_pipeline_status_overrides_the_freshness_verdict[STALE]
+test_a_pipeline_status_overrides_the_freshness_verdict[CORP_ACTION_UNADJUSTED]
+test_the_policy_comes_from_config_not_from_the_template
+```
+
+`test_monday_morning_is_not_stale` asserts the gap is 3 calendar days and the
+verdict is still not STALE, so the test fails if anyone reintroduces a
+day-based rule.
+
+Client renders the server's verdict and does not recompute it; a JS date
+subtraction would reintroduce the same bug. Badge verified in node against the
+live digest, including the UNKNOWN and absent-field paths.

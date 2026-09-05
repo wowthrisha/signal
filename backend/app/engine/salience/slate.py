@@ -68,6 +68,10 @@ class Candidate:
     # rather than re-derived, so "why am I seeing this?" is answered from a
     # field and cannot drift from the decision that was actually taken.
     gate: str | None = None
+    # Pipeline data state (OK / WARMUP / STALE). Carried so the card can say
+    # "we do not trust this bar" instead of quoting a freshness verdict on a
+    # number that is not trustworthy in the first place.
+    status: str | None = None
     headline: str = ""
 
     @property

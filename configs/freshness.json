@@ -1,0 +1,6 @@
+{
+  "_note": "Freshness is measured in SESSIONS, never in wall-clock time. Read by app.api.freshness.Policy.load().",
+  "_source_of_truth": "A card's session_date compared against max(session_date) in the bar table. A wall-clock rule marks every Monday morning STALE, because Friday's bar is two calendar days old and zero sessions behind.",
+  "fresh_max_sessions_behind": 0,
+  "delayed_max_sessions_behind": 2
+}
