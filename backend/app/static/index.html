@@ -78,7 +78,7 @@
       <span id="chev" class="inline-block transition-transform text-neutral-600">▸</span>
       <span>We filtered <span id="filtered-count" class="num text-neutral-300">0</span> other movements</span>
     </button>
-    <div id="filtered-body" class="hidden pb-4 pl-5"></div>
+    <div id="filtered-body" class="hidden pb-5 pl-5 pt-1"></div>
   </section>
 
 </div>
@@ -103,9 +103,14 @@ const TIER = {
        label: 'Unusual move, no known cause' },
 };
 const REASONS = {
-  explained_by_market: 'moved with the market or its sector',
+  explained_by_market: 'Explained by market/sector',
+  below_threshold:     'Below threshold',
+  low_confidence:      'Low confidence',
+};
+const REASON_DETAIL = {
+  explained_by_market: 'most of the move was the index, not the company',
   below_threshold:     'moved, but within its own normal range',
-  low_confidence:      'held back — data we do not trust enough to show',
+  low_confidence:      'data we do not trust enough to show',
 };
 
 const fmtPct = (v) =>
@@ -197,16 +202,34 @@ function cardHTML(c, i) {
   </article>`;
 }
 
-function filteredHTML(reasons) {
+function filteredHTML(reasons, total) {
+  // A Pareto, not a list: the point of the drawer is that one bar dwarfs the
+  // others, and a reader should see that before reading any label. Bars are
+  // scaled against the largest reason rather than the total, so the shape is
+  // legible even when one category holds most of the mass.
   const rows = Object.entries(reasons)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1]);
   if (!rows.length) return '<p class="text-sm text-neutral-600">Nothing was filtered.</p>';
-  return `<ul class="space-y-2 pt-1">${rows.map(([k, n]) => `
-    <li class="text-sm text-neutral-500 flex gap-3">
-      <span class="num text-neutral-300 w-6 text-right">${n}</span>
-      <span>${REASONS[k] || k}</span>
-    </li>`).join('')}</ul>`;
+  const max = rows[0][1];
+  return `
+    <p class="text-[10px] uppercase tracking-[0.2em] text-neutral-600 mb-3">
+      Why ${total} movements did not surface
+    </p>
+    <ul class="space-y-2.5">${rows.map(([k, n]) => `
+      <li>
+        <div class="flex items-baseline gap-3">
+          <span class="text-xs text-neutral-400 w-44 shrink-0">${REASONS[k] || k}</span>
+          <span class="flex-1 h-2 bg-neutral-900 rounded-sm overflow-hidden">
+            <span class="block h-full bg-neutral-600 rounded-sm"
+                  style="width:${(n / max * 100).toFixed(1)}%"></span>
+          </span>
+          <span class="num text-xs text-neutral-200 w-6 text-right">${n}</span>
+        </div>
+        <p class="text-[11px] text-neutral-600 mt-1 ml-0 sm:ml-[11.75rem]">
+          ${REASON_DETAIL[k] || ''}
+        </p>
+      </li>`).join('')}</ul>`;
 }
 
 function chipHTML(w) {
@@ -253,7 +276,7 @@ function render(d) {
     : `<p class="py-10 text-sm text-neutral-600">Nothing cleared the gate in
          this window.</p>`);
   el('filtered-count').textContent = d.filtered_count;
-  el('filtered-body').innerHTML = filteredHTML(d.filtered_reasons);
+  el('filtered-body').innerHTML = filteredHTML(d.filtered_reasons, d.filtered_count);
 
   el('ack-btn').disabled = d.cards.length === 0;
   el('cursor-state').textContent =
