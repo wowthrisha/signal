@@ -4,12 +4,12 @@ Same shape as the advice-language, hardcoded-number and claim guards: a
 structural constraint over a rendered surface, enforced by the build rather
 than by remembering.
 
-**Honest scope note.** `test_every_svg_has_a_role_and_label` currently passes
-vacuously — the product ships **zero** inline SVG. Per R-27 a guard that has
-only ever passed is not evidence of anything, so the fires-test below runs the
-same checker against synthetic markup and asserts it rejects an unlabelled
-`<svg>`. The guard is preventative: it exists so the first chart or icon anyone
-adds cannot arrive unlabelled.
+**Scope note, updated.** This guard was vacuous when written — the product
+shipped zero inline SVG — and it said so. It is now load-bearing: the extremity
+band and the evidence timeline are both hand-written SVG, and both carry the
+sentence they replace in their `aria-label`. The fires-test below still runs
+the checker against synthetic markup, per R-27, because a guard that only ever
+passes on real input proves less than one shown to reject bad input.
 """
 from __future__ import annotations
 
@@ -69,13 +69,17 @@ def test_the_svg_guard_fires_on_an_unlabelled_graphic():
     assert svg_violations('<svg aria-hidden="true"><path/></svg>') == []
 
 
-def test_the_product_currently_ships_no_inline_svg():
-    """Documents the vacuity rather than hiding it. If this starts failing,
-    someone added a graphic and the guard above became load-bearing."""
+def test_the_svg_guard_is_no_longer_vacuous():
+    """Replaces `test_the_product_currently_ships_no_inline_svg`, which existed
+    to document that the guard above had nothing to check and instructed its
+    own deletion once graphics arrived. They have: the extremity band and the
+    evidence timeline. The guard is now load-bearing, and this asserts it
+    stays that way — if every SVG is removed, the guard silently goes back to
+    proving nothing and someone should know."""
     total = sum(len(_SVG_OPEN.findall(p.read_text())) for p in SURFACES)
-    assert total == 0, (
-        f"{total} inline <svg> now exist — the guard above is no longer "
-        "vacuous, which is good; delete this test."
+    assert total > 0, (
+        "no inline <svg> remains, so test_every_svg_has_a_role_and_label is "
+        "vacuous again — restore a graphic or retire the guard deliberately."
     )
 
 

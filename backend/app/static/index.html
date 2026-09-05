@@ -370,6 +370,63 @@ function temporalHTML(e) {
     <p class="text-[11px] t2 leading-snug">${note}</p>`;
 }
 
+function evidenceTimeline(c) {
+  // Ordering as position. The temporal_relation is already on every filing and
+  // already stated in words below; this puts it on an axis so four or five
+  // filings read as a sequence rather than as a list to be parsed one at a
+  // time. Additive only — no text is removed, and the aria-label carries the
+  // same ordering the text does.
+  const ev = c.evidence || [];
+  if (ev.length < 1 || !c.session_date) return '';
+
+  const moveMs = Date.parse(c.session_date + 'T00:00:00Z');
+  const dated = ev.map((e) => ({ e, ms: Date.parse(e.published_at) }))
+                  .filter((d) => Number.isFinite(d.ms));
+  if (!dated.length) return '';
+
+  const W = 260, H = 40, PAD = 14, y = 22;
+  const lo = Math.min(moveMs, ...dated.map((d) => d.ms));
+  const hi = Math.max(moveMs, ...dated.map((d) => d.ms));
+  // A single-instant span would divide by zero; give it a nominal width so the
+  // marks separate instead of stacking invisibly.
+  const range = hi - lo || 1;
+  const x = (ms) => PAD + ((ms - lo) / range) * (W - 2 * PAD);
+  const mx = x(moveMs);
+
+  const marks = dated.map(({ e, ms }) => {
+    const px = x(ms);
+    if (e.temporal_relation === 'SAME_SESSION_UNORDERED') {
+      // Stacked at the move with a distinct shape: same session, and the
+      // intra-session order is genuinely unknown from end-of-day bars.
+      return `<rect x="${(mx - 3.5).toFixed(1)}" y="${y - 12}" width="7" height="7"
+                    fill="var(--evidence)" opacity="0.75"></rect>`;
+    }
+    return `<polygon points="${px.toFixed(1)},${y - 11} ${(px + 4).toFixed(1)},${y - 7}
+                             ${px.toFixed(1)},${y - 3} ${(px - 4).toFixed(1)},${y - 7}"
+                     fill="var(--evidence)"></polygon>`;
+  }).join('');
+
+  const counts = ev.reduce((a, e) => {
+    a[e.temporal_relation] = (a[e.temporal_relation] || 0) + 1; return a; }, {});
+  const label = Object.entries(counts)
+    .map(([k, n]) => `${n} ${(TEMPORAL[k] || TEMPORAL.UNKNOWN).label.toLowerCase()}`)
+    .join(', ');
+
+  return `
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
+         aria-label="Filing timeline for ${c.symbol}: ${label}. The detected move is on ${c.session_date}."
+         class="mt-2">
+      <line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}"
+            stroke="var(--border)" stroke-width="1"></line>
+      ${marks}
+      <circle cx="${mx.toFixed(1)}" cy="${y}" r="4.5" fill="var(--accent)"></circle>
+      <text x="${PAD}" y="${H - 2}" fill="var(--text-3)"
+            style="font-size:9px;font-family:var(--mono)">${new Date(lo).toISOString().slice(0, 10)}</text>
+      <text x="${W - PAD}" y="${H - 2}" text-anchor="end" fill="var(--text-3)"
+            style="font-size:9px;font-family:var(--mono)">move ${c.session_date}</text>
+    </svg>`;
+}
+
 function evidenceItemHTML(e, compact) {
   const rel = TEMPORAL[e.temporal_relation] || TEMPORAL.UNKNOWN;
   const link = e.linkable
@@ -412,12 +469,10 @@ function evidenceHTML(c) {
   // card four times taller than its neighbours for no extra insight. Nothing
   // is hidden — every filing is still listed and still linked.
   const ev = c.evidence || [];
-  if (!ev.length) {
-    return `
-      <p class="mt-3">
-        <span class="pill" title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">NO EVIDENCE</span>
-      </p>`;
-  }
+  // Absent evidence is now a word in the meta line, not a block of its own.
+  // A chip on its own row spent a card's worth of vertical space saying
+  // nothing is there.
+  if (!ev.length) return '';
   const rank = { PRECEDES: 0, SAME_SESSION_UNORDERED: 1, FOLLOWS: 2, UNKNOWN: 3 };
   const sorted = [...ev].sort(
     (a, b) => (rank[a.temporal_relation] ?? 9) - (rank[b.temporal_relation] ?? 9));
@@ -426,30 +481,36 @@ function evidenceHTML(c) {
     <div class="mt-3 pt-3 bdt">
       <p class="label evidence-fg mb-2">Evidence${
         ev.length > 1 ? ` <span class="num t3">${ev.length} filings</span>` : ''}</p>
-      ${evidenceItemHTML(first, false)}
+      ${evidenceTimeline(c)}
+      <div class="mt-2">${evidenceItemHTML(first, false)}</div>
       ${rest.length ? `<ul class="mt-2">${
         rest.map((e) => evidenceItemHTML(e, true)).join('')}</ul>` : ''}
     </div>`;
 }
 
-function whyHTML(c, i) {
-  // Only what the card face does not already state. Unusualness, the
-  // stock-specific split and confidence are all visible above, so repeating
-  // them here made the disclosure a second copy of the card rather than the
-  // trace behind it. What is left is the gate that admitted it and the
-  // statistic that triggered it.
+function whyHTML(c, i, ctx = {}) {
+  // Only what is neither on the card face nor already stated once above the
+  // list. All four drawers were byte-identical: same gate, same importance,
+  // repeated four times. When the payload says they are shared, the shared
+  // line carries them and the drawer keeps only the detector, which differs.
   const na = '<span class="t3">not available</span>';
-  const admitted = TIER_MEANING[c.tier]
-    ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num t3">· ${c.gate}</span>` : ''}`
-    : na;
-  const detector = c.event_type
-    ? `${c.event_type.replace('_', ' ').toLowerCase()} on session <span class="num">${c.session_date || '—'}</span>`
-    : na;
-  const importance = (c.i_score === null || c.i_score === undefined) ? na
-    : `<span class="num">I=${c.i_score}</span>${c.i_score >= 2
-        ? ' — a material event is on file for this session' : ' — no material event on file'}`;
+  const rows = [];
 
-  const row = (k, v) => `
+  if (!ctx.sharedAdmission) {
+    const admitted = TIER_MEANING[c.tier]
+      ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num t3">· ${c.gate}</span>` : ''}`
+      : na;
+    const importance = (c.i_score === null || c.i_score === undefined) ? na
+      : `<span class="num">I=${c.i_score}</span>${c.i_score >= 2
+          ? ' — a material event is on file for this session' : ' — no material event on file'}`;
+    rows.push(['Admitted by', admitted], ['Importance', importance]);
+  }
+  rows.push(['Detector', c.event_type
+    ? `${c.event_type.replace('_', ' ').toLowerCase()} on session <span class="num">${c.session_date || '—'}</span>`
+      + (c.z === null || c.z === undefined ? '' : `, standardised residual <span class="num">${c.z.toFixed(2)}</span>`)
+    : na]);
+
+  const row = ([k, v]) => `
     <div class="flex gap-3 py-1.5 bdb last:border-0">
       <span class="label w-28 shrink-0 pt-0.5">${k}</span>
       <span class="text-xs t2 flex-1">${v}</span>
@@ -461,9 +522,7 @@ function whyHTML(c, i) {
       <span aria-hidden="true" class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
     </button>
     <div data-whybody="${i}" id="why-${i}" hidden class="mt-2 pl-3 bdl">
-      ${row('Admitted by', admitted)}
-      ${row('Detector', detector)}
-      ${row('Importance', importance)}
+      ${rows.map(row).join('')}
     </div>`;
 }
 
@@ -558,6 +617,62 @@ function extremityText(c, ecdfWindow) {
   return `more extreme than ${pct.toFixed(1)}% of ${n}`;
 }
 
+function extremityBand(c, ctx) {
+  // The control chart the SPC work already implies: D1 tests |z| against h1,
+  // and this draws exactly that test. The band is the instrument's own normal
+  // range in units of its own sigma; the marker is the standardised residual
+  // the detector acted on, read from the stored statistic. Nothing here is
+  // recomputed — a JS re-derivation could disagree with the gate that admitted
+  // the card, which is the whole reason the trace is persisted.
+  const z = c.z, h1 = ctx.d1Threshold;
+  const sentence = extremityText(c, ctx.ecdfWindow);
+  if (z === null || z === undefined || !h1) {
+    return sentence ? `<p class="mt-3 text-xs t2">${sentence}</p>` : '';
+  }
+
+  // Axis spans +/- 2.5 h1. This is a display choice and touches no threshold:
+  // h1 stays where the detector put it. At 1.6 an ordinary 4.8-sigma detection
+  // clamped to the "off the chart" marker, which overstates it — 1.6x the
+  // bound is a normal exceedance, not an unplottable one. 2.5 keeps real
+  // detections on the axis and reserves the clamp for values that genuinely
+  // run off it.
+  const W = 220, H = 26, mid = W / 2, span = h1 * 2.5;
+  const x = (v) => mid + (v / span) * mid;
+  const outside = Math.abs(z) >= h1;
+  const clamped = Math.abs(z) > span;
+  const px = Math.max(6, Math.min(W - 6, x(z)));
+  const fill = outside ? 'var(--accent)' : 'var(--neutral)';
+
+  // A clamped value gets a triangle, not a circle pushed to the edge: pinning
+  // a marker silently would show "just past the bound" for a value far beyond
+  // it, which is the one thing the mark is meant to communicate.
+  const marker = clamped
+    ? `<polygon points="${px - 5},${H / 2 + 5} ${px + 5},${H / 2} ${px - 5},${H / 2 - 5}"
+                fill="${fill}"></polygon>`
+    : `<circle cx="${px}" cy="${H / 2}" r="4.5" fill="${fill}"></circle>`;
+
+  // The sentence is NOT rendered beside the band. It was identical on all four
+  // cards — the repetition this replaces — and it survives verbatim in the
+  // aria-label, which is where a screen reader reads it. Drawing both would
+  // keep the duplication and add a graphic on top of it.
+  return `
+    <div class="mt-3">
+      <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
+           aria-label="${sentence}. Standardised residual ${z.toFixed(2)} sigma against a normal range of plus or minus ${h1} sigma."
+           class="shrink-0">
+        <line x1="6" y1="${H / 2}" x2="${W - 6}" y2="${H / 2}"
+              stroke="var(--border)" stroke-width="1"></line>
+        <rect x="${x(-h1)}" y="${H / 2 - 4}" width="${x(h1) - x(-h1)}" height="8"
+              fill="var(--surface-2)"></rect>
+        <line x1="${x(-h1)}" y1="${H / 2 - 6}" x2="${x(-h1)}" y2="${H / 2 + 6}"
+              stroke="var(--text-3)" stroke-width="1"></line>
+        <line x1="${x(h1)}" y1="${H / 2 - 6}" x2="${x(h1)}" y2="${H / 2 + 6}"
+              stroke="var(--text-3)" stroke-width="1"></line>
+        ${marker}
+      </svg>
+    </div>`;
+}
+
 function attributionRow(c) {
   // Three inline pairs, then ONE stacked bar. Three separate bar rows made the
   // reader compare three lengths in sequence; a single segmented bar shows the
@@ -610,6 +725,8 @@ function cardHTML(c, i, ctx = {}) {
     `TIER ${c.tier}`,
     c.event_type ? c.event_type.replace('_', ' ') : null,
     freshnessText(c),
+    (c.evidence || []).length ? null
+      : '<span class="t3" title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">NO EVIDENCE</span>',
     c.confidence === null || c.confidence === undefined
       ? null
       : `<span title="Trust in the bar at the session it was scored on: min of source, freshness, liquidity and history. It is not a statement about the card's age.">conf <span class="num">${c.confidence.toFixed(2)}</span></span>`,
@@ -622,24 +739,29 @@ function cardHTML(c, i, ctx = {}) {
 
   return `
   <article class="card card-in" style="animation-delay:${i * 45}ms">
-    <div class="flex items-baseline justify-between gap-4">
+    <div class="flex items-baseline justify-between gap-3">
       <div class="flex items-baseline gap-2.5 min-w-0">
         <span class="dot shrink-0" title="${t.label}" aria-hidden="true"></span>
-        <h2 class="num symbol t1 tracking-wide truncate">${c.symbol}</h2>
-        <span class="label" style="text-transform:none">${meta}</span>
+        <h2 class="num symbol t1 tracking-wide">${c.symbol}</h2>
       </div>
       <div class="num figure-lg t1 shrink-0">${fmtPct(c.total_return_pct)}</div>
     </div>
+    <!-- Meta on its own line. It shared row 1 with the symbol, and at ten
+         characters — BALRAMCHIN, ATHERENERG, the longest tickers in the
+         instrument table — the symbol was the element that truncated. A ticker
+         is the instrument's identity; losing its last two letters is losing
+         which company the card is about. Nothing here may shorten it. -->
+    <p class="mt-1 label" style="text-transform:none">${meta}</p>
 
     ${attributionRow(c)}
 
-    ${tail ? `<p class="mt-3 text-xs"><span class="accent">${verdict}</span>${
-      extremity ? `<span class="t3" aria-hidden="true"> · </span><span class="t2">${extremity}</span>` : ''}</p>` : ''}
+    ${verdict ? `<p class="mt-3 text-xs accent">${verdict}</p>` : ''}
+    ${extremityBand(c, ctx)}
 
     <p class="mt-2 text-xs t2">${c.headline}</p>
 
     ${ctx.suppressEvidence && !(c.evidence || []).length ? '' : evidenceHTML(c)}
-    ${whyHTML(c, i)}
+    ${whyHTML(c, i, ctx)}
   </article>`;
 }
 
@@ -781,14 +903,25 @@ function render(d) {
              ` <span class="num t2">(${top[1]})</span>.` : '.')
     : '';
   el('cards').setAttribute('aria-busy', 'false');
-  const ctx = { ecdfWindow: (d.salience_config || {}).ecdf_window,
+  const sc = d.salience_config || {};
+  const ctx = { ecdfWindow: sc.ecdf_window, d1Threshold: sc.d1_threshold,
                 suppressEvidence: !!d.all_cards_lack_evidence };
   // When every surfaced card shares a state, say it once above the list
   // instead of N times inside it. The count comes from the payload.
-  el('shared-state').innerHTML = d.all_cards_lack_evidence
-    ? `None of these <span class="num">${d.cards.length}</span> have a corroborating filing on file.`
-    : '';
-  el('shared-state').hidden = !d.all_cards_lack_evidence;
+  const sa = d.shared_admission;
+  const sharedBits = [];
+  if (sa) {
+    sharedBits.push(`All <span class="num">${d.cards.length}</span> were admitted by `
+      + `<span class="t1">${TIER_MEANING[sa.tier] || ('Tier ' + sa.tier)}</span>`
+      + `<span class="num t3"> · ${sa.gate}</span>`
+      + (sa.i_score >= 2 ? '' : ', with no material event on file.'));
+  }
+  if (d.all_cards_lack_evidence) {
+    sharedBits.push(`None of these <span class="num">${d.cards.length}</span> have a corroborating filing on file.`);
+  }
+  el('shared-state').innerHTML = sharedBits.join('<br>');
+  el('shared-state').hidden = sharedBits.length === 0;
+  ctx.sharedAdmission = !!sa;
   el('cards').innerHTML = d.cards.map((c, i) => cardHTML(c, i, ctx)).join('') || (caughtUp
     ? `<div class="py-20 text-center card-in">
          <div class="mx-auto w-8 h-8 rounded-full border bd

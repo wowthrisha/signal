@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from app.api import evidence as evidence_mod
 from app.api import freshness as fresh_mod
 from app.core.clock import WallClock
+from app.engine.pipeline import Thresholds
 from app.engine.salience import scores as scores_mod
 from app.engine.salience import slate as slate_mod
 from app.ledger.writer import LedgerWriter
@@ -398,6 +399,7 @@ def _candidates(event_rows, meta) -> list[slate_mod.Candidate]:
             sector_return=sec,
             gate=payload.get("gate"),
             status=payload.get("status"),
+            z=payload.get("z"),
             headline=headlines.headline(etype, payload, purpose=purpose),
         ))
     return out
@@ -627,12 +629,25 @@ def build_digest(
         "salience_config": {
             "ecdf_window": scores_mod.U_WINDOW,
             "min_history": scores_mod.U_MIN_HISTORY,
+            # The D1 decision interval, in units of σ. It is the edge of the
+            # instrument's own normal range, and the card draws the band from
+            # it rather than from a number typed into the template.
+            "d1_threshold": Thresholds.load().h1,
         },
         # True when every surfaced card shares the no-evidence state. Derived
         # here rather than in JS so the UI cannot disagree with the payload,
         # and so the count is never hardcoded.
         "all_cards_lack_evidence": bool(cards) and all(
             not (evidence_by_key.get((c.isin, c.session_date)) or []) for c in cards),
+        # When every surfaced card was admitted by the same gate and carries
+        # the same importance, four disclosures repeat one fact four times.
+        # Derived here so the UI states it once and drops the duplicated rows;
+        # the values travel with the flag so nothing is retyped.
+        "shared_admission": (
+            {"gate": cards[0].gate, "tier": cards[0].tier, "i_score": cards[0].i}
+            if cards and len({(c.gate, c.tier, c.i) for c in cards}) == 1
+            else None
+        ),
         "freshness_policy": fresh_mod.Policy.load().as_dict(),
         "latest_session": all_sessions[-1].isoformat() if all_sessions else None,
         "evidence_chain": chain,
@@ -662,6 +677,7 @@ def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None) -> di
         "market_pct": _pct(c.market_return),
         "sector_only_pct": _pct(c.sector_return),
         "gate": c.gate,
+        "z": None if c.z is None else round(float(c.z), 4),
         "session_date": (c.session_date.isoformat()
                          if hasattr(c.session_date, "isoformat") else None),
         "u_score": None if c.u is None else round(c.u, 3),

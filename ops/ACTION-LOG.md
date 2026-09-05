@@ -2834,3 +2834,113 @@ Per R-27 the guard is proved to fire, on the real file, above. Restored:
 `4 passed`.
 
 Full suite: `382 passed, 2 skipped, 1 xfailed in 288.18s`.
+
+---
+
+# [U16] Header overflow, control-chart band, evidence timeline — 2026-09-05
+
+The node execution test was run after every task, not once at the end.
+
+## [U16.1] Task 1 — header overflow — PASS
+
+The longest ticker was measured, not guessed:
+
+```
+   symbol   | len
+ 21STCENMGM |  10       longest on the demo watchlist:
+ 3BBLACKBIO |  10         BALRAMCHIN | 10
+ AAREYDRUGS |  10         ATHERENERG | 10
+```
+
+Meta moved to its own line and the `truncate` class is gone from the symbol.
+A ticker is the instrument's identity; losing its last two characters loses
+which company the card is about.
+
+```
+BALRAMCHIN  renders as "BALRAMCHIN" | truncate class: false
+ATHERENERG  renders as "ATHERENERG" | truncate class: false
+BAJFINANCE  renders as "BAJFINANCE" | truncate class: false
+```
+
+## [U16.2] Task 2 — extremity band — PASS
+
+The four identical sentences are replaced by one SVG per card. `z` and the D1
+decision interval are now on the payload (`salience_config.d1_threshold`), so
+position comes from the stored statistic and the band edge from the same
+threshold the detector used — nothing recomputed in JS.
+
+```
+ANANTRAJ    z=3.1096  on-axis   accent
+COALINDIA   z=4.3282  on-axis   accent
+IFCI        z=4.8309  on-axis   accent
+RBLBANK     z=3.3649  on-axis   accent
+  inside band z=1.2   : neutral
+  outlier     z=20    : clamped (triangle, not a pinned circle)
+  null z              : falls back to the sentence, no empty SVG
+```
+
+**One correction mid-task.** The axis first spanned `h1 x 1.6`, which clamped
+IFCI at 4.83σ — a 1.6x exceedance is an ordinary detection, not an unplottable
+one, and the "off the chart" marker overstated it. Widened to `h1 x 2.5`. This
+is a display axis; **h1 itself was not touched.**
+
+**And one of my own errors, corrected.** The band was first rendered *beside*
+the sentence, which kept the four-fold repetition and added a graphic on top of
+it. The sentence is now carried verbatim in the `aria-label` and rendered
+nowhere: `visible "most extreme in" occurrences: 0`, `aria-label carries it: 4`.
+
+## [U16.3] Task 3 — evidence timeline — PASS
+
+```
+COALINDIA   4 filings | diamonds: 3 | squares: 1 | move circle: 1
+   aria: Filing timeline for COALINDIA: 3 published before the move,
+         1 same session; ordering unknown. The detected move is on 2026-09-02.
+RBLBANK     5 filings | diamonds: 3 | squares: 2 | move circle: 1
+```
+
+Additive, verified: `titles: true | permalinks: true | disclaimer: true` — every
+filing title, source, timestamp, permalink and the "Ordering only" line survive.
+A single-instant span does not divide by zero.
+
+## [U16.4] Task 4 — identical drawers — PASS
+
+```
+shared line : All 4 were admitted by Tier C: unusual movement, no known cause
+              · C>=0.5 AND U>=0.99, with no material event on file.
+Admitted by in drawers : false   (stated once above)
+Importance in drawers  : false   (stated once above)
+Detector in drawers    : true    (it differs per card)
+distinct drawers       : 4 of 4  (were byte-identical)
+```
+
+`shared_admission` is derived in `build_digest` from the card set; nothing is
+hardcoded. NO EVIDENCE folded into the meta line.
+
+## [U16.5] The accessibility guard flipped from vacuous to load-bearing
+
+`test_the_product_currently_ships_no_inline_svg` failed, exactly as its own
+docstring said it should: *"If this starts failing, someone added a graphic and
+the guard above became load-bearing; delete this test."* Retired and replaced
+by its inverse, which fails if every SVG is ever removed and the guard silently
+goes back to proving nothing. All 6 SVGs carry `role="img"` and an
+`aria-label`.
+
+## [U16.6] Card size — this run made cards BIGGER, and that is the honest report
+
+```
+BEFORE   18962B | blocks: 13, 31, 13, 34
+AFTER    23861B | blocks: 13, 34, 13, 37
+```
+
+The brief asked for two graphics and an additive timeline; graphics occupy
+space. The compression was [U14]'s work, not this one's. The no-evidence cards
+held at 13 blocks — the shorter drawer paid for the band — while the
+evidence-bearing cards grew by three blocks each, which is the timeline.
+Rendered pixel height is still unmeasured: there is no browser here, and block
+count is a proxy reported as a proxy.
+
+```
+full suite : 382 passed, 2 skipped, 1 xfailed
+guards     : 62 passed
+contrast   : --text 16.34:1 · --text-2 7.58:1 · --accent 9.65:1 (unchanged)
+```

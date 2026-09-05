@@ -72,6 +72,9 @@ class Candidate:
     # "we do not trust this bar" instead of quoting a freshness verdict on a
     # number that is not trustworthy in the first place.
     status: str | None = None
+    # The standardised residual the detector acted on, carried so the card can
+    # plot the position D1 tested rather than a JS re-derivation of it.
+    z: float | None = None
     headline: str = ""
 
     @property
