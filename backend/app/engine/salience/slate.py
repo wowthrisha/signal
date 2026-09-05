@@ -59,6 +59,15 @@ class Candidate:
     total_return: float | None
     explained_return: float | None
     residual: float | None
+    # Kept apart from `explained_return` because the card shows the split. The
+    # sum of these two is the explained part; alpha belongs to neither, which
+    # is why the three do not add to the total.
+    market_return: float | None = None
+    sector_return: float | None = None
+    # The exact §7 gate that admitted this card, carried from the stored event
+    # rather than re-derived, so "why am I seeing this?" is answered from a
+    # field and cannot drift from the decision that was actually taken.
+    gate: str | None = None
     headline: str = ""
 
     @property

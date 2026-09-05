@@ -280,6 +280,18 @@ def _pct(x, places: int = 2):
     return None if x is None else round(float(x) * 100.0, places)
 
 
+def _components(payload: dict) -> tuple[float | None, float | None]:
+    """Market and sector contributions, separately. `None` when the model had
+    no sector factor at all, which the card renders as "not available" rather
+    than as a zero it did not measure."""
+    att = payload.get("attribution") or {}
+    mkt, sec = att.get("market_component"), att.get("sector_component")
+    return (
+        None if mkt is None else float(mkt),
+        None if sec is None else float(sec),
+    )
+
+
 def _explained(payload: dict) -> float | None:
     """The part of the return the factor model accounts for: market + sector.
 
@@ -302,6 +314,7 @@ def _candidates(event_rows, meta) -> list[slate_mod.Candidate]:
         if info is None:
             continue
         payload = payload or {}
+        mkt, sec = _components(payload)
         out.append(slate_mod.Candidate(
             isin=isin,
             symbol=info["symbol"],
@@ -315,6 +328,9 @@ def _candidates(event_rows, meta) -> list[slate_mod.Candidate]:
             total_return=payload.get("return"),
             explained_return=_explained(payload),
             residual=payload.get("residual"),
+            market_return=mkt,
+            sector_return=sec,
+            gate=payload.get("gate"),
             headline=headlines.headline(etype, payload, purpose=purpose),
         ))
     return out
@@ -496,6 +512,11 @@ def _card(c: slate_mod.Candidate) -> dict:
         "total_return_pct": _pct(c.total_return),
         "sector_return_pct": _pct(c.explained_return),
         "residual_pct": _pct(c.residual),
+        "market_pct": _pct(c.market_return),
+        "sector_only_pct": _pct(c.sector_return),
+        "gate": c.gate,
+        "session_date": (c.session_date.isoformat()
+                         if hasattr(c.session_date, "isoformat") else None),
         "u_score": None if c.u is None else round(c.u, 3),
         "i_score": c.i,
         "confidence": round(c.c, 2),
