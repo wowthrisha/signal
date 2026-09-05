@@ -1056,10 +1056,15 @@ function render(d) {
     ? `Latest session ${sinceLabel(d.latest_session)} · next update after market close`
     : 'No sessions ingested yet';
 
+  // The ledger position was shown here as "head 5962". That is a BIGSERIAL
+  // event id — meaningful to whoever wrote the cursor, meaningless to a first
+  // -time reader on the primary surface. What a reader needs is which window
+  // they are looking at and whether they have marked anything seen; the raw
+  // id stays in /api/digest for anyone who wants it.
   el('cursor-state').textContent =
     d.cursor === null || d.cursor === undefined
-      ? `no cursor yet — showing the last 2 sessions · head ${cursorHead}`
-      : `cursor ${d.cursor} · head ${cursorHead}`;
+      ? 'first visit — showing the last 2 sessions'
+      : 'showing what is new since you last marked everything seen';
 }
 
 // Whether a good render has ever landed. On a later failure the last good

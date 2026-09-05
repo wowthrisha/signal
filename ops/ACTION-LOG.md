@@ -3346,3 +3346,64 @@ asserted the literal phrase "full ingested history" — the exact wording remove
 as the fix for [U20.3]. Both were rewritten to assert the property: that the two
 controls state which question they answer, and that the cohort excludes the
 held-out window while reporting the span it was drawn from.
+
+## [U20.7] Task 6 — rendered-string audit
+
+Every rendered string dumped and read. One genuinely wrong:
+
+- **`· head 5962`** in the cursor line. A BIGSERIAL event id — meaningful to
+  whoever wrote the cursor, meaningless to a first-time reader on the primary
+  surface. Replaced with *"first visit — showing the last 2 sessions"* and,
+  after an ack, *"showing what is new since you last marked everything seen"*.
+  The raw id stays in `/api/digest`.
+
+Not wrong, reported for completeness:
+
+- `"Nothing was filtered."` is unreachable — the section is hidden when the
+  count is zero. Dead but harmless; left alone.
+- `&rarr;` / `&#963;` appearing literal and `(14) .` spacing are artifacts of
+  the tag-stripper used for the audit, not of the browser.
+
+Everything else traces to a live payload field: funnel, subline, cadence,
+shared-admission line, evidence chain, base rates, outcomes.
+
+## [U20.8] My verification procedure had the same bug twice
+
+The first audit reported the clean clone green because both directories were
+named `signal`, so compose reused the existing project, containers and
+populated volume. I hit it a **second** time while restoring the dev stack: a
+`docker compose up -d` issued from inside `/tmp/cc2/signal` bound `signal-api-1`
+to the clone's directory, so my own edits stopped appearing and the page served
+stale strings.
+
+```
+$ docker inspect signal-api-1 --format '{{range .Mounts}}...'
+/tmp/cc2/signal/backend -> /app      <-- wrong tree
+```
+
+Fixed by bringing the stack up from the repository root and deleting the clone
+directories so the project name cannot collide again. Logged because the
+failure mode is silent: everything looks healthy and the wrong files are being
+served.
+
+## [U20.9] Clean clone, definitive
+
+Fresh clone at `4400aa4`, `-p signalclean`, fresh volume, no manual steps:
+
+```
+boot: applying schema
+schema applied: schema.sql -> signal
+boot: seeding demo slice if empty
+loaded: 13996 bars, 3044 instruments
+boot: starting uvicorn on 8000
+
+/healthz 200 · / 200 · /lab 200
+health : ok {'latest_session_date': '2026-09-03', 'session_count': 497,
+             'instrument_count': 3044, 'event_count': 89}
+digest : {'watched': 30, 'moved': 22, 'surfaced': 4} 4 cards
+         ['ANANTRAJ', 'COALINDIA', 'IFCI', 'RBLBANK']
+base n : n=9 cohort_sessions=497 cohort_events=89 pct=None
+```
+
+**Blocker 1 PASS.** And [U20.3] validated on the same run: `n=9` now sits beside
+"drawn from 89 events across 497 sessions", not "full ingested history".
