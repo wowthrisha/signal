@@ -119,6 +119,32 @@ const fmtPct = (v) =>
 
 const el = (id) => document.getElementById(id);
 
+// Per-visitor demo state. The shared demo row was emptied within a day of
+// going public: someone pressed "Mark all as seen", the cursor persisted, and
+// every later arrival saw nothing. A uuid minted here and sent on every
+// request gives each visitor a private clone of the demo watchlist.
+//
+// This is isolation, not authentication. It is self-asserted, carries no
+// secret, and grants nothing but a private copy of a public list. localStorage
+// can be unavailable (private windows, blocked site data), so a failure falls
+// back to a per-tab id rather than breaking the page.
+const SESSION_KEY = 'signal.session';
+const sessionId = (() => {
+  const mint = () => (crypto.randomUUID ? crypto.randomUUID()
+    : '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
+        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
+  try {
+    let v = localStorage.getItem(SESSION_KEY);
+    if (!v) { v = mint(); localStorage.setItem(SESSION_KEY, v); }
+    return v;
+  } catch (e) {
+    return mint();
+  }
+})();
+
+const HDRS = { 'X-Signal-Session': sessionId };
+const jsonHdrs = { ...HDRS, 'Content-Type': 'application/json' };
+
 function sinceLabel(iso) {
   if (!iso) return '—';
   const d = new Date(iso + 'T00:00:00');
@@ -390,8 +416,8 @@ async function load() {
     // the same rows, so showing one updated and the other stale would be a lie
     // the user can see.
     const [dRes, wRes] = await Promise.all([
-      fetch('/api/digest', { cache: 'no-store' }),
-      fetch('/api/watchlist', { cache: 'no-store' }),
+      fetch('/api/digest', { cache: 'no-store', headers: HDRS }),
+      fetch('/api/watchlist', { cache: 'no-store', headers: HDRS }),
     ]);
     if (!dRes.ok) throw new Error('HTTP ' + dRes.status);
     render(await dRes.json());
@@ -415,9 +441,7 @@ async function addSymbol() {
   showError('');
   try {
     const r = await fetch('/api/watchlist', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol }),
+      method: 'POST', headers: jsonHdrs, body: JSON.stringify({ symbol }),
     });
     const body = await r.json();
     if (!r.ok) { showError(body.detail || ('HTTP ' + r.status)); return; }
@@ -428,7 +452,8 @@ async function addSymbol() {
 
 async function removeIsin(isin) {
   try {
-    await fetch('/api/watchlist/' + encodeURIComponent(isin), { method: 'DELETE' });
+    await fetch('/api/watchlist/' + encodeURIComponent(isin),
+                { method: 'DELETE', headers: HDRS });
     await load();
   } catch (e) { showError(e.message); }
 }
@@ -437,8 +462,7 @@ async function ackAll() {
   if (!cursorHead) return;
   try {
     await fetch('/api/digest/ack', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: jsonHdrs,
       body: JSON.stringify({ cursor_head: cursorHead }),
     });
     await load();

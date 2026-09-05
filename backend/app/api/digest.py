@@ -28,11 +28,12 @@ make the funnel tautological.
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
 
 import psycopg
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
 from app.core.clock import WallClock
@@ -49,6 +50,36 @@ router = APIRouter()
 DEMO_USER_ID = "00000000-0000-4000-8000-000000000001"
 DEMO_USER_EMAIL = "demo@signal.local"
 WATCHLIST_SIZE = 30
+
+# Per-visitor state on a shared demo.
+#
+# `DEMO_USER_ID` is a **template**, never written to by a visitor. The public
+# deployment proved why within a day: someone pressed "Mark all as seen", the
+# cursor persisted on the shared row, and every later arrival saw an empty
+# digest. The pitch was invisible and nothing looked broken.
+#
+# The browser mints a uuid on first visit and sends it as `X-Signal-Session`.
+# The first request from a new session clones the template watchlist and gets
+# a null cursor, so each visitor gets the opening state and can ack, add and
+# mute without touching anyone else. This is a demo isolation mechanism and
+# emphatically not auth: the header is self-asserted, carries no secret, and
+# grants nothing beyond a private copy of a public watchlist.
+SESSION_HEADER = "X-Signal-Session"
+
+
+def resolve_user(session_id: str | None) -> str:
+    """Session header -> user_id. Anything unparseable falls back to the
+    template, so a malformed header degrades to the shared read-only-ish view
+    rather than erroring or minting junk rows."""
+    if not session_id:
+        return DEMO_USER_ID
+    try:
+        parsed = uuid.UUID(str(session_id).strip())
+    except (ValueError, AttributeError, TypeError):
+        return DEMO_USER_ID
+    if str(parsed) == DEMO_USER_ID:
+        return DEMO_USER_ID
+    return str(parsed)
 
 DEFAULT_DATABASE_URL = "postgresql://signal:signal@localhost:5433/signal"
 
@@ -151,19 +182,46 @@ INSERT INTO watchlist_item (user_id, isin) VALUES (%s, %s)
 ON CONFLICT (user_id, isin) DO NOTHING
 """
 
+# A visitor's list is a copy of the template's, not a re-run of the turnover
+# query — so every visitor sees the same 30 instruments the demo was built
+# around, even if the underlying turnover ranking shifts.
+_CLONE_TEMPLATE = """
+INSERT INTO watchlist_item (user_id, isin)
+SELECT %s, isin FROM watchlist_item WHERE user_id = %s
+ON CONFLICT (user_id, isin) DO NOTHING
+"""
+
 _COUNT_ITEMS = "SELECT count(*) FROM watchlist_item WHERE user_id = %s"
 
 
 def seed_watchlist(conn, user_id: str = DEMO_USER_ID, size: int = WATCHLIST_SIZE) -> int:
-    """Idempotent. Seeds only when the user has no watchlist at all, so a user
-    who later removes a symbol does not get it silently put back."""
+    """Idempotent. Seeds only when the user has no watchlist at all, so someone
+    who removes a symbol does not get it silently put back.
+
+    The template user is seeded from turnover; every other user is a clone of
+    the template.
+    """
     with conn.cursor() as cur:
-        cur.execute(_SEED_USER, (user_id, DEMO_USER_EMAIL))
+        cur.execute(_SEED_USER, (user_id, f"{user_id}@signal.local"))
         cur.execute(_COUNT_ITEMS, (user_id,))
         existing = cur.fetchone()[0]
         if existing:
             conn.commit()
             return existing
+
+        if user_id != DEMO_USER_ID:
+            cur.execute(_SEED_USER, (DEMO_USER_ID, DEMO_USER_EMAIL))
+            cur.execute(_COUNT_ITEMS, (DEMO_USER_ID,))
+            if not cur.fetchone()[0]:
+                cur.execute(_SEED_PICK, (size,))
+                for (isin,) in cur.fetchall():
+                    cur.execute(_SEED_ITEMS, (DEMO_USER_ID, isin))
+            cur.execute(_CLONE_TEMPLATE, (user_id, DEMO_USER_ID))
+            cur.execute(_COUNT_ITEMS, (user_id,))
+            n = cur.fetchone()[0]
+            conn.commit()
+            return n
+
         cur.execute(_SEED_PICK, (size,))
         isins = [r[0] for r in cur.fetchall()]
         for isin in isins:
@@ -560,14 +618,16 @@ class AckRequest(BaseModel):
 
 
 @router.get("/api/digest")
-def digest() -> dict:
+def digest(x_signal_session: str | None = Header(default=None)) -> dict:
+    user_id = resolve_user(x_signal_session)
     with connect() as conn:
-        seed_watchlist(conn)
-        return build_digest(conn)
+        seed_watchlist(conn, user_id)
+        return build_digest(conn, user_id)
 
 
 @router.post("/api/digest/ack")
-def ack(req: AckRequest) -> dict:
+def ack(req: AckRequest,
+        x_signal_session: str | None = Header(default=None)) -> dict:
     """Advance the visit cursor. **Only an explicit ack moves it** — never a
     page load (spec §5), which is why this is a POST the user triggers and not
     a side effect of GET /api/digest.
@@ -576,8 +636,9 @@ def ack(req: AckRequest) -> dict:
     upsert, so a stale tab acking an older head is absorbed rather than
     rewinding anyone. The clock is injected, as everywhere else.
     """
+    user_id = resolve_user(x_signal_session)
     with connect() as conn:
         writer = LedgerWriter(conn, WallClock())
-        value = writer.advance_cursor(DEMO_USER_ID, req.cursor_head)
+        value = writer.advance_cursor(user_id, req.cursor_head)
         conn.commit()
         return {"cursor": value, "requested": req.cursor_head}

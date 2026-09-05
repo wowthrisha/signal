@@ -17,10 +17,10 @@ cases would buy nothing and cost a branch in the UI.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.digest import DEMO_USER_ID, connect, seed_watchlist
+from app.api.digest import DEMO_USER_ID, connect, resolve_user, seed_watchlist
 
 router = APIRouter(prefix="/api/watchlist")
 
@@ -124,48 +124,58 @@ def _rows(conn, user_id: str = DEMO_USER_ID) -> list[dict]:
 
 
 @router.get("")
-def list_items() -> list[dict]:
+def list_items(x_signal_session: str | None = Header(default=None)) -> list[dict]:
+    user_id = resolve_user(x_signal_session)
     with connect() as conn:
-        seed_watchlist(conn)
-        return _rows(conn)
+        seed_watchlist(conn, user_id)
+        return _rows(conn, user_id)
 
 
 @router.post("")
-def add_item(req: AddRequest) -> dict:
+def add_item(req: AddRequest,
+             x_signal_session: str | None = Header(default=None)) -> dict:
     """Add by ticker. Already present -> 200 no-op, `added: false`."""
+    user_id = resolve_user(x_signal_session)
     with connect() as conn:
+        seed_watchlist(conn, user_id)
         isin = resolve_symbol(conn, req.symbol)
         with conn.cursor() as cur:
-            cur.execute(_EXISTS, (DEMO_USER_ID, isin))
+            cur.execute(_EXISTS, (user_id, isin))
             already = cur.fetchone() is not None
-            cur.execute(_ADD, (DEMO_USER_ID, isin))
+            cur.execute(_ADD, (user_id, isin))
         conn.commit()
-        return {"isin": isin, "added": not already, "items": len(_rows(conn))}
+        return {"isin": isin, "added": not already, "items": len(_rows(conn, user_id))}
 
 
 @router.delete("/{isin}")
-def remove_item(isin: str) -> dict:
+def remove_item(isin: str,
+                x_signal_session: str | None = Header(default=None)) -> dict:
     """Idempotent: removing something absent is a success, not a 404. The
     caller's intent — "this should not be on my list" — is satisfied either
     way, and a retried DELETE must not start failing."""
+    user_id = resolve_user(x_signal_session)
     with connect() as conn:
+        seed_watchlist(conn, user_id)
         with conn.cursor() as cur:
-            cur.execute(_REMOVE, (DEMO_USER_ID, isin))
+            cur.execute(_REMOVE, (user_id, isin))
             removed = cur.rowcount
         conn.commit()
-        return {"isin": isin, "removed": bool(removed), "items": len(_rows(conn))}
+        return {"isin": isin, "removed": bool(removed), "items": len(_rows(conn, user_id))}
 
 
 @router.patch("/{isin}")
-def mute_item(isin: str, req: MuteRequest) -> dict:
+def mute_item(isin: str, req: MuteRequest,
+              x_signal_session: str | None = Header(default=None)) -> dict:
     """Mute keeps the instrument on the list and out of the digest. It is the
     difference between "I no longer hold this" and "I hold this and do not want
     to hear about it this week", which deleting cannot express."""
+    user_id = resolve_user(x_signal_session)
     with connect() as conn:
+        seed_watchlist(conn, user_id)
         with conn.cursor() as cur:
-            cur.execute(_EXISTS, (DEMO_USER_ID, isin))
+            cur.execute(_EXISTS, (user_id, isin))
             if cur.fetchone() is None:
                 raise HTTPException(status_code=404, detail=f"Not on watchlist: {isin}")
-            cur.execute(_MUTE, (req.muted, DEMO_USER_ID, isin))
+            cur.execute(_MUTE, (req.muted, user_id, isin))
         conn.commit()
         return {"isin": isin, "muted": req.muted}
