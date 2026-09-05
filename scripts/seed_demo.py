@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import json
 import os
 import sys
 from pathlib import Path
@@ -56,6 +57,13 @@ def _literal(v) -> str:
         return "TRUE" if v else "FALSE"
     if isinstance(v, (int, float)):
         return repr(v)
+    # psycopg hands JSONB back as a dict. `str(dict)` is Python repr, which
+    # uses single quotes and is not JSON — Postgres rejects it on reload with
+    # "invalid input syntax for type json". Serialise properly, sorted so the
+    # export is byte-stable across runs.
+    if isinstance(v, (dict, list)):
+        s = json.dumps(v, sort_keys=True, default=str).replace("'", "''")
+        return f"'{s}'"
     s = str(v).replace("'", "''")
     return f"'{s}'"
 
