@@ -1603,3 +1603,50 @@ large enough for that to win.
 The side that grows is unchanged: `event` is still reached via `event_isin_id`
 on `(isin, event_id)`, one bitmap index scan per watched ISIN, now with a
 `Memoize` node caching per `isin`. `Execution Time: 1.196 ms`.
+
+## [U6.4] Task 4 — evidence chain — PASS
+
+Existing code inspected first. `build_digest` already computes `moves`,
+`surfaced` and the three reason buckets; the chain re-partitions those counts
+and re-derives nothing the slate already decided.
+
+```
+$ python3 -c "...build_digest..."
+chain:
+  moved                 22  moved more than 1%
+  explained_by_market    4  explained by market or sector
+  stock_specific        18  stock-specific candidates
+  confidence_passed     18  passed the confidence gate
+  surfaced               4  surfaced
+below-threshold cards: 0
+monotonic surfaced<=conf<=stock<=moved: True
+```
+
+Counts are live, not the illustrative 18->14->4->4->4 from the brief.
+
+**Monotonicity holds by construction**, because every stage is a subtraction
+over the same population the reason counter walks:
+`moved = surfaced_from_moved + explained + below_threshold + low_conf`.
+
+**One legitimate violation exists and is documented rather than tested away.**
+A card can clear every §7 gate on a move smaller than
+`MOVED_DISPLAY_THRESHOLD_PCT` and so never enter `moves` — the display
+threshold is a funnel label and has never gated the slate. Using `len(cards)`
+as the final stage would then break the invariant for a presentation reason.
+The chain reports `surfaced_from_moved` and returns the remainder as
+`surfaced_below_display_threshold` (currently 0). Explained in `digest.py` and
+in the test module docstring.
+
+```
+$ python -m pytest tests/test_evidence_chain.py -q
+7 passed in 18.14s
+```
+
+`test_each_stage_is_a_subtraction_of_a_named_reason` asserts the *gaps* equal
+the reason counts, not merely that the stages are ordered — otherwise the chain
+could tell a different story from the drawer beside it.
+
+Client renders server counts and computes nothing. Zero stages omitted, empty
+and single-stage inputs return an empty string (verified in node; the first
+check was rerun after a bad assertion — the probe label `'x'` matched inside
+`flex`).

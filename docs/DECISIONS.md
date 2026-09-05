@@ -603,3 +603,21 @@ looks fine can be averaging over a warm-up pathology.
 **Decision:** Keep the original occurrence label. Build neither the dividend-excluding label nor the market-confirmed CAR label.
 **Rejected:** Building L1 and L2 anyway. The measurement falsified the premise — dividend ex-dates carry mean `abs(z)` 1.21x their matched baseline over 2,696 events, not the ~1.0 the hypothesis required. Splits and bonuses run 1.80–2.42, so dividends are a *weaker* signal, but weaker is not inert and only inert would have justified excluding them. Constructing a label after learning its stated justification does not hold is precisely the fitted move this project refuses elsewhere.
 **Would revisit if:** someone states a *different*, testable reason for a second label and it survives its own pre-registered test. The CAR label from spec §14 remains legitimate future work on its own merits — it is partially endogenous, being derived from the price series the detector consumes, so it would supplement the occurrence label rather than replace it.
+
+---
+
+## ADR-040: Freshness is measured in sessions, never in wall-clock time
+
+**Context:** Cards need to say how old the bar behind them is. The obvious implementation subtracts dates and thresholds on days.
+**Decision:** Compare the card's `session_date` against `max(session_date)` in `bar`, counted in sessions, with the exchange calendar read from the sessions that exist. Thresholds live in `configs/freshness.json`. A pipeline status of `STALE` or `CORP_ACTION_UNADJUSTED` overrides the freshness verdict, because whether a number can be trusted precedes how recent it is.
+**Rejected:** A `timedelta` against `datetime.now()`. It is wrong every Monday — Friday's close is three calendar days old and zero sessions behind, the freshest data that exists — and wrong again on every exchange holiday, on a calendar no duration encodes. A rule that cries wolf weekly gets ignored, which is worse than not having it.
+**Would revisit if:** the product moves intraday, where "sessions behind" stops being the natural unit and a within-session age becomes meaningful. `test_monday_morning_is_not_stale` asserts the gap is three calendar days and the verdict is still not STALE, so a reintroduced day-based rule fails the build.
+
+---
+
+## ADR-041: The evidence chain is computed on the server, and reports a population it can defend
+
+**Context:** The drawer needed to show the full narrowing, not just the reason counts. Every stage was already computed somewhere.
+**Decision:** Derive the chain in `build_digest` by re-partitioning the counts the reason loop already produces, so the stages are monotonic by construction and cannot disagree with the drawer beside them. The client renders and computes nothing.
+**Rejected:** Using `len(cards)` as the final stage. A card can clear every §7 gate on a move below `MOVED_DISPLAY_THRESHOLD_PCT` and so never enter the `moved` population — the display threshold is a funnel label and has never gated the slate. Folding those in would break monotonicity for a presentation reason; relaxing the invariant to accommodate it would hide a real bug the day one appears. The chain reports `surfaced_from_moved` and names the remainder as `surfaced_below_display_threshold`.
+**Would revisit if:** the display threshold ever gates admission, at which point the two populations coincide and the extra field becomes dead weight.

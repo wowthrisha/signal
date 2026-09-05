@@ -386,6 +386,28 @@ function cardHTML(c, i) {
   </article>`;
 }
 
+function chainHTML(chain) {
+  // Every count comes from the server. Nothing is recomputed here — the chain
+  // is monotonic by construction on the server side, and a JS re-derivation
+  // could disagree with the drawer beside it.
+  const stages = (chain || []).filter((s) => s.count > 0);
+  if (stages.length < 2) return '';
+  const top = stages[0].count;
+  return `
+    <p class="text-[10px] uppercase tracking-[0.2em] text-neutral-600 mb-3">Evidence chain</p>
+    <ol class="space-y-1.5 mb-6">${stages.map((st, i) => `
+      <li class="flex items-baseline gap-3">
+        <span class="num text-xs text-neutral-200 w-8 text-right">${st.count}</span>
+        <span class="text-xs text-neutral-500 flex-1">
+          ${i > 0 ? '<span class="text-neutral-700">&rarr;</span> ' : ''}${st.label}
+        </span>
+        <span class="hidden sm:block w-24 h-1.5 bg-neutral-900 rounded-sm overflow-hidden">
+          <span class="block h-full bg-neutral-700 rounded-sm"
+                style="width:${(st.count / top * 100).toFixed(1)}%"></span>
+        </span>
+      </li>`).join('')}</ol>`;
+}
+
 function filteredHTML(reasons, total) {
   // A Pareto, not a list: the point of the drawer is that one bar dwarfs the
   // others, and a reader should see that before reading any label. Bars are
@@ -512,7 +534,8 @@ function render(d) {
   el('filtered-section').hidden = !hasFiltered;
   if (hasFiltered) {
     el('filtered-count').textContent = d.filtered_count;
-    el('filtered-body').innerHTML = filteredHTML(d.filtered_reasons, d.filtered_count);
+    el('filtered-body').innerHTML =
+      chainHTML(d.evidence_chain) + filteredHTML(d.filtered_reasons, d.filtered_count);
   }
 
   el('ack-btn').disabled = d.cards.length === 0;

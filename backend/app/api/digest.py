@@ -560,6 +560,46 @@ def build_digest(
     # separately so that bucket can be split later without touching ranking.
     del capped
 
+    # --- the evidence chain -------------------------------------------------
+    #
+    # Each stage is a subtraction over the *same* population the reason counter
+    # walks — the symbols in `moves` — which is what makes the chain monotonic
+    # by construction rather than by coincidence:
+    #
+    #     moved = surfaced_from_moved + explained + below_threshold + low_conf
+    #
+    # so stock_specific = moved - explained and confidence_passed =
+    # stock_specific - low_conf, and the final stage is exactly
+    # `surfaced_from_moved + below_threshold`. Nothing here re-derives a
+    # judgement the slate already made; it re-partitions counts the loop above
+    # produced.
+    #
+    # `surfaced_from_moved` is deliberately not `len(cards)`. A card can clear
+    # every gate on a move smaller than MOVED_DISPLAY_THRESHOLD_PCT and so
+    # never enter `moves` at all — the display threshold is a funnel label and
+    # has never gated the slate. Reporting `len(cards)` as the chain's last
+    # stage would then break monotonicity for a reason that is a presentation
+    # artifact, so both numbers are returned and the difference is named.
+    surfaced_from_moved = sum(1 for isin in surfaced if isin in moves)
+    n_moved = len(moves)
+    n_explained = reasons[slate_mod.REASON_EXPLAINED]
+    n_low_conf = reasons[slate_mod.REASON_CONFIDENCE]
+    stock_specific = n_moved - n_explained
+    confidence_passed = stock_specific - n_low_conf
+
+    chain = [
+        {"stage": "moved", "count": n_moved,
+         "label": f"moved more than {MOVED_DISPLAY_THRESHOLD_PCT:g}%"},
+        {"stage": "explained_by_market", "count": n_explained,
+         "label": "explained by market or sector"},
+        {"stage": "stock_specific", "count": stock_specific,
+         "label": "stock-specific candidates"},
+        {"stage": "confidence_passed", "count": confidence_passed,
+         "label": "passed the confidence gate"},
+        {"stage": "surfaced", "count": surfaced_from_moved,
+         "label": "surfaced"},
+    ]
+
     return {
         "since": since.isoformat(),
         "funnel": {
@@ -576,6 +616,10 @@ def build_digest(
         "cursor": cursor,
         "freshness_policy": fresh_mod.Policy.load().as_dict(),
         "latest_session": all_sessions[-1].isoformat() if all_sessions else None,
+        "evidence_chain": chain,
+        # Cards admitted on a move below the display threshold, and therefore
+        # outside the chain's population. Named rather than silently dropped.
+        "surfaced_below_display_threshold": len(cards) - surfaced_from_moved,
     }
 
 
