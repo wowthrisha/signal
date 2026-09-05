@@ -2714,3 +2714,43 @@ funnel: {'watched': 30, 'moved': 22, 'surfaced': 4} | all_cards_lack_evidence: F
 and IFCI have no filing on their own session — IFCI's announcements are dated
 2026-09-03 while its card is 2026-09-02, so they do not attach. Both are Tier C,
 "unusual movement, no known cause", and the empty state is the accurate one.
+
+## [U14.7] Live verification from the deployed endpoint — PASS
+
+```
+all_cards_lack_evidence : False
+cards with evidence     : 2 of 4
+
+ANANTRAJ    0 filings   (none — Tier C, no known cause)
+COALINDIA   4 filings
+    PRECEDES                 linkable=True
+    PRECEDES                 linkable=True
+    SAME_SESSION_UNORDERED   linkable=True
+    PRECEDES                 linkable=True
+IFCI        0 filings   (none — Tier C, no known cause)
+RBLBANK     5 filings
+    SAME_SESSION_UNORDERED   linkable=True
+    PRECEDES                 linkable=True
+    PRECEDES                 linkable=True
+    PRECEDES                 linkable=True
+    SAME_SESSION_UNORDERED   linkable=True
+```
+
+**Permalinks resolve to real documents.** A bare `curl` returns HTTP 000, which
+looked like a broken link until it was checked properly — it is NSE blocking
+non-browser clients, already on the register as R-02. With the browser headers
+the ingest itself uses:
+
+```
+full URL: https://nsearchives.nseindia.com/corporate/COALINDIA_30062026132407_Press_Release.pdf
+  bare curl                    : HTTP 000
+  browser headers + referer    : HTTP 200  bytes 420040  type application/pdf
+```
+
+420 KB of PDF. The stored URLs are complete `.pdf` paths; the truncation in the
+first report was a 62-character slice in the reporting script, not in the data.
+
+Nine of the nine filings across the two cards are `PRECEDES` or
+`SAME_SESSION_UNORDERED` — **zero `FOLLOWS`**, consistent with R-28: a
+post-close announcement attaches to the next session, so this path cannot
+produce one.
