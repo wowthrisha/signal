@@ -32,6 +32,11 @@ services:
     volumes:
       - ./backend:/app
       - ./data:/data
+      # Signal Lab reads these at request time instead of embedding numbers in
+      # its template. The deployment image COPYs them; compose mounts them so a
+      # regenerated benchmark shows up without a rebuild.
+      - ./results:/results:ro
+      - ./ops:/ops:ro
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:

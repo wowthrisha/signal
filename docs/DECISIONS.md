@@ -711,3 +711,23 @@ Fuzzy admits 27 more alerts and finds **no additional ground-truth positives** �
 The deeper objection is that a fitted model here cannot be validated. Nine held-out sessions in the calmest regime of the corpus (ADR-038) will not distinguish a real improvement from an artefact, and an unvalidatable fitted model is a liability under questioning in a way that a published rule table is not: every ANFIS parameter would be a number nobody could justify, which is exactly the position ADR-030 rejected a weighted sum to avoid.
 
 **Would revisit if:** a relevance label with enough sessions to validate against exists. Both conditions, not either.
+
+---
+
+## ADR-048: A narrow palette, with amber reserved for stock-specific attention
+
+**Context:** Colour had accumulated ad hoc — three tier hues, two greens, a rose, a dozen greys, six hex literals loose in the markup. Every addition was individually reasonable and the total was noise.
+
+**Decision:** One `:root` block of design tokens, and a test asserting no hex literal exists outside it. Colour is assigned semantically, not decoratively:
+
+- **Amber** appears on the stock-specific bar, the tier dot, and the attention count. Nowhere else.
+- **Cyan** appears on evidence blocks and source links. Nowhere else.
+- **Market and sector bars stay grey.** This is the load-bearing choice: the contrast between two quiet grey bars and one amber one *is* the product's argument, rendered rather than described. If everything glows, nothing is signal.
+
+**Rejected: three tier colours.** Red/orange/yellow dots spent the entire warning range on a distinction the tier pill already makes in text. One amber dot plus the letter says the same thing and leaves the accent meaning one thing.
+
+**Rejected, again and deliberately: green/red for price direction.** It was removed earlier and is not coming back. Colouring a move by direction implies a judgement about whether the news is good, which is one step from a recommendation, and §21 says this product does not make them. The sign on the number carries direction. `test_direction_is_not_coloured` now fails the build if `emerald`, `text-green`, `--up` or `--down` reappears.
+
+**Measured, not assumed:** contrast against `--bg` is `--text` 16.34:1, `--text-2` 7.58:1, `--accent` 9.65:1, `--evidence` 10.89:1. `--text-3` is 4.07:1 — adequate for uppercase label runs and **below AA for prose**, so nine sites using it for body copy were moved to `--text-2`. `--neutral` is 2.61:1, below the 3:1 threshold for meaningful graphics; that is deliberate for the market and sector bars, which are meant to recede, and the numbers beside them carry the information.
+
+**Also rejected:** gradients, glow, coloured shadow, animated counters, and hover lift. A card is a surface, not a button; hover changes the ground and nothing else.

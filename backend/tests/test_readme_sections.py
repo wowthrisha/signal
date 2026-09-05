@@ -194,3 +194,48 @@ def test_gr1_is_still_cited_as_prior_art():
     """The narrowing is load-bearing: if the GR-1 citation disappears, the
     novelty claim silently widens again."""
     assert "GR-1" in README.read_text()
+
+
+# --- design tokens ---------------------------------------------------------
+
+STATIC = Path(__file__).resolve().parents[1] / "app" / "static" / "index.html"
+_ROOT_BLOCK = re.compile(r":root \{.*?\n\}", re.S)
+_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+_HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+# HTML entities are `&#9656;`-shaped, not colours.
+_ENTITY = re.compile(r"&#\d+;")
+
+
+def test_no_hex_colour_outside_the_root_token_block():
+    """Every colour resolves to a token. A stray hex is how a palette drifts
+    into eleven greys nobody chose."""
+    text = STATIC.read_text()
+    root = _ROOT_BLOCK.search(text)
+    assert root, ":root token block not found"
+    rest = _COMMENT.sub(" ", text.replace(root.group(0), " "))
+    rest = _ENTITY.sub(" ", rest)
+    offenders = _HEX.findall(rest)
+    assert not offenders, f"hex literals outside :root: {sorted(set(offenders))}"
+
+
+def test_the_hex_guard_would_actually_catch_one():
+    """R-27: prove it fires."""
+    assert _HEX.findall("color: #F5A524;") == ["#F5A524"]
+    assert _HEX.findall("&#9656;") and not _HEX.findall(_ENTITY.sub(" ", "&#9656;"))
+
+
+def test_no_tailwind_palette_class_survives():
+    text = _COMMENT.sub(" ", STATIC.read_text())
+    found = re.findall(
+        r"(?:bg|text|border|ring)-(?:neutral|amber|rose|emerald|cyan|red|orange|yellow)-\d+",
+        text)
+    assert not found, f"un-migrated Tailwind colour classes: {sorted(set(found))}"
+
+
+def test_direction_is_not_coloured():
+    """Green/red on a return implies a judgement about whether the news is
+    good, which is one step from a recommendation. Removed deliberately; this
+    stops it coming back."""
+    text = STATIC.read_text()
+    for banned in ("emerald", "text-green", "--up", "--down", "positive-green"):
+        assert banned not in text, f"direction colouring reintroduced: {banned}"

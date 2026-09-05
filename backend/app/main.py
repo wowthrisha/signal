@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 
 from app.api import digest as digest_api
 from app.api import health as health_api
+from app.api import lab as lab_api
 from app.api import watchlist as watchlist_api
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ INDEX_HTML = STATIC_DIR / "index.html"
 app = FastAPI(title="Signal", version="0.1.0")
 app.include_router(digest_api.router)
 app.include_router(health_api.router)
+app.include_router(lab_api.router)
 app.include_router(watchlist_api.router)
 
 

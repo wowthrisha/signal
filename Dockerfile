@@ -12,6 +12,11 @@ COPY configs/ /configs/
 COPY scripts/ /scripts/
 COPY data/demo_seed.sql.gz /data/demo_seed.sql.gz
 
+# Signal Lab renders these at request time rather than embedding numbers in its
+# template, so the image needs them. Both are small, committed text.
+COPY results/ /results/
+COPY ops/ /ops/
+
 # Thresholds resolve to parents[3]/configs from app/engine/pipeline.py, which
 # is /configs here. Kept as a copy rather than a mount so the image is
 # self-contained.

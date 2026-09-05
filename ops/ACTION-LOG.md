@@ -2306,3 +2306,103 @@ repository, benchmarked and losing.
 $ python -m pytest tests/test_fuzzy_policy.py -q
 18 passed in 0.05s
 ```
+
+---
+
+# [U12] Design tokens, typography, card hierarchy, Signal Lab — 2026-09-05
+
+## [U12.1] Tasks 1-2 — tokens and contrast — PASS
+
+All colour moved into one `:root` block. Migration verified structurally:
+
+```
+hex outside :root: NONE
+tailwind colours : NONE
+```
+
+Contrast computed from the tokens with the WCAG 2.1 relative-luminance
+formula, not eyeballed:
+
+```
+token         hex        ratio vs --bg   AA body 4.5:1   AA large 3:1
+--text        #E8EAED           16.34:1   PASS            PASS
+--text-2      #9BA1AC            7.58:1   PASS            PASS
+--text-3      #6B7280            4.07:1   fail            PASS
+--accent      #F5A524            9.65:1   PASS            PASS
+--evidence    #22D3EE           10.89:1   PASS            PASS
+--warn        #F59E0B            9.17:1   PASS            PASS
+--neutral     #4B5563            2.61:1   fail            fail
+--focus       #22D3EE           10.89:1   PASS            PASS
+```
+
+**Two findings, both fixed rather than noted:**
+
+1. `--text-3` at 4.07:1 was being used for prose in **nine** places — the
+   funnel subline, the footer disclaimer, the filter toggle, the evidence
+   note, the temporal note, the funnel labels. At 12-15px that is below AA.
+   All nine moved to `--text-2` (7.58:1). `--text-3` is now labels only, and
+   the token carries a comment saying so.
+2. `--neutral` at 2.61:1 is below the 3:1 threshold for meaningful graphics.
+   Left as specified and disclosed: the market and sector bars are *meant* to
+   recede, and the percentages beside them carry the information rather than
+   the bar doing it alone.
+
+Tier dots collapsed from three hues to one amber dot; the tier letter is
+carried by the pill beside it, so the accent keeps meaning one thing.
+
+## [U12.2] Task 3 — card hierarchy — PASS
+
+Card is a `--surface` with a 1px `--border`, 24px padding, 16px gap. Hover
+changes the ground to `--surface-2` — no lift, no shadow, no scale. Funnel sits
+in its own surface above the cards with the subline beneath. Evidence block and
+source link are cyan; the source link is the only cyan-bordered pill on the
+page.
+
+## [U12.3] Task 4 — Signal Lab — PASS, after a real deployment bug
+
+```
+$ curl -s -o /tmp/lab.html -w "%{http_code} %{size_download}B" localhost:8000/lab
+200 14312B
+  B2-fuzzy   : True    R-01 : True
+  CHALLENGER : True    R-29 : True
+```
+
+**First attempt rendered an empty page (3,938B) and it was not obvious why.**
+Diagnosed rather than guessed:
+
+```
+$ docker compose exec api python -c "..."
+parents[3] = /
+results exists: False
+```
+
+`lab.py` resolved artifacts by walking up three parents, which is correct in a
+checkout but wrong in the container — compose mounts `backend/` at `/app`, so
+the repository root is not above the module. Fixed in both directions: the
+deployment image now `COPY`s `results/` and `ops/`, compose mounts them
+read-only so a regenerated benchmark appears without a rebuild, and
+`_artifact_root` tries the checkout first so a developer's edits win over
+whatever was baked in.
+
+Worth recording: the page failed **silently**, showing "no artifact" text that
+looked like a legitimate empty state. Logged as R-30.
+
+## [U12.4] Guards, and one sharpened rather than widened
+
+```
+$ python -m pytest tests/test_lab.py -q
+8 passed
+```
+
+`test_the_lab_module_contains_no_data_constant` initially failed on `7` — the
+column count of a risk-register row. That is declared structure, not a figure.
+Rather than widen the allow-list, the guard now ignores numbers assigned to a
+module-level UPPERCASE name (`RISK_ROW_COLUMNS = 7`), which a reviewer can see
+and argue with, while still catching a figure typed inline into markup. Both
+behaviours are asserted, per R-27.
+
+New guards: no hex outside `:root`, no surviving Tailwind palette class, and
+`test_direction_is_not_coloured`, which fails if `emerald`, `text-green`,
+`--up` or `--down` reappears.
+
+Full suite: `355 passed, 2 skipped, 1 xfailed in 287.84s`.

@@ -6,34 +6,147 @@
 <title>Signal — Since You Last Looked</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  /* Numbers are tabular so a column of percentages lines up on the decimal
-     point and can be scanned vertically. This is the whole reason the digest
-     is readable at a glance rather than being a list of sentences. */
-  /* Mono is for figures and section labels only. Body copy and headlines sit
-     in the system sans stack, because letterspaced mono prose is a costume,
-     not a typeface choice. */
-  .num { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-         font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-  /* Every numeric column aligns on the decimal, so a column of percentages can
-     be scanned vertically. This is the reason the digest reads at a glance. */
-  table, .figures, [class*="num"] { font-variant-numeric: tabular-nums; }
-  .label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-           text-transform: uppercase; letter-spacing: 0.2em; font-size: 10px; }
-  body { background: #0a0a0b; }
-  .card-in { animation: rise .35s cubic-bezier(.2,.8,.2,1) both; }
-  @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+/* ---------------------------------------------------------------------------
+   Design tokens. Every colour in this document resolves to one of these; a
+   test asserts no hex literal appears outside this block, so a stray value
+   cannot drift in later.
+
+   The palette is deliberately narrow. Amber marks stock-specific movement and
+   nothing else, cyan marks provenance and nothing else, and everything the
+   engine explained away stays grey. That contrast — one amber bar beside two
+   quiet grey ones — is the product's argument rendered rather than described.
+   If everything glows, nothing is signal.
+
+   Direction is NOT coloured. Green/red on a return implies a judgement about
+   whether the news is good, which is one step from a recommendation, and §21
+   says this product does not make them. The sign on the number carries
+   direction; nothing else needs to.
+   --------------------------------------------------------------------------- */
+:root {
+  /* Near-black rather than pure black: #000 under high-chroma accents causes
+     halation on OLED, where the accent appears to bleed into the ground. */
+  --bg:         #0A0B0D;
+  --surface:    #131519;
+  --surface-2:  #1A1D23;
+  --border:     #262A32;
+
+  --text:       #E8EAED;   /* body and figures */
+  --text-2:     #9BA1AC;   /* secondary prose */
+  --text-3:     #6B7280;   /* labels only, never body copy */
+
+  --accent:     #F5A524;   /* stock-specific, tier dot, attention count */
+  --accent-dim: #7A5312;   /* the muted track behind an amber bar */
+  --evidence:   #22D3EE;   /* evidence, provenance, source links */
+  --neutral:    #4B5563;   /* market and sector bars — deliberately quiet */
+  --warn:       #F59E0B;   /* stale, unadjusted, low confidence */
+  --focus:      #22D3EE;
+
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --step: 8px;             /* vertical rhythm */
+  --card-pad: 24px;
+  --card-gap: 16px;
+  --content: 1120px;
+  --rail: 280px;
+}
+
+html { background: var(--bg); }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+/* Figures are mono and tabular so a column of percentages aligns on the
+   decimal and can be scanned vertically. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  line-height: 1.1;
+}
+.label {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+
+.t1 { color: var(--text); }
+.t2 { color: var(--text-2); }
+/* 4.07:1 on --bg. Adequate for uppercase label runs, BELOW AA for prose at
+   this size — so `.t3` is reserved for `.label`-style text and section
+   captions, and body copy uses `.t2` at 7.58:1. Audited, not assumed. */
+.t3 { color: var(--text-3); }
+.accent { color: var(--accent); }
+.evidence-fg { color: var(--evidence); }
+.warn-fg { color: var(--warn); }
+
+.surface   { background: var(--surface); border: 1px solid var(--border); }
+.surface-2 { background: var(--surface-2); }
+.bd  { border-color: var(--border); }
+.bdt { border-top: 1px solid var(--border); }
+.bdb { border-bottom: 1px solid var(--border); }
+.bdl { border-left: 1px solid var(--border); }
+
+/* Hover changes the ground only. No lift, no shadow, no scale — a card is a
+   surface, not a button. */
+.card { background: var(--surface); border: 1px solid var(--border);
+        border-radius: 8px; padding: var(--card-pad);
+        margin-bottom: var(--card-gap); transition: background .12s ease; }
+.card:hover { background: var(--surface-2); }
+
+.figure-xl { font-size: 2.75rem; font-weight: 600; line-height: 1.1; }
+.figure-lg { font-size: 1.5rem;  font-weight: 600; line-height: 1.1; }
+.symbol    { font-size: 1.25rem; font-weight: 600; line-height: 1.1; }
+
+/* Bars. The track is near-invisible; the fill carries the meaning. */
+.bar-track  { background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+.bar-accent { background: var(--accent); }
+.bar-quiet  { background: var(--neutral); }
+.bar-dim    { background: var(--accent-dim); }
+
+.dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent); }
+
+.pill { border: 1px solid var(--border); border-radius: 4px;
+        padding: 2px 6px; font-family: var(--mono); font-size: 0.6875rem;
+        text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+.pill-accent { color: var(--accent); }
+.pill-warn   { color: var(--warn); }
+
+/* Every interactive element clears a 44px touch target and keeps a visible
+   focus ring. The ring is never removed — :focus-visible only narrows when it
+   is shown, not whether it exists. */
+button, a, input, [role="button"] { min-height: 44px; }
+.tap { min-height: 44px; display: inline-flex; align-items: center; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+input {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px;
+}
+input::placeholder { color: var(--text-3); }
+
+.card-in { animation: rise .35s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 </style>
 </head>
-<body class="text-neutral-200 antialiased pb-24">
+<body class="t1 antialiased pb-24">
 
-<div class="mx-auto max-w-[1100px] px-6 py-10">
+<div class="mx-auto px-6" style="max-width:var(--content);padding-top:32px;padding-bottom:32px">
 
   <!-- 1. Header -->
-  <header class="border-b border-neutral-800 pb-6 mb-8">
-    <h1 class="text-xs tracking-[0.35em] text-neutral-500 font-medium">SINCE YOU LAST LOOKED</h1>
-    <p class="mt-2 text-neutral-400 text-sm">
+  <header class="border-b bd pb-6 mb-8">
+    <h1 class="text-xs tracking-[0.35em] t3 font-medium">SINCE YOU LAST LOOKED</h1>
+    <p class="mt-2 t2 text-sm">
       Movements on your watchlist since
-      <span id="since" class="num text-neutral-100">—</span>
+      <span id="since" class="num t1">—</span>
     </p>
   </header>
 
@@ -41,28 +154,28 @@
   <!-- Two columns on desktop, stacked on mobile. The watchlist is the only
        editable state on the page, so it gets its own rail rather than sitting
        above the cards and pushing them below the fold. -->
-  <div class="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-10 items-start">
+  <div class="grid grid-cols-1 lg:grid-cols-[var(--rail)_minmax(0,1fr)] gap-10 items-start">
 
   <!-- LEFT RAIL -->
   <aside class="lg:sticky lg:top-8">
-    <h2 class="text-[10px] uppercase tracking-[0.2em] text-neutral-600 mb-3">Watchlist</h2>
+    <h2 class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">Watchlist</h2>
     <div class="flex items-center gap-2">
       <input id="add-input" type="text" placeholder="Add a symbol — e.g. TCS"
              autocomplete="off" spellcheck="false"
-             class="num flex-1 bg-neutral-900 border border-neutral-800 rounded
-                    px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600
-                    focus:outline-none focus:border-neutral-600 uppercase">
+             class="num flex-1 surface-2 border bd rounded
+                    px-3 py-2 text-sm t1 placeholder:t3
+                    uppercase">
       <button id="add-btn"
-              class="text-sm px-4 py-2 rounded border border-neutral-700
-                     text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100
+              class="text-sm px-4 py-2 rounded border bd
+                     t2 hover:surface-2 hover:t1
                      transition-colors">Add</button>
     </div>
-    <p id="add-error" class="hidden mt-2 text-xs text-rose-400"></p>
+    <p id="add-error" class="hidden mt-2 text-xs warn-fg"></p>
     <div class="mt-4 flex items-center justify-between">
-      <span id="wl-count" class="num text-[10px] text-neutral-700"></span>
+      <span id="wl-count" class="num text-[10px] t3"></span>
       <button id="mute-toggle"
-              class="text-[10px] uppercase tracking-wider text-neutral-700
-                     hover:text-neutral-400 transition-colors">show muted</button>
+              class="text-[10px] uppercase tracking-wider t3
+                     hover:t2 transition-colors">show muted</button>
     </div>
     <!-- Capped and scrollable: 30-plus chips must never out-run the card
          column, which is what left the dead space on the right. -->
@@ -75,20 +188,20 @@
   <main class="min-w-0">
 
   <!-- 2. THE FUNNEL LINE -->
-  <section class="pb-10 border-b border-neutral-800">
-    <div id="funnel" class="num text-[2.5rem] leading-[1.15] tracking-tight">
-      <span class="text-neutral-600">loading…</span>
+  <section class="surface rounded-lg mb-6" style="padding:var(--card-pad)">
+    <div id="funnel" class="num figure-xl tracking-tight">
+      <span class="t2">loading…</span>
     </div>
     <div class="mt-5 flex items-center gap-4">
       <button id="ack-btn"
-              class="text-xs px-3 py-1.5 rounded border border-neutral-700
-                     text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100
+              class="text-xs px-3 py-1.5 rounded border bd
+                     t2 hover:surface-2 hover:t1
                      transition-colors disabled:opacity-30
                      disabled:hover:bg-transparent">Mark all as seen</button>
-      <span id="cursor-state" class="num text-[11px] text-neutral-700"></span>
+      <span id="cursor-state" class="num text-[11px] t3"></span>
     </div>
-    <p id="funnel-sub" class="mt-3 text-sm text-neutral-500"></p>
-    <p class="mt-4 text-xs text-neutral-600 max-w-lg leading-relaxed">
+    <p id="funnel-sub" class="mt-3 text-sm t2"></p>
+    <p class="mt-4 text-xs t2 max-w-lg leading-relaxed">
       Movement is measured close-to-close. Attention is what survives
       attribution against the market and sector, the instrument's own history,
       and a confidence gate.
@@ -97,17 +210,17 @@
 
   <!-- 3. Cards -->
   <div id="api-banner" hidden
-       class="mb-4 rounded border border-amber-900/60 bg-amber-950/30 px-3 py-2
-              text-xs text-amber-300/90"></div>
+       class="mb-4 rounded border bd surface-2 px-3 py-2
+              text-xs accent"></div>
   <section id="cards"></section>
 
   <!-- 4. Filtered, collapsed -->
   <section id="filtered-section" class="mt-8" hidden>
     <button id="filtered-toggle"
-            class="w-full text-left text-sm text-neutral-500 hover:text-neutral-300
-                   transition-colors py-3 border-t border-neutral-800 flex items-center gap-2">
-      <span id="chev" class="inline-block transition-transform text-neutral-600">▸</span>
-      <span>We filtered <span id="filtered-count" class="num text-neutral-300">0</span> other movements</span>
+            class="w-full text-left text-sm t2 hover:t1
+                   transition-colors py-3 border-t bd flex items-center gap-2">
+      <span id="chev" class="inline-block transition-transform t3">▸</span>
+      <span>We filtered <span id="filtered-count" class="num t2">0</span> other movements</span>
     </button>
     <div id="filtered-body" class="hidden pb-5 pl-5 pt-1"></div>
   </section>
@@ -117,10 +230,11 @@
 </div>
 
 <!-- 5. Persistent footer -->
-<footer class="fixed bottom-0 inset-x-0 border-t border-neutral-800 bg-[#0a0a0b]/95 backdrop-blur">
-  <p class="mx-auto max-w-3xl px-6 py-3 text-[11px] leading-relaxed text-neutral-500">
+<footer class="fixed bottom-0 inset-x-0 border-t bd backdrop-blur" style="background:var(--bg)">
+  <p class="mx-auto max-w-3xl px-6 py-3 text-[11px] leading-relaxed t2">
     Signal surfaces information about what changed.
     It does not provide investment advice.
+    <a href="/lab" class="evidence-fg" style="margin-left:12px">Signal Lab &rarr;</a>
   </p>
 </footer>
 
@@ -128,12 +242,13 @@
 // Tier is a gate, not a score (spec §7), so the colour is a category label —
 // three distinct hues, never a gradient that would imply an ordering by degree.
 const TIER = {
-  A: { dot: '#ef4444', ring: 'ring-red-500/30',    text: 'text-red-400',
-       label: 'Material event, unusual move' },
-  B: { dot: '#f97316', ring: 'ring-orange-500/30', text: 'text-orange-400',
-       label: 'Material event' },
-  C: { dot: '#eab308', ring: 'ring-yellow-500/30', text: 'text-yellow-400',
-       label: 'Unusual move, no known cause' },
+  // One accent, not three. Amber marks "this is the thing to look at"; the
+  // tier letter is carried by the pill beside it, so the dot does not need to
+  // encode it too. Three shades of warning would spend the whole palette on a
+  // distinction the text already makes.
+  A: { label: 'Material event, unusual move' },
+  B: { label: 'Material event' },
+  C: { label: 'Unusual move, no known cause' },
 };
 const REASONS = {
   explained_by_market: 'Explained by market/sector',
@@ -195,14 +310,14 @@ function sinceLabel(iso) {
 function funnelHTML(f) {
   // The three numbers are the argument: most of what moved was not worth
   // saying. Rendering them on one line is what makes that legible.
-  const sep = '<span class="text-neutral-700 mx-3">·</span>';
+  const sep = '<span class="t3 mx-3">·</span>';
   return [
-    `<span class="text-neutral-100">${f.watched}</span>
-     <span class="text-neutral-500 text-[0.85rem]">watched</span>`,
-    `<span class="text-neutral-100">${f.moved}</span>
-     <span class="text-neutral-500 text-[0.85rem]">moved</span>`,
+    `<span class="t1">${f.watched}</span>
+     <span class="t2 text-[0.85rem]">watched</span>`,
+    `<span class="t1">${f.moved}</span>
+     <span class="t2 text-[0.85rem]">moved</span>`,
     `<span class="text-white font-semibold">${f.surfaced}</span>
-     <span class="text-neutral-300 text-[0.85rem]">deserve your attention</span>`,
+     <span class="t2 text-[0.85rem]">deserve your attention</span>`,
   ].join(sep);
 }
 
@@ -214,7 +329,7 @@ function confidenceDots(c) {
   let out = '';
   for (let i = 0; i < 5; i++) {
     out += `<span class="inline-block w-1.5 h-1.5 rounded-full ${
-      i < filled ? 'bg-neutral-400' : 'bg-neutral-800'}"></span>`;
+      i < filled ? 'bar-quiet' : 'bar-track'}"></span>`;
   }
   return `<span class="flex gap-1 items-center" title="confidence ${(c ?? 0).toFixed(2)}">${out}</span>`;
 }
@@ -234,10 +349,10 @@ const TIER_SOURCE = { 1: 'Exchange', 2: 'Company IR', 3: 'Regulator' };
 // document explains the move, and FOLLOWS in particular must read as a
 // disclaimer rather than as a cause.
 const TEMPORAL = {
-  PRECEDES:               { text: 'text-neutral-400',   label: 'Published before the move' },
-  SAME_SESSION_UNORDERED: { text: 'text-neutral-500',   label: 'Same session; ordering unknown' },
-  FOLLOWS:                { text: 'text-amber-500/80',  label: 'Published after the move' },
-  UNKNOWN:                { text: 'text-neutral-600',   label: 'Timing unknown' },
+  PRECEDES:               { text: 't2',   label: 'Published before the move' },
+  SAME_SESSION_UNORDERED: { text: 't3',   label: 'Same session; ordering unknown' },
+  FOLLOWS:                { text: 'accent',  label: 'Published after the move' },
+  UNKNOWN:                { text: 't3',   label: 'Timing unknown' },
 };
 
 function temporalHTML(e) {
@@ -249,7 +364,7 @@ function temporalHTML(e) {
       : 'Ordering only. Signal does not claim this document caused the move.';
   return `
     <p class="mt-1 text-[11px] ${t.text}">${t.label}</p>
-    <p class="text-[11px] text-neutral-700 leading-snug">${note}</p>`;
+    <p class="text-[11px] t2 leading-snug">${note}</p>`;
 }
 
 function evidenceHTML(c) {
@@ -260,36 +375,34 @@ function evidenceHTML(c) {
   const ev = c.evidence || [];
   if (!ev.length) {
     return `
-      <div class="mt-4 pt-3 border-t border-neutral-900">
-        <p class="text-[10px] uppercase tracking-[0.2em] text-neutral-700">Evidence</p>
-        <p class="mt-1.5 text-xs text-neutral-600">
+      <div class="mt-4 pt-3 border-t bd">
+        <p class="text-[10px] uppercase tracking-[0.2em] t3">Evidence</p>
+        <p class="mt-1.5 text-xs t2">
           No corroborating event found. This movement was detected from price
           alone.
         </p>
       </div>`;
   }
   return `
-    <div class="mt-4 pt-3 border-t border-neutral-900">
-      <p class="text-[10px] uppercase tracking-[0.2em] text-neutral-700 mb-2">Evidence</p>
+    <div class="mt-4 pt-3 border-t bd">
+      <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-2">Evidence</p>
       ${ev.map((e) => `
         <div class="mb-2 last:mb-0">
-          <p class="text-xs text-neutral-300">${e.title}</p>
-          <p class="num mt-1 text-[11px] text-neutral-600">
+          <p class="text-xs t1">${e.title}</p>
+          <p class="num mt-1 text-[11px] t3">
             ${e.source_name} · ${e.document_type}
             · tier ${e.source_tier} ${TIER_SOURCE[e.source_tier] || ''}
           </p>
-          <p class="num mt-0.5 text-[11px] text-neutral-700">
+          <p class="num mt-0.5 text-[11px] t3">
             published ${e.published_at.slice(0, 10)}
-            <span class="text-neutral-800">(${e.published_at_basis.toLowerCase().replace('_', ' ')})</span>
+            <span class="t3">(${e.published_at_basis.toLowerCase().replace('_', ' ')})</span>
             · retrieved ${e.retrieved_at.slice(0, 10)}
           </p>
           ${temporalHTML(e)}
           ${e.linkable
             ? `<a href="${e.url}" target="_blank" rel="noopener noreferrer"
-                  class="inline-block mt-1.5 text-[10px] uppercase tracking-widest
-                         text-neutral-400 hover:text-neutral-100 border border-neutral-800
-                         rounded px-1.5 py-0.5 transition-colors">View original &nearr;</a>`
-            : `<p class="mt-1.5 text-[11px] text-neutral-700">
+                  class="tap mt-1.5 pill" style="color:var(--evidence);border-color:var(--evidence)">View original &nearr;</a>`
+            : `<p class="mt-1.5 text-[11px] t3">
                  Structured exchange record — no per-document link published.
                </p>`}
         </div>`).join('')}
@@ -300,35 +413,35 @@ function whyHTML(c, i) {
   // Every row reads a stored field. Nothing is inferred, nothing is generated,
   // and a null renders as "not available" — a guess here would undo the point
   // of storing the trace in the first place.
-  const na = '<span class="text-neutral-700">not available</span>';
+  const na = '<span class="t3">not available</span>';
   const u = (c.u_score === null || c.u_score === undefined)
     ? na
-    : `more extreme than <span class="num text-neutral-100">${(c.u_score * 100).toFixed(1)}%</span> of its own recent history`;
+    : `more extreme than <span class="num t1">${(c.u_score * 100).toFixed(1)}%</span> of its own recent history`;
   const imp = (c.i_score === null || c.i_score === undefined) ? na
     : c.i_score >= 2
       ? `${(c.event_type || 'event').toLowerCase().replace('_', ' ')} <span class="num">(I=${c.i_score})</span>`
       : `<span class="num">I=${c.i_score}</span> — no material event on file`;
   const resid = (c.residual_pct === null || c.residual_pct === undefined) ? na
-    : `residual <span class="num text-neutral-100">${fmtPct(c.residual_pct)}</span> vs sector <span class="num">${
+    : `residual <span class="num t1">${fmtPct(c.residual_pct)}</span> vs sector <span class="num">${
         c.sector_only_pct === null || c.sector_only_pct === undefined ? '—' : fmtPct(c.sector_only_pct)}</span>`;
   const conf = (c.confidence === null || c.confidence === undefined) ? na
-    : `<span class="num text-neutral-100">${c.confidence.toFixed(2)}</span>`;
+    : `<span class="num t1">${c.confidence.toFixed(2)}</span>`;
   const admitted = TIER_MEANING[c.tier]
-    ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num text-neutral-600">· ${c.gate}</span>` : ''}`
+    ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num t3">· ${c.gate}</span>` : ''}`
     : na;
 
   const row = (k, v) => `
-    <div class="flex gap-3 py-1.5 border-b border-neutral-900 last:border-0">
-      <span class="text-[10px] uppercase tracking-wider text-neutral-600 w-28 shrink-0 pt-0.5">${k}</span>
-      <span class="text-xs text-neutral-400 flex-1">${v}</span>
+    <div class="flex gap-3 py-1.5 border-b bd last:border-0">
+      <span class="text-[10px] uppercase tracking-wider t3 w-28 shrink-0 pt-0.5">${k}</span>
+      <span class="text-xs t2 flex-1">${v}</span>
     </div>`;
 
   return `
     <button data-why="${i}"
-            class="mt-4 text-[11px] text-neutral-600 hover:text-neutral-300 transition-colors">
+            class="mt-4 text-[11px] t3 hover:t2 transition-colors">
       <span class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
     </button>
-    <div data-whybody="${i}" hidden class="mt-2 pl-3 border-l border-neutral-800">
+    <div data-whybody="${i}" hidden class="mt-2 pl-3 border-l bd">
       ${row('Unusual', u)}
       ${row('Material', imp)}
       ${row('Stock-specific', resid)}
@@ -341,11 +454,11 @@ function whyHTML(c, i) {
 // The client renders it and does not recompute it — a JS date subtraction would
 // reintroduce exactly the Monday-morning bug the server avoids.
 const FRESHNESS = {
-  FRESH:   { text: 'text-neutral-600', label: 'FRESH' },
-  DELAYED: { text: 'text-amber-500/80', label: 'DELAYED' },
-  STALE:   { text: 'text-rose-400/80', label: 'STALE' },
-  UNKNOWN: { text: 'text-neutral-700', label: 'AGE UNKNOWN' },
-  CORP_ACTION_UNADJUSTED: { text: 'text-rose-400/80', label: 'UNADJUSTED CORP ACTION' },
+  FRESH:   { text: 't3', label: 'FRESH' },
+  DELAYED: { text: 'accent', label: 'DELAYED' },
+  STALE:   { text: 'warn-fg', label: 'STALE' },
+  UNKNOWN: { text: 't3', label: 'AGE UNKNOWN' },
+  CORP_ACTION_UNADJUSTED: { text: 'warn-fg', label: 'UNADJUSTED CORP ACTION' },
 };
 
 function freshnessBadge(c) {
@@ -373,7 +486,7 @@ function decompositionHTML(c) {
   ];
   const known = parts.filter((p) => p.v !== null && p.v !== undefined);
   if (!known.length) {
-    return `<p class="mt-4 text-xs text-neutral-600">Decomposition not available</p>`;
+    return `<p class="mt-4 text-xs t3">Decomposition not available</p>`;
   }
   // Widths are proportional to absolute contribution, so a large negative
   // component reads as large. Sign is carried by the number, not the bar.
@@ -383,17 +496,17 @@ function decompositionHTML(c) {
     if (p.v === null || p.v === undefined) {
       return `
       <div class="flex items-center gap-3">
-        <span class="text-[11px] text-neutral-500 w-28 shrink-0">${p.label}</span>
-        <span class="num text-xs text-neutral-700 w-16 text-right">not available</span>
+        <span class="text-[11px] t3 w-28 shrink-0">${p.label}</span>
+        <span class="num text-xs t3 w-16 text-right">not available</span>
       </div>`;
     }
     const w = max ? (Math.abs(p.v) / max * 100).toFixed(1) : 0;
     return `
       <div class="flex items-center gap-3">
-        <span class="text-[11px] ${p.accent ? 'text-neutral-300' : 'text-neutral-500'} w-28 shrink-0">${p.label}</span>
-        <span class="num text-xs ${p.accent ? 'text-neutral-100 font-medium' : 'text-neutral-400'} w-16 text-right">${fmtPct(p.v)}</span>
-        <span class="flex-1 h-2 bg-neutral-900 rounded-sm overflow-hidden">
-          <span class="block h-full rounded-sm ${p.accent ? 'bg-amber-500/80' : 'bg-neutral-700'}"
+        <span class="text-[11px] ${p.accent ? 't2' : 't3'} w-28 shrink-0">${p.label}</span>
+        <span class="num text-xs ${p.accent ? 't1 font-medium' : 't2'} w-16 text-right">${fmtPct(p.v)}</span>
+        <span class="flex-1 h-2 surface-2 rounded-sm overflow-hidden">
+          <span class="block h-full rounded-sm ${p.accent ? 'bar-accent' : 'bar-quiet'}"
                 style="width:${w}%"></span>
         </span>
       </div>`;
@@ -409,14 +522,13 @@ function decompositionHTML(c) {
 
   return `
     <div class="mt-4 space-y-1.5">${rows}</div>
-    <p class="mt-3 text-[11px] uppercase tracking-[0.15em] ${strong ? 'text-amber-400/90' : 'text-neutral-500'}">
+    <p class="mt-3 text-[11px] uppercase tracking-[0.15em] ${strong ? 'accent' : 't3'}">
       &rarr; ${verdict}
     </p>`;
 }
 
 function cardHTML(c, i) {
-  const t = TIER[c.tier] || { dot: '#737373', ring: 'ring-neutral-700',
-                              text: 'text-neutral-400', label: c.tier };
+  const t = TIER[c.tier] || { label: c.tier };
   // Deliberately no green/red on the return. Colouring a move by direction
   // implies a judgement about whether it is good news, which is one step from
   // a recommendation — and this product does not make them. Direction is
@@ -424,40 +536,37 @@ function cardHTML(c, i) {
   const uPct = c.u_score === null ? null : (c.u_score * 100).toFixed(1);
 
   return `
-  <article class="my-4 p-5 rounded-lg border border-neutral-800 bg-neutral-950/40 card-in"
-           style="animation-delay:${i * 45}ms">
+  <article class="card card-in" style="animation-delay:${i * 45}ms">
     <div class="flex items-baseline justify-between gap-4">
       <div class="flex items-center gap-2.5 min-w-0">
-        <span class="w-2 h-2 rounded-full shrink-0"
-              style="background:${t.dot}" title="${t.label}"></span>
-        <h2 class="num text-xl font-semibold text-neutral-100 tracking-wide truncate">${c.symbol}</h2>
+        <span class="dot shrink-0" title="${t.label}"></span>
+        <h2 class="num symbol t1 tracking-wide truncate">${c.symbol}</h2>
       </div>
-      <div class="num text-2xl font-semibold text-neutral-100 shrink-0">${fmtPct(c.total_return_pct)}</div>
+      <div class="num figure-lg t1 shrink-0">${fmtPct(c.total_return_pct)}</div>
     </div>
 
     <div class="mt-2 flex flex-wrap items-center gap-2 text-[10px]">
       <span class="uppercase tracking-widest ${t.text} border border-current/30
                    rounded px-1.5 py-0.5">Tier ${c.tier}</span>
-      ${c.event_type ? `<span class="uppercase tracking-widest text-neutral-500 border
-                   border-neutral-800 rounded px-1.5 py-0.5">${c.event_type.replace('_',' ')}</span>` : ''}
-      <span class="num text-neutral-600">conf ${c.confidence === null || c.confidence === undefined
+      ${c.event_type ? `<span class="pill">${c.event_type.replace('_',' ')}</span>` : ''}
+      <span class="num t3">conf ${c.confidence === null || c.confidence === undefined
         ? 'n/a' : c.confidence.toFixed(2)}</span>
-      ${c.session_date ? `<span class="num text-neutral-700">as of ${c.session_date}</span>` : ''}
+      ${c.session_date ? `<span class="num t3">as of ${c.session_date}</span>` : ''}
       ${freshnessBadge(c)}
     </div>
 
     ${decompositionHTML(c)}
 
     ${uPct !== null ? `
-    <p class="mt-4 text-sm text-neutral-300">
+    <p class="mt-4 text-sm t2">
       More extreme than <span class="num text-white">${uPct}%</span>
       of its own recent history
     </p>` : ''}
 
     <div class="mt-3 flex items-center justify-between gap-4">
-      <p class="text-sm text-neutral-500">${c.headline}</p>
+      <p class="text-sm t2">${c.headline}</p>
       <div class="shrink-0 flex items-center gap-2">
-        <span class="text-[10px] uppercase tracking-wider text-neutral-700">conf</span>
+        <span class="text-[10px] uppercase tracking-wider t3">conf</span>
         ${confidenceDots(c.confidence)}
       </div>
     </div>
@@ -474,15 +583,15 @@ function chainHTML(chain) {
   if (stages.length < 2) return '';
   const top = stages[0].count;
   return `
-    <p class="text-[10px] uppercase tracking-[0.2em] text-neutral-600 mb-3">Evidence chain</p>
+    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">Evidence chain</p>
     <ol class="space-y-1.5 mb-6">${stages.map((st, i) => `
       <li class="flex items-baseline gap-3">
-        <span class="num text-xs text-neutral-200 w-8 text-right">${st.count}</span>
-        <span class="text-xs text-neutral-500 flex-1">
-          ${i > 0 ? '<span class="text-neutral-700">&rarr;</span> ' : ''}${st.label}
+        <span class="num text-xs t1 w-8 text-right">${st.count}</span>
+        <span class="text-xs t3 flex-1">
+          ${i > 0 ? '<span class="t3">&rarr;</span> ' : ''}${st.label}
         </span>
-        <span class="hidden sm:block w-24 h-1.5 bg-neutral-900 rounded-sm overflow-hidden">
-          <span class="block h-full bg-neutral-700 rounded-sm"
+        <span class="hidden sm:block w-24 h-1.5 surface-2 rounded-sm overflow-hidden">
+          <span class="block h-full bar-quiet rounded-sm"
                 style="width:${(st.count / top * 100).toFixed(1)}%"></span>
         </span>
       </li>`).join('')}</ol>`;
@@ -496,23 +605,23 @@ function filteredHTML(reasons, total) {
   const rows = Object.entries(reasons)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1]);
-  if (!rows.length) return '<p class="text-sm text-neutral-600">Nothing was filtered.</p>';
+  if (!rows.length) return '<p class="text-sm t3">Nothing was filtered.</p>';
   const max = rows[0][1];
   return `
-    <p class="text-[10px] uppercase tracking-[0.2em] text-neutral-600 mb-3">
+    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">
       Why ${total} movements did not surface
     </p>
     <ul class="space-y-2.5">${rows.map(([k, n]) => `
       <li>
         <div class="flex items-baseline gap-3">
-          <span class="text-xs text-neutral-400 w-44 shrink-0">${REASONS[k] || k}</span>
-          <span class="flex-1 h-2 bg-neutral-900 rounded-sm overflow-hidden">
-            <span class="block h-full bg-neutral-600 rounded-sm"
+          <span class="text-xs t2 w-44 shrink-0">${REASONS[k] || k}</span>
+          <span class="flex-1 h-2 surface-2 rounded-sm overflow-hidden">
+            <span class="block h-full bar-quiet rounded-sm"
                   style="width:${(n / max * 100).toFixed(1)}%"></span>
           </span>
-          <span class="num text-xs text-neutral-200 w-6 text-right">${n}</span>
+          <span class="num text-xs t1 w-6 text-right">${n}</span>
         </div>
-        <p class="text-[11px] text-neutral-600 mt-1 ml-0 sm:ml-[11.75rem]">
+        <p class="text-[11px] t3 mt-1 ml-0 sm:ml-[11.75rem]">
           ${REASON_DETAIL[k] || ''}
         </p>
       </li>`).join('')}</ul>`;
@@ -525,11 +634,11 @@ function chipHTML(w) {
   const dim = w.muted ? 'opacity-40' : '';
   return `
   <span class="num inline-flex items-center gap-1.5 text-[11px] rounded
-               border border-neutral-800 bg-neutral-900/60 pl-2 pr-1 py-1
-               text-neutral-300 ${dim}" title="${w.name || ''}">
+               border bd surface-2/60 pl-2 pr-1 py-1
+               t2 ${dim}" title="${w.name || ''}">
     ${w.symbol}
     <button data-remove="${w.isin}" title="Remove ${w.symbol}"
-            class="text-neutral-600 hover:text-rose-400 transition-colors
+            class="t3 hover:warn-fg transition-colors
                    px-1 leading-none">&times;</button>
   </span>`;
 }
@@ -559,17 +668,17 @@ function skeletonHTML(n) {
   // matches the real card's geometry so the layout does not jump when data
   // lands.
   return Array.from({ length: n }, (_, i) => `
-    <article class="my-4 p-5 rounded-lg border border-neutral-900 bg-neutral-950/40"
+    <article class="my-4 p-5 rounded-lg border bd surface"
              style="opacity:${1 - i * 0.22}">
       <div class="flex justify-between gap-4">
-        <div class="h-5 w-28 rounded bg-neutral-900 animate-pulse"></div>
-        <div class="h-6 w-20 rounded bg-neutral-900 animate-pulse"></div>
+        <div class="h-5 w-28 rounded surface-2 animate-pulse"></div>
+        <div class="h-6 w-20 rounded surface-2 animate-pulse"></div>
       </div>
-      <div class="mt-3 h-3 w-40 rounded bg-neutral-900/70 animate-pulse"></div>
+      <div class="mt-3 h-3 w-40 rounded surface-2 animate-pulse"></div>
       <div class="mt-5 space-y-2">
-        <div class="h-2 w-full rounded bg-neutral-900/70 animate-pulse"></div>
-        <div class="h-2 w-4/5 rounded bg-neutral-900/70 animate-pulse"></div>
-        <div class="h-2 w-2/3 rounded bg-neutral-900/70 animate-pulse"></div>
+        <div class="h-2 w-full rounded surface-2 animate-pulse"></div>
+        <div class="h-2 w-4/5 rounded surface-2 animate-pulse"></div>
+        <div class="h-2 w-2/3 rounded surface-2 animate-pulse"></div>
       </div>
     </article>`).join('');
 }
@@ -597,23 +706,23 @@ function render(d) {
   const top = Object.entries(reasons).filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1])[0];
   el('funnel-sub').innerHTML = d.funnel.moved
-    ? `<span class="num text-neutral-300">${d.funnel.moved}</span> moved more than 1%. ` +
-      `<span class="num text-neutral-300">${d.filtered_count}</span> were filtered` +
+    ? `<span class="num t2">${d.funnel.moved}</span> moved more than 1%. ` +
+      `<span class="num t2">${d.filtered_count}</span> were filtered` +
       (top ? `, most of them because they ${REASON_CLAUSE[top[0]] || top[0]}` +
-             ` <span class="num text-neutral-300">(${top[1]})</span>.` : '.')
+             ` <span class="num t2">(${top[1]})</span>.` : '.')
     : '';
   el('cards').innerHTML = d.cards.map(cardHTML).join('') || (caughtUp
     ? `<div class="py-20 text-center card-in">
-         <div class="mx-auto w-8 h-8 rounded-full border border-neutral-800
-                     flex items-center justify-center text-neutral-700 text-xs">&check;</div>
-         <p class="mt-5 text-base text-neutral-300">Nothing meaningful has changed
+         <div class="mx-auto w-8 h-8 rounded-full border bd
+                     flex items-center justify-center t3 text-xs">&check;</div>
+         <p class="mt-5 text-base t2">Nothing meaningful has changed
            since you last looked.</p>
-         <p class="mt-3 text-xs text-neutral-600 max-w-sm mx-auto leading-relaxed">
+         <p class="mt-3 text-xs t3 max-w-sm mx-auto leading-relaxed">
            ${d.funnel.watched} instruments on your watchlist, none of them carrying
            anything you have not already seen. This screen being empty is the
            product working, not the product broken.</p>
        </div>`
-    : `<p class="py-10 text-sm text-neutral-600">Nothing cleared the gate in
+    : `<p class="py-10 text-sm t3">Nothing cleared the gate in
          this window.</p>`);
   // A drawer reading "We filtered 0 other movements" reads as a bug rather
   // than as good news, so the whole section goes when there is nothing in it.
@@ -658,9 +767,9 @@ async function load() {
     } else {
       banner('');
       el('funnel').innerHTML =
-        `<span class="text-amber-400 text-base">Digest unavailable — ${e.message}</span>`;
+        `<span class="accent text-base">Digest unavailable — ${e.message}</span>`;
       el('cards').innerHTML =
-        `<p class="py-10 text-sm text-neutral-600">The API is not responding. This page retries every 5 seconds.</p>`;
+        `<p class="py-10 text-sm t3">The API is not responding. This page retries every 5 seconds.</p>`;
     }
   }
 }

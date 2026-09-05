@@ -705,6 +705,21 @@ Regenerate: the figures above come from replaying the pipeline over the full
 history and reading `SessionResult.breadth`. See `ops/ACTION-LOG.md` [U7.2] and
 [ADR-043](docs/DECISIONS.md).
 
+## Signal Lab
+
+`/lab` is the engineer surface, linked from the footer rather than the main
+navigation. The digest answers *what changed*; the lab answers *why should I
+believe it*, and putting an ablation table on a reader's screen would be
+answering a question they did not ask.
+
+Four sections — quality, reliability, calibration, evidence — each read at
+request time from a committed artifact or a live query. **No figure is typed
+into the template**, and `tests/test_lab.py` parses the module and fails on any
+numeric literal that is not a named structural constant, so a number that
+drifts in later breaks the build rather than the reader's trust. The risk
+register is rendered from `ops/RISK-REGISTER.md` rather than retyped, so the
+page cannot disagree with the file.
+
 ## What we deliberately did NOT build
 
 | Not built | Why |
