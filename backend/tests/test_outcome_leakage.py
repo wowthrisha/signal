@@ -333,7 +333,15 @@ def test_the_page_never_prints_a_percentage_without_an_n():
     correct change to satisfy a guard about something else.
     """
     page = STATIC.read_text()
-    block = page[page.index("const br = o.base_rates;"):page.index("After the move")]
+    # Bounded by the block's own start and the `return` that closes it. It used
+    # to end at the first "After the move", which moved above the block when
+    # the horizons became a timeline whose aria-label opens with that phrase —
+    # slicing to zero length and failing for a reason unrelated to the
+    # invariant. `return \`${legend}` is the statement that ends the block.
+    start = page.index("const br = o.base_rates;")
+    end = page.index("return `${legend}", start)
+    block = page[start:end]
+    assert block.strip(), "the base-rate block could not be located"
     assert "br.percentages[k]" in block, "percentages are not rendered here any more"
     assert "${br.n}" in block, (
         "a base-rate percentage is rendered without its denominator in the "

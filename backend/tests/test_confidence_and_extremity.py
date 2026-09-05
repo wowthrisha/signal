@@ -65,8 +65,17 @@ def test_the_card_distinguishes_capture_confidence_from_card_age():
     label is now an age, and both carry a title explaining which question they
     answer."""
     markup = STATIC.read_text()
-    assert "SESSION${n === 1 ? '' : 'S'} BEHIND" in markup
-    assert ">DELAYED<" not in markup
+    # The property, not the casing. This pinned the uppercase form, which the
+    # card's meta row dropped when it went to lower case — the only token on
+    # that row still shouting, and what pushed it onto a second line inside the
+    # centre column. What must hold is that the label counts SESSIONS and
+    # pluralises them, not how it is capitalised.
+    assert re.search(r"session\$\{n === 1 \? '' : 's'\} behind", markup, re.I), (
+        "the freshness label no longer expresses the age in sessions"
+    )
+    assert not re.search(r">\s*DELAYED\s*<", markup), (
+        "the raw DELAYED state is being rendered as a label again"
+    )
     # The property, not the sentence. The confidence tooltip was rewritten when
     # confidence became a gate bar rather than a bare number; what must survive
     # is that both controls state which question they answer.

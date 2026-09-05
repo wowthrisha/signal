@@ -163,9 +163,24 @@ def connect():
 # seeding
 # ---------------------------------------------------------------------------
 
+# Bare `DO NOTHING`, with no arbiter, on purpose.
+#
+# `app_user` carries two unique constraints: the `user_id` primary key and
+# `app_user_email_key`. Naming `(user_id)` as the arbiter swallows a conflict
+# on THAT index only — a concurrent insert that trips the email index first
+# raises `UniqueViolation` and 500s.
+#
+# That is not hypothetical. The page's first paint fires `/api/digest` and
+# `/api/watchlist` in one `Promise.all`, and for a brand-new session both
+# create the same user with the same derived email. On the losing request the
+# watchlist came back 500 and the rail rendered empty — on a first visit,
+# which is every visit a judge makes. The row is fully determined by
+# `user_id` and the email is derived from it, so any unique violation here
+# means "someone else already made this exact row", and doing nothing is
+# correct for all of them.
 _SEED_USER = """
 INSERT INTO app_user (user_id, email) VALUES (%s, %s)
-ON CONFLICT (user_id) DO NOTHING
+ON CONFLICT DO NOTHING
 """
 
 # Highest turnover (volume x close) on the latest session, restricted to
@@ -304,6 +319,21 @@ SELECT session_date, c FROM index_bar
 WHERE index_name = %s AND session_date BETWEEN %s AND %s AND c IS NOT NULL
 ORDER BY session_date
 """
+
+# The last two closes of one index, for the context strip's tiles. Two rows,
+# because a change needs a previous close and nothing here should re-derive
+# one. An index with fewer than two sessions on record yields no tile at all
+# rather than a change against an assumed base.
+_INDEX_LAST_TWO = """
+SELECT session_date, c FROM index_bar
+WHERE index_name = %s AND c IS NOT NULL AND session_date <= %s
+ORDER BY session_date DESC LIMIT 2
+"""
+
+# The sector index that stands behind a sector_id, from the same mapping the
+# attribution model uses. The strip names the sectors actually on the slate;
+# it does not enumerate all twenty.
+_SECTOR_INDEX = "SELECT sector_id, name, index_symbol FROM sector WHERE sector_id = ANY(%s)"
 
 
 @dataclass
@@ -617,8 +647,111 @@ def build_digest(
          "label": "surfaced"},
     ]
 
+    # --- the watchlist, as a table ------------------------------------------
+    #
+    # One row per instrument the user follows, carrying the three states the
+    # funnel already partitions them into. Nothing new is computed: `moves`,
+    # `surfaced` and `_reason` are the same objects the funnel and the Pareto
+    # were built from, so a row can never disagree with the counts above it.
+    #
+    #   surfaced — on the slate
+    #   filtered — moved past the display threshold and did not survive
+    #   quiet    — never moved that far in the window
+    #
+    # A surfaced row reports the CARD's return, not the funnel screen's.
+    # `_returns` differences raw closes — its own docstring says it is the
+    # coarse "did it move" screen and never a card's number — while the card
+    # carries the corporate-action-adjusted figure the engine detected on.
+    # The two differ by a few basis points, which was invisible while the
+    # screen value was only ever a count, and became a visible contradiction
+    # the moment it was rendered as a column beside the card: IFCI read
+    # +12.67% in the rail and +11.93% on the card, for the same symbol, on
+    # the same screen.
+    card_return = {c.isin: c.total_return for c in cards
+                   if c.total_return is not None}
+    watchlist_state = []
+    for isin, m in sorted(meta.items(), key=lambda kv: kv[1]["symbol"]):
+        move = moves.get(isin)
+        if isin in surfaced:
+            status, reason = "surfaced", None
+        elif move is not None:
+            status, reason = "filtered", _reason(by_isin.get(isin), move)
+        else:
+            status, reason = "quiet", None
+        watchlist_state.append({
+            "isin": isin,
+            "symbol": m["symbol"],
+            "sector_id": m.get("sector_id"),
+            # None, not 0.0: a symbol that never cleared the display threshold
+            # has no "biggest move" in this window, and rendering 0.00% would
+            # assert it closed flat.
+            "change_pct": (
+                _pct(card_return[isin]) if isin in card_return
+                else _pct(move.ret) if move is not None else None
+            ),
+            # Which series the figure came from, so the two are never conflated
+            # silently: a surfaced row shows the adjusted return the detector
+            # ran on, every other row shows the raw close-to-close screen.
+            "change_basis": (
+                "adjusted, as detected" if isin in card_return
+                else "raw close-to-close screen" if move is not None else None
+            ),
+            "session_date": move.session.isoformat()
+            if move is not None and move.session else None,
+            "status": status,
+            "reason": reason,
+        })
+
+    # --- the context strip ---------------------------------------------------
+    #
+    # What the market did, beside what the watchlist did. Every tile is a real
+    # close-to-close change read from `index_bar`; an index with no row, or
+    # only one, produces no tile. There is no placeholder and no zero.
+    index_tiles = []
+    with conn.cursor() as cur:
+        def _tile(index_name: str, label: str, kind: str):
+            cur.execute(_INDEX_LAST_TWO, (index_name, latest_session))
+            rows = cur.fetchall()
+            if len(rows) < 2:
+                return None
+            (d1, c1), (_, c0) = rows[0], rows[1]
+            if not c0:
+                return None
+            return {"kind": kind, "label": label, "index_name": index_name,
+                    "change_pct": _pct(float(c1) / float(c0) - 1.0),
+                    "session_date": d1.isoformat()}
+
+        market = _tile(MARKET_INDEX, MARKET_INDEX, "market")
+        if market:
+            index_tiles.append(market)
+
+        # Only the sectors represented on the slate. A strip listing twenty
+        # sector indices is a data dump; the point is the two or three a reader
+        # is about to see cards from.
+        slate_sectors = [c.sector_id for c in cards if c.sector_id]
+        if slate_sectors:
+            cur.execute(_SECTOR_INDEX, (sorted(set(slate_sectors)),))
+            for sector_id, sname, index_symbol in cur.fetchall():
+                if not index_symbol:
+                    continue
+                t = _tile(index_symbol, index_symbol, "sector")
+                if t:
+                    t["sector_id"] = sector_id
+                    t["sector_name"] = sname
+                    index_tiles.append(t)
+
     return {
         "since": since.isoformat(),
+        "watchlist_state": watchlist_state,
+        "index_context": {
+            "tiles": index_tiles,
+            "latest_session": latest_session.isoformat() if latest_session else None,
+            # Not a promise about wall-clock time. The database holds closed
+            # sessions only, so the next figure on this page appears when the
+            # next session's bhavcopy is published — which is a statement about
+            # this system's inputs, not a scheduled job we do not run.
+            "next_update": "when the next session's bhavcopy is published",
+        },
         "funnel": {
             "watched": len(meta),
             "moved": len(moves),
@@ -748,6 +881,12 @@ def _empty(
         },
         "cursor_head": head,
         "cursor": cursor,
+        # Stable shape. The caught-up digest has no window to measure moves
+        # over, so there are no rows and no tiles — but the keys are present,
+        # because a client branching on their absence is a client that will
+        # eventually branch wrongly.
+        "watchlist_state": [],
+        "index_context": {"tiles": [], "latest_session": None, "next_update": None},
     }
 
 

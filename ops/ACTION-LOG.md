@@ -3575,3 +3575,165 @@ Page 200, `/lab` 200. Live digest: 4 cards (ANANTRAJ, COALINDIA, IFCI, RBLBANK),
 funnel `{watched: 30, moved: 22, surfaced: 4}`, no symbol truncated, confidence
 `[1.0, 1.0, 1.0, 1.0]` rendering as a value on every card, Lab reachable from
 the header.
+
+## Application shell — Tasks 1–5
+
+Measured in a real browser (Playwright, Chromium) rather than asserted. Every
+figure below is from `getBoundingClientRect` on the running page.
+
+**T1 — the shell.** The page was one 600px column in a black field. Now:
+
+- **1a** Fixed full-width header, 56px, on `--surface` with a 1px bottom
+  border. Left: `SIGNAL` and the since-date. Centre: `30 watched · 22 moved ·
+  4 need attention`, from `d.funnel`, so the headline survives any scroll
+  depth. Right: the `?` legend button and a labelled `Signal Lab` link.
+- **1b** Context strip, 40px, fixed under it. Six tiles, all live:
+  `Nifty 50 −0.17% · Financial Services +0.43% · Oil Gas & Consumable Fuels
+  −0.13% · Realty +2.58% · latest session 03 Sept 2026 · next update when the
+  next session's bhavcopy is published`. The market tile is `MARKET_INDEX`;
+  the sector tiles are the sectors actually on the slate, resolved through
+  `sector.index_symbol` — the same mapping the attribution model uses. Each is
+  a close-to-close change over the last two rows in `index_bar`. **An index
+  with fewer than two rows on record produces no tile**, which is why there
+  are three sector tiles and not twenty. `next_update` is a statement about
+  this system's inputs, not a scheduled job: the database holds closed
+  sessions only.
+- **1c** Three columns at 1440px, measured: left rail **x=24 w=280**, centre
+  **x=328 w=764**, right rail **x=1116 w=300**, all starting at y=120. Rails
+  are sticky below the chrome and scroll internally. Below 1180px the three
+  stack; `scrollWidth == innerWidth` at 1440, 1024 and 390, so nothing
+  overflows horizontally at any width. The funnel and the Pareto moved out of
+  the bottom of a collapsed drawer into the right rail.
+
+**T2 — the watchlist is a table.** `SYMBOL | change % | status dot | ×`, 30
+rows, sorted attention-first then by absolute move. The dot is `--accent` when
+surfaced, `--neutral` when moved-and-filtered, hollow when quiet. Above it,
+three counts that are also filter toggles — `4 need attention · 18 moved ·
+8 quiet`, and 4+18+8 = 30 = `funnel.watched`, because the server derives the
+partition from the same `moves` / `surfaced` / `_reason` objects the funnel
+counts. Clicking a surfaced row scrolls to its card and rings it; clicking any
+other row says why, from the stored reason: *"BALRAMCHIN moved +5.17% —
+filtered: moved, but within its own normal range."*
+
+  **A contradiction the table exposed, and the fix.** The first render showed
+  IFCI at **+12.67%** in the rail and **+11.93%** on its card. Both were
+  "right": `_returns` differences RAW closes and its own docstring says it is
+  the coarse did-it-move screen and never a card's number, while the card
+  carries the corporate-action-adjusted return the detector ran on. Invisible
+  while the screen value was only ever a count; a visible contradiction the
+  moment it became a column beside the card. A surfaced row now reports the
+  card's own figure, and every row carries `change_basis` naming which series
+  it came from. All four now agree exactly.
+
+**T3 — visuals where the data allows.** All inline SVG or flexbox; no library.
+
+- **3a** Attribution is ONE 34px bar, three segments, widths proportional to
+  absolute contribution, stock-specific in `--accent`. It is the largest object
+  on the card. The three inline number pairs that duplicated it in text are
+  gone from the face; the values are on the segments, in the hover title and in
+  the aria-label. A segment narrower than 14% drops its label rather than
+  overflowing into its neighbour. Label colour is chosen against the fill —
+  ink on amber is 9.65:1, and the same ink on `--neutral` would be 2.61:1, so
+  the grey segments take `--text` at 6.27:1. **No token changed.**
+- **3b** Base rates are horizontal bars, sorted by size, scaled against the
+  largest count so the leader fills the track. A zero row keeps its label and
+  renders a dot — "continued: 0" is a result. `(out of 544 past events)` and
+  the n=30 suppression rule are unchanged.
+- **3c** Forward outcomes are a timeline with +1/+3/+5 markers, filled when
+  observed and hollow when the session has not closed. Three "not yet
+  observable" phrases in a row read as three failures; three hollow markers
+  read as time that has not passed. The explanation stays.
+
+**T4 — density.** Six rows: symbol/return · meta · attribution bar · verdict ·
+evidence · "Why this?". The extremity band and the detector's headline moved
+into the drawer — moved, not removed. The evidence block became a one-line
+count that opens it. Measured card heights at 1440px: **249, 224, 249, 224** —
+all under the 260 target. Two things had to change to get there: the meta row
+left `.label` (mono, uppercase, 0.08em tracking — built for two-word tokens,
+and 36px tall as four lowercase phrases) for small sans, and the freshness
+label stopped shouting.
+
+**T5 — measured, at 1440×900.**
+
+| check | result |
+|-------|--------|
+| page width | 1440; `scrollWidth` 1440 — no horizontal scroll |
+| card heights | 249 / 224 / 249 / 224 px |
+| funnel visible without scrolling | **yes** — top 172, bottom 251 |
+| Pareto visible without scrolling | **yes** — bottom 663 |
+| watchlist rows | 30 |
+| context tiles | 6 |
+| truncated symbols | none |
+| data quality | `Data quality 1.00 of 1, high` on all four |
+| console errors | none |
+
+Interactions exercised in the browser: legend hidden on load, opens, closes,
+five terms; the quiet filter shows 8 rows and all 8 are quiet; clearing
+restores 30; a filtered row explains itself; a surfaced row scrolls to its
+card; the evidence and "Why this?" disclosures open; Technical details is
+reachable; the header's Lab link lands on `/lab`.
+
+### P0 found while verifying: a first-visit 500
+
+The watchlist rail rendered **empty**, intermittently. `/api/watchlist`
+returned 500 with `UniqueViolation: duplicate key value violates unique
+constraint "app_user_email_key"`.
+
+`app_user` carries two unique constraints — the `user_id` primary key and
+`app_user_email_key` — and the seed said `ON CONFLICT (user_id) DO NOTHING`,
+which swallows a conflict on **that index only**. The page's first paint fires
+`/api/digest` and `/api/watchlist` inside one `Promise.all`, so for a new
+session both create the same user with the same derived email; whichever
+request trips the email index first raises and 500s.
+
+This is a first-visit bug, which is every visit a judge makes, and it predates
+today's work — the chip cloud would have been just as empty. It was invisible
+to the suite because every existing API test issues one request at a time.
+Fixed by dropping the arbiter: the row is fully determined by `user_id`, so any
+unique violation here means someone else already made this exact row. 40/40
+concurrent requests across 20 fresh sessions now return 200 with zero
+violations.
+
+`test_first_visit_race.py` covers it three ways, per R-27: the concurrent
+first visit over 12 attempts; a direct proof that the arbitered statement
+raises on the email index and the shipped one does not (so the race guard
+cannot pass merely because a run failed to interleave); and a static check that
+the arbiter is not re-added — a reviewer reading `ON CONFLICT (user_id)` in a
+diff would read the more specific clause as an improvement.
+
+### Two more guards pinned literals rather than properties
+
+Fifth and sixth instances. Both rewritten to assert the invariant.
+
+- `test_the_card_distinguishes_capture_confidence_from_card_age` pinned
+  `SESSION${...} BEHIND` in upper case. The invariant is that the label counts
+  sessions and pluralises them, not its casing.
+- `test_decorative_glyphs_are_hidden_from_assistive_tech` required a literal
+  `▸` to be present. `▸` and `&#9656;` are the same glyph in two encodings;
+  removing the last raw one — when the filtered-movements toggle became an
+  always-open rail — failed a screen-reader test for a reason unrelated to
+  screen readers. It now checks every glyph that IS present and keeps a
+  non-vacuity floor. Broadening it to `&rarr;` immediately caught a real
+  pre-existing case: the footer's `Signal Lab →` arrow was read aloud after
+  link text that already said where it went. Hidden.
+
+Two more guards moved for the same reason and were right to fail:
+`test_the_page_never_prints_a_percentage_without_an_n` was bounded by the first
+`"After the move"`, which the 3c timeline's aria-label moved above the block —
+it is now bounded by the statement that closes the block; and the accessibility
+SVG guard reported a missing `aria-label` on the timeline because the label was
+built inline with `.map((h) => …)` and the arrow's `>` closes the `<svg …>` tag
+as far as any tag-scanner is concerned. The label is built above the template
+now, which is the real fix.
+
+**Eight new execution guards** for the shell — the context strip is built only
+from payload tiles (proved by injecting a fabricated `NIFTY BANK` tile), the
+header carries all three funnel numbers, the table renders a row per symbol
+with the server's status, the filter chips cover every state, the attribution
+is exactly one labelled bar per card, the base rates keep their denominator,
+and the timeline carries both marker states. The execution payload gained the
+two new blocks and the fixture ISINs were aligned to them — a fixture whose
+keys do not line up renders every row in the fallback state and proves only
+that the fallback works.
+
+Full suite: `431 passed, 2 skipped, 1 xfailed in 323.09s`.

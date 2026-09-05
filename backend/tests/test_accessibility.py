@@ -103,11 +103,28 @@ def test_glyph_only_controls_carry_an_accessible_name():
 def test_decorative_glyphs_are_hidden_from_assistive_tech():
     """Chevrons and arrows are read aloud as punctuation noise otherwise."""
     markup = STATIC.read_text()
-    for glyph in ("▸", "&#9656;", "&check;"):
-        idx = markup.find(glyph)
-        assert idx != -1, f"glyph vanished: {glyph}"
-        window = markup[max(0, idx - 240):idx]
-        assert "aria-hidden" in window, f"{glyph} is not hidden from screen readers"
+    # `▸` and `&#9656;` are the same glyph in two encodings, and which one a
+    # given control uses is an authoring detail, not an accessibility fact.
+    # This asserted both were literally present, so removing the last raw `▸`
+    # — when the filtered-movements toggle became an always-open rail — failed
+    # a test about screen readers for a reason that had nothing to do with
+    # them. Every glyph that IS present must be hidden; the count check keeps
+    # the test from passing over an empty set.
+    found = 0
+    for glyph in ("▸", "&#9656;", "&check;", "&rarr;", "&times;"):
+        idx = -1
+        while True:
+            idx = markup.find(glyph, idx + 1)
+            if idx == -1:
+                break
+            found += 1
+            window = markup[max(0, idx - 240):idx]
+            assert "aria-hidden" in window, (
+                f"{glyph} at offset {idx} is not hidden from screen readers"
+            )
+    assert found >= 3, (
+        f"only {found} decorative glyphs found; this guard has gone vacuous"
+    )
 
 
 def test_disclosures_report_their_expanded_state():

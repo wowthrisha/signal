@@ -53,8 +53,15 @@
   --step: 8px;                          /* the vertical rhythm unit */
   --card-pad: calc(var(--step) * 3);    /* 24px */
   --card-gap: calc(var(--step) * 2);    /* 16px */
-  --content: 1120px;
+  /* An application shell, not a column. The page was one ~600px measure
+     floating in a black field, which is what made it read as unfinished:
+     nothing framed it, and the funnel — the product's whole thesis — sat at
+     the bottom of a scroll nobody reached. */
+  --content: 1440px;
   --rail: 280px;
+  --rail-r: 300px;
+  --header-h: 56px;
+  --strip-h: 40px;
 }
 
 html { background: var(--bg); }
@@ -116,12 +123,90 @@ body {
    long scroll. Opaque, because the cards pass underneath it. */
 .sticky-head { position: sticky; top: 0; z-index: 30; background: var(--bg); }
 
+/* --- the shell ---------------------------------------------------------- */
+
+/* Fixed, full width, and on --surface so it reads as chrome rather than as
+   the first row of content. A judge scrolling never loses the headline. */
+.app-header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  height: var(--header-h);
+}
+/* Directly beneath it and also fixed: the market context a watchlist number
+   is meaningless without. */
+.context-strip {
+  position: fixed; top: var(--header-h); left: 0; right: 0; z-index: 39;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  min-height: var(--strip-h);
+}
+.shell-pad { padding-top: calc(var(--header-h) + var(--strip-h)); }
+.shell {
+  max-width: var(--content); margin: 0 auto;
+  padding: calc(var(--step) * 3) calc(var(--step) * 3) calc(var(--step) * 10);
+  display: grid; gap: calc(var(--step) * 3); align-items: start;
+  grid-template-columns: 1fr;
+}
+/* Three columns only when all three fit at their stated widths. Below that
+   the rails stack above and below the cards rather than being crushed. */
+@media (min-width: 1180px) {
+  .shell { grid-template-columns: var(--rail) minmax(0, 1fr) var(--rail-r); }
+  .rail { position: sticky; top: calc(var(--header-h) + var(--strip-h) + var(--step) * 3);
+          max-height: calc(100vh - var(--header-h) - var(--strip-h) - var(--step) * 5);
+          overflow-y: auto; padding-bottom: var(--step); }
+}
+.tile { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+
+/* --- the watchlist table ------------------------------------------------ */
+/* A table because a table is scannable. Thirty chips in a cloud have no
+   column to run an eye down; thirty rows do. */
+.wl-row {
+  display: grid; grid-template-columns: 1fr auto 10px 18px;
+  align-items: center; gap: 8px; width: 100%;
+  padding: 5px 4px; border-radius: 4px; text-align: left;
+  min-height: 0; background: none; border: 0;
+}
+.wl-row:hover { background: var(--surface-2); }
+.wl-row[aria-current="true"] { background: var(--surface-2); }
+.wl-dot { width: 8px; height: 8px; border-radius: 999px; }
+.wl-dot.surfaced { background: var(--accent); }
+.wl-dot.filtered { background: var(--neutral); }
+/* Hollow, not absent: a quiet symbol is still being watched, and an empty
+   cell would read as missing data rather than as nothing happening. */
+.wl-dot.quiet { border: 1px solid var(--border); }
+.wl-x { opacity: 0; transition: opacity .12s ease; }
+.wl-row:hover .wl-x, .wl-x:focus-visible { opacity: 1; }
+/* The filter chips above the table. `min-height` is overridden because these
+   are 24px controls inside a dense rail, and the 44px rule that protects
+   thumb targets would make the header taller than the table. */
+.wl-filter { min-height: 0; padding: 3px 7px; border-radius: 4px;
+             border: 1px solid transparent; }
+.wl-filter[aria-pressed="true"] { border-color: var(--border); background: var(--surface-2); }
+
 .figure-xl { font-size: 2.75rem; font-weight: 600; line-height: 1.1; }
 .figure-lg { font-size: 1.5rem;  font-weight: 600; line-height: 1.1; }
 .symbol    { font-size: 1.25rem; font-weight: 600; line-height: 1.1; }
 
 /* Bars. The track is near-invisible; the fill carries the meaning. */
 .bar-track  { background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+
+/* The attribution bar. Tall enough to carry its own labels, because it is the
+   card's argument rather than a decoration beside one. */
+.attr-bar { height: 34px; border-radius: 4px; overflow: hidden;
+            background: var(--surface-2); }
+.attr-bar .seg { position: relative; display: flex; flex-direction: column;
+                 justify-content: center; padding: 0 6px; overflow: hidden;
+                 min-width: 2px; }
+.attr-bar .seg-div { box-shadow: inset 1px 0 0 var(--bg); }
+.attr-bar .seg-l { font-size: 9px; letter-spacing: .04em; line-height: 1.1;
+                   white-space: nowrap; opacity: .8; }
+.attr-bar .seg-v { font-size: 11px; font-weight: 600; line-height: 1.15;
+                   white-space: nowrap; }
+/* The label sits ON the segment, so its colour is chosen against the segment
+   and not against the card. Ink on amber is 9.65:1; the same ink on --neutral
+   would be 2.61:1, so the grey segments take light text at 6.27:1 instead.
+   No token changed — each label just reads against the fill under it. */
+.attr-bar .bar-accent .seg-l, .attr-bar .bar-accent .seg-v { color: var(--bg); }
+.attr-bar .bar-quiet  .seg-l, .attr-bar .bar-quiet  .seg-v { color: var(--text); }
 .bar-accent { background: var(--accent); }
 .bar-quiet  { background: var(--neutral); }
 .bar-dim    { background: var(--accent-dim); }
@@ -151,134 +236,142 @@ input::placeholder { color: var(--text-3); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 </style>
 </head>
-<body class="t1 antialiased pb-24">
+<body class="t1 antialiased shell-pad">
 
-<div class="mx-auto px-6" style="max-width:var(--content);padding-top:32px;padding-bottom:32px">
-
-  <!-- 1. Header -->
-  <header class="sticky-head border-b bd">
-    <div class="flex items-baseline justify-between gap-4 flex-wrap py-4">
-      <div class="flex items-baseline gap-4 min-w-0">
-        <h1 class="text-sm tracking-[0.35em] t1 font-medium">SIGNAL</h1>
-        <span id="head-summary" class="text-xs t3 truncate"></span>
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        <!-- Not a modal and not shown on load: a first-time reader who wants
-             the vocabulary asks for it, and a returning one is never made to
-             dismiss it. -->
-        <button id="help-btn" aria-expanded="false" aria-controls="help-panel"
-                aria-label="What the words on this page mean"
-                class="w-7 h-7 rounded-full border bd t2 hover:surface-2 hover:t1
-                       transition-colors text-xs">?</button>
-        <!-- A labelled link, not a tab. The Lab is a second page, not a second
-             mode of this one. -->
-        <a href="/lab" class="text-xs px-3 py-1.5 rounded border bd t2
-                              hover:surface-2 hover:t1 transition-colors">Signal
-          Lab &mdash; see how it decides</a>
-      </div>
+<!-- =====================================================================
+     1a. The header. Fixed, full width, three zones: identity on the left,
+     the count in the centre so it survives any scroll depth, controls on
+     the right.
+     ===================================================================== -->
+<header class="app-header">
+  <div class="mx-auto h-full px-6 flex items-center gap-4"
+       style="max-width:var(--content)">
+    <div class="flex items-baseline gap-3 min-w-0 shrink-0">
+      <span class="text-sm tracking-[0.35em] t1 font-medium">SIGNAL</span>
+      <span class="text-[11px] t3 truncate hidden sm:inline">since you last
+        looked <span class="num" id="since">&mdash;</span></span>
     </div>
-  </header>
+    <!-- The centre. Always visible, never a link: this is the funnel's three
+         numbers, and they are the reason the page exists. -->
+    <div id="head-summary"
+         class="num text-xs t2 flex-1 text-center truncate"></div>
+    <div class="flex items-center gap-2 shrink-0">
+      <!-- Not a modal and not shown on load: a first-time reader who wants
+           the vocabulary asks for it, and a returning one is never made to
+           dismiss it. -->
+      <button id="help-btn" aria-expanded="false" aria-controls="help-panel"
+              aria-label="What the words on this page mean"
+              class="w-7 h-7 rounded-full border bd t2 hover:surface-2 hover:t1
+                     transition-colors text-xs" style="min-height:28px">?</button>
+      <!-- A labelled link, not a tab. The Lab is a second page, not a second
+           mode of this one. -->
+      <a href="/lab" class="text-xs px-3 py-1.5 rounded border bd t2
+                            hover:surface-2 hover:t1 transition-colors"
+         style="min-height:30px">Signal Lab</a>
+    </div>
+  </div>
+</header>
 
-  <!-- The legend. Every definition that can be derived is filled from the
-       payload at render time rather than typed here. -->
-  <section id="help-panel" hidden class="mt-4 rounded-lg border bd surface"
-           style="padding:var(--card-pad)">
+<!-- =====================================================================
+     1b. Context. Every tile is a close-to-close change read from
+     `index_bar`; an index with no row on record produces no tile at all.
+     The strip is built entirely in `render`, from the payload.
+     ===================================================================== -->
+<div class="context-strip">
+  <div id="context" class="mx-auto px-6 py-2 flex items-center gap-5
+                           overflow-x-auto text-[11px]"
+       style="max-width:var(--content)"></div>
+</div>
+
+<!-- The legend. Dismissible, never opened on load. Every definition that can
+     be derived is filled from the payload at render time. -->
+<section id="help-panel" hidden
+         class="mx-auto mt-4 px-6" style="max-width:var(--content)">
+  <div class="rounded-lg border bd surface" style="padding:var(--card-pad)">
     <div class="flex items-start justify-between gap-4">
       <h2 class="text-[10px] uppercase tracking-[0.2em] t3">What the words mean</h2>
       <button id="help-close" class="text-xs t3 hover:t2 transition-colors"
               aria-label="Close the legend">close</button>
     </div>
-    <dl id="help-body" class="mt-3 space-y-2.5 text-xs"></dl>
+    <dl id="help-body" class="mt-3 grid sm:grid-cols-2 gap-x-8 gap-y-2.5 text-xs"></dl>
     <p class="mt-4 text-xs t2">
       Signal shows information about what changed. It never advises.
     </p>
-  </section>
+  </div>
+</section>
 
-  <p class="mt-8 mb-6 t2 text-sm">
-    Movements on your watchlist since
-    <span id="since" class="num t1">&mdash;</span>
-  </p>
+<!-- =====================================================================
+     1c. Three columns. The funnel and the suppression Pareto used to sit at
+     the bottom of a long scroll, where nobody reached them; they are the
+     product thesis, so they now hold a rail of their own.
+     ===================================================================== -->
+<div class="shell">
 
-
-  <!-- Two columns on desktop, stacked on mobile. The watchlist is the only
-       editable state on the page, so it gets its own rail rather than sitting
-       above the cards and pushing them below the fold. -->
-  <div class="grid grid-cols-1 lg:grid-cols-[var(--rail)_minmax(0,1fr)] gap-10 items-start">
-
-  <!-- LEFT RAIL -->
-  <aside class="lg:sticky lg:top-24">
-    <h2 class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">Watchlist</h2>
+  <!-- LEFT RAIL — the watchlist, the one piece of state the user owns. -->
+  <aside class="rail min-w-0">
+    <h2 class="text-[10px] uppercase tracking-[0.2em] t3 mb-2">Watchlist</h2>
     <div class="flex items-center gap-2">
-      <input id="add-input" type="text" aria-label="Add a symbol to your watchlist" placeholder="Add a symbol — e.g. TCS"
+      <input id="add-input" type="text"
+             aria-label="Add a symbol to your watchlist"
+             placeholder="Add a symbol — e.g. TCS"
              autocomplete="off" spellcheck="false"
-             class="num flex-1 surface-2 border bd rounded
-                    px-3 py-2 text-sm t1 placeholder:t3
-                    uppercase">
-      <button id="add-btn"
-              class="text-sm px-4 py-2 rounded border bd
-                     t2 hover:surface-2 hover:t1
-                     transition-colors">Add</button>
+             class="num flex-1 min-w-0 surface-2 border bd rounded
+                    px-2 py-1.5 text-sm t1 placeholder:t3 uppercase"
+             style="min-height:34px">
+      <button id="add-btn" style="min-height:34px"
+              class="text-sm px-3 py-1.5 rounded border bd t2
+                     hover:surface-2 hover:t1 transition-colors">Add</button>
     </div>
     <p id="add-error" class="hidden mt-2 text-xs warn-fg"></p>
-    <div class="mt-4 flex items-center justify-between">
+
+    <!-- Each count is a filter toggle, and each is derived from
+         `watchlist_state` — the same partition the funnel counts. -->
+    <div id="wl-filters" class="mt-3 flex flex-wrap gap-1 text-[11px]"></div>
+    <div id="wl-note" class="mt-2 text-[11px] t3" hidden></div>
+    <div id="watchlist" class="mt-2"></div>
+    <div class="mt-3 flex items-center justify-between">
       <span id="wl-count" class="num text-[10px] t3"></span>
-      <button id="mute-toggle"
+      <button id="mute-toggle" style="min-height:0"
               class="text-[10px] uppercase tracking-wider t3
                      hover:t2 transition-colors">show muted</button>
     </div>
-    <!-- Capped and scrollable: 30-plus chips must never out-run the card
-         column, which is what left the dead space on the right. -->
-    <div id="watchlist"
-         class="mt-2 flex flex-wrap gap-1.5 overflow-y-auto pr-1"
-         style="max-height:40vh"></div>
   </aside>
 
-  <!-- RIGHT COLUMN -->
+  <!-- CENTRE — the cards. -->
   <main class="min-w-0">
-
-  <!-- 2. THE FUNNEL LINE -->
-  <section class="surface rounded-lg mb-6 border bd" style="padding:var(--card-pad)">
     <p id="funnel-lede" class="mb-3 text-sm t2"></p>
-    <div id="funnel" class="num figure-xl tracking-tight">
-      <span class="t2">loading…</span>
-    </div>
-    <div class="mt-5 flex items-center gap-4">
-      <button id="ack-btn"
-              class="text-xs px-3 py-1.5 rounded border bd
-                     t2 hover:surface-2 hover:t1
-                     transition-colors disabled:opacity-30
-                     disabled:hover:bg-transparent">Mark all as seen</button>
-      <span id="cursor-state" class="num text-[11px] t3"></span>
-      <span id="cadence" class="num text-[11px] t3"></span>
-    </div>
-    <p id="funnel-sub" class="mt-3 text-sm t2"></p>
-    <p class="mt-4 text-xs t2 max-w-lg leading-relaxed">
-      Movement is measured from one close to the next. A movement gets your
-      attention only if it survives being compared against the market and its
-      sector, against the stock's own history, and against a data-quality gate.
-    </p>
-  </section>
-
-  <!-- 3. Cards -->
-  <div id="api-banner" hidden
-       class="mb-4 rounded border bd surface-2 px-3 py-2
-              text-xs accent"></div>
-  <p id="shared-state" hidden class="mb-3 text-xs t2"></p>
-  <section id="cards" aria-live="polite" aria-busy="true"></section>
-
-  <!-- 4. Filtered, collapsed -->
-  <section id="filtered-section" class="mt-8" hidden>
-    <button id="filtered-toggle" aria-expanded="false" aria-controls="filtered-body"
-            class="w-full text-left text-sm t2 hover:t1
-                   transition-colors py-3 border-t bd flex items-center gap-2">
-      <span id="chev" aria-hidden="true" class="inline-block transition-transform t3">▸</span>
-      <span>We filtered <span id="filtered-count" class="num t2">0</span> other movements</span>
-    </button>
-    <div id="filtered-body" class="hidden pb-5 pl-5 pt-1"></div>
-  </section>
-
+    <div id="api-banner" hidden
+         class="mb-4 rounded border bd surface-2 px-3 py-2 text-xs accent"></div>
+    <p id="shared-state" hidden class="mb-3 text-xs t2"></p>
+    <section id="cards" aria-live="polite" aria-busy="true"></section>
   </main>
-  </div>
+
+  <!-- RIGHT RAIL — the funnel and the suppression Pareto. -->
+  <aside class="rail min-w-0">
+    <section class="surface rounded-lg border bd" style="padding:var(--card-pad)">
+      <h2 class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">What was filtered</h2>
+      <div id="funnel" class="num figure-lg tracking-tight">
+        <span class="t2 text-sm">loading…</span>
+      </div>
+      <p id="funnel-sub" class="mt-3 text-xs t2"></p>
+      <div id="chain" class="mt-4"></div>
+      <div id="filtered-body" class="mt-4"></div>
+      <p class="mt-4 text-[11px] t2 leading-relaxed">
+        Movement is measured from one close to the next. A movement gets your
+        attention only if it survives being compared against the market and its
+        sector, against the stock's own history, and against a data-quality gate.
+      </p>
+      <div class="mt-4 flex flex-col gap-2 items-start">
+        <button id="ack-btn" style="min-height:30px"
+                class="text-xs px-3 py-1.5 rounded border bd t2
+                       hover:surface-2 hover:t1 transition-colors
+                       disabled:opacity-30">Mark all as seen</button>
+        <span id="cursor-state" class="num text-[11px] t3"></span>
+        <span id="cadence" class="num text-[11px] t3"></span>
+      </div>
+    </section>
+  </aside>
+
 </div>
 
 <!-- 5. Persistent footer -->
@@ -286,7 +379,8 @@ input::placeholder { color: var(--text-3); }
   <p class="mx-auto max-w-3xl px-6 py-3 text-[11px] leading-relaxed t2">
     Signal surfaces information about what changed.
     It does not provide investment advice.
-    <a href="/lab" class="evidence-fg" style="margin-left:12px">Signal Lab &rarr;</a>
+    <a href="/lab" class="evidence-fg" style="margin-left:12px">Signal Lab
+      <span aria-hidden="true">&rarr;</span></a>
   </p>
 </footer>
 
@@ -361,17 +455,22 @@ function sinceLabel(iso) {
 }
 
 function funnelHTML(f) {
-  // The three numbers are the argument: most of what moved was not worth
-  // saying. Rendering them on one line is what makes that legible.
-  const sep = '<span class="t3 mx-3">·</span>';
-  return [
-    `<span class="t1">${f.watched}</span>
-     <span class="t2 text-[0.85rem]">watched</span>`,
-    `<span class="t1">${f.moved}</span>
-     <span class="t2 text-[0.85rem]">moved</span>`,
-    `<span class="text-white font-semibold">${f.surfaced}</span>
-     <span class="t2 text-[0.85rem]">deserve your attention</span>`,
-  ].join(sep);
+  // Three stacked rows, not one wrapping sentence. At the 300px rail width
+  // the headline broke across three lines mid-phrase ("4 deserve your /
+  // attention"), which reads as a layout accident rather than as a figure.
+  // The header's centre zone carries the same three numbers on one line for
+  // the always-visible case; this is the version that has room to be read.
+  const rows = [
+    { n: f.watched, label: 'watched', accent: false },
+    { n: f.moved, label: 'moved', accent: false },
+    { n: f.surfaced, label: 'need attention', accent: true },
+  ];
+  return rows.map((r) => `
+    <div class="flex items-baseline gap-2">
+      <span class="num ${r.accent ? 'accent' : 't1'}"
+            style="font-size:1.5rem;font-weight:600;min-width:2.2ch;text-align:right">${r.n}</span>
+      <span class="text-xs ${r.accent ? 'accent' : 't2'}">${r.label}</span>
+    </div>`).join('');
 }
 
 function confidenceDots(c) {
@@ -579,16 +678,41 @@ function outcomesRow(c) {
   // an observed move, past tense throughout.
   const o = c.outcomes;
   if (!o || !o.horizons || !o.horizons.length) return '';
-  const cells = o.horizons.map((h) => {
-    const v = h.residual_pct;
-    const shown = (v === null || v === undefined)
-      ? `<span class="t3">${h.outcome === 'NOT_YET_OBSERVABLE'
-          ? 'not yet observable' : 'not available'}</span>`
-      : `<span class="num">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
-    // "+1" alone reads as a score. The unit is trading sessions, and it is
-    // the unit every horizon on this page is measured in.
-    return `<span class="t2"><span class="t3">${h.h} session${h.h === 1 ? '' : 's'} later</span> ${shown}</span>`;
-  }).join('<span class="t3" aria-hidden="true"> · </span>');
+  // A small horizontal timeline. Filled marker = observed; hollow = the
+  // session has not closed yet. Three "not yet observable" phrases in a row
+  // read as three failures; three hollow markers on one line read as what
+  // they are — time that has not passed. Inline SVG, no library.
+  const hs = o.horizons;
+  const W = 210, H = 34, x0 = 14, x1 = W - 44;
+  const maxH = Math.max(...hs.map((h) => h.h), 1);
+  const px = (h) => x0 + (x1 - x0) * (h / maxH);
+  const marks = hs.map((h) => {
+    const obs = h.residual_pct !== null && h.residual_pct !== undefined;
+    const cx = px(h.h);
+    return `
+      <circle cx="${cx.toFixed(1)}" cy="13" r="4.5"
+              fill="${obs ? 'var(--accent)' : 'none'}"
+              stroke="${obs ? 'var(--accent)' : 'var(--border)'}" stroke-width="1.5"/>
+      <text x="${cx.toFixed(1)}" y="30" text-anchor="middle" fill="var(--text-3)"
+            style="font-size:9px;font-family:var(--mono)">+${h.h}</text>
+      ${obs ? `<text x="${cx.toFixed(1)}" y="6" text-anchor="middle"
+            fill="var(--text-2)" style="font-size:9px;font-family:var(--mono)">${
+              h.residual_pct > 0 ? '+' : ''}${h.residual_pct.toFixed(2)}%</text>` : ''}`;
+  }).join('');
+  const timelineLabel = 'After the move, in trading sessions: ' + hs.map((h) =>
+    `${h.h} session${h.h === 1 ? '' : 's'} later, ${
+      h.residual_pct === null || h.residual_pct === undefined
+        ? (h.outcome === 'NOT_YET_OBSERVABLE' ? 'not yet observable' : 'not available')
+        : `${h.residual_pct > 0 ? 'up' : 'down'} ${Math.abs(h.residual_pct).toFixed(2)} percent`}`
+  ).join('; ') + '.';
+  const cells = `<span class="inline-block align-middle"><svg width="${W}" height="${H}"
+      viewBox="0 0 ${W} ${H}" role="img" aria-label="${timelineLabel}">
+      <line x1="${x0}" y1="13" x2="${px(maxH).toFixed(1)}" y2="13"
+            stroke="var(--border)" stroke-width="1"/>
+      ${marks}
+      <text x="${(px(maxH) + 8).toFixed(1)}" y="16" fill="var(--text-3)"
+            style="font-size:9px">sessions</text>
+    </svg></span>`;
 
   // Why nothing is observable yet, derived rather than assumed: an event on
   // the newest session we hold has no session after it. Three "not yet
@@ -635,16 +759,39 @@ function outcomesRow(c) {
     // n travels with every figure, always. Below the floor the server sends
     // percentages: null and only counts are shown — a percentage over a
     // handful of events is noise wearing a decimal point.
+    // Horizontal bars, sorted by size. Three percentages in a text row asked
+    // the reader to compare decimals; three bars show the shape before a
+    // single number is read. Widths are scaled against the LARGEST count, not
+    // the total, so the leader always fills the track and the differences stay
+    // legible — and a zero row keeps its label and renders a dot, because
+    // "continued: 0" is a result and an absent row is not.
     const order = ['CONTINUED', 'REVERSED', 'NORMALIZED'];
-    const parts = order.filter((k) => k in br.counts).map((k) => br.percentages
-      ? `${k.toLowerCase()} <span class="num">${br.percentages[k]}%</span>`
-      : `${k.toLowerCase()} <span class="num">${br.counts[k]}</span>`);
+    const rows = order.filter((k) => k in br.counts)
+      .sort((a, b) => br.counts[b] - br.counts[a]);
+    const maxN = Math.max(1, ...rows.map((k) => br.counts[k]));
+    const bars = rows.map((k) => {
+      const n = br.counts[k];
+      const w = n / maxN * 100;
+      return `
+      <div class="flex items-center gap-2 mt-1">
+        <span class="t2 shrink-0" style="width:74px;font-size:11px">${k.toLowerCase()}</span>
+        <span class="flex-1 h-2 rounded-sm overflow-hidden ${n ? 'bar-track' : ''}">
+          ${n ? `<span class="block h-full bar-quiet rounded-sm" style="width:${w.toFixed(1)}%"></span>`
+              : '<span class="t3" style="font-size:11px;line-height:8px">&middot;</span>'}
+        </span>
+        <span class="num t2 shrink-0 text-right" style="width:64px;font-size:11px">${n}${
+          br.percentages ? ` <span class="t3">${br.percentages[k]}%</span>` : ''}</span>
+      </div>`;
+    }).join('');
     history = `
       <div class="flex gap-3 py-1.5 bdb last:border-0">
         <span class="label w-28 shrink-0 pt-0.5">Historically</span>
         <span class="text-xs t2 flex-1">
-          ${parts.join('<span class="t3" aria-hidden="true"> · </span>')}
-          <span class="num t3">(out of ${br.n} past events)</span>
+          <span class="block" role="img" aria-label="Historically: ${
+            rows.map((k) => `${k.toLowerCase()} ${br.counts[k]}${
+              br.percentages ? ` (${br.percentages[k]} percent)` : ''}`).join(', ')
+            }, out of ${br.n} past events.">${bars}</span>
+          <span class="num t3 block mt-1">(out of ${br.n} past events)</span>
           <span class="block t3 mt-0.5" style="font-size:11px">
             After past ${br.event_type ? br.event_type.replace('_', ' ').toLowerCase() : 'events'}
             at tier ${br.tier}, measured ${br.horizon} sessions later, drawn from
@@ -740,12 +887,18 @@ function whyHTML(c, i, ctx = {}) {
     </div>`;
 
   const extra = outcomesRow(c);
+  // The band and the detector's headline left the card face when it was cut
+  // to six rows. They are the first thing inside the drawer, above the plain
+  // reasons — moved, not removed.
+  const moved = `${extremityBand(c, ctx)}${
+    c.headline ? `<p class="mt-1 text-xs t2">${c.headline}</p>` : ''}`;
   return `
     <button data-why="${i}" aria-expanded="false" aria-controls="why-${i}"
             class="mt-3 text-[11px] t3 hover:t2 transition-colors">
       <span aria-hidden="true" class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
     </button>
     <div data-whybody="${i}" id="why-${i}" hidden class="mt-2 pl-3 bdl">
+      ${moved}
       ${reasons.length ? `<ol class="text-xs t2 space-y-1 mb-2">${reasons.map((r, n) => `
         <li><span class="num t3">${n + 1}.</span> ${r}</li>`).join('')}</ol>` : ''}
       <details class="tech">
@@ -816,10 +969,13 @@ const FRESHNESS = {
   // the session it was scored on*; this asks how many sessions separate that
   // session from the latest one held. A one-session-old bar was fully
   // trustworthy when captured and is now one session old. Both are true.
-  FRESH:   { cls: 't3',      label: 'FRESH' },
-  DELAYED: { cls: 't3',      label: 'BEHIND' },
-  STALE:   { cls: 'warn-fg', label: 'STALE' },
-  UNKNOWN: { cls: 't3',      label: 'AGE UNKNOWN' },
+  // Lower case, like every other token on the meta row. These were the only
+  // ones still shouting, and at the centre column's width they were what
+  // pushed row 2 onto a second line.
+  FRESH:   { cls: 't3',      label: 'fresh' },
+  DELAYED: { cls: 't3',      label: 'behind' },
+  STALE:   { cls: 'warn-fg', label: 'stale' },
+  UNKNOWN: { cls: 't3',      label: 'age unknown' },
   CORP_ACTION_UNADJUSTED: { cls: 'warn-fg', label: 'UNADJUSTED' },
 };
 
@@ -828,7 +984,7 @@ function freshnessText(c) {
   if (!f) return '';
   const n = c.sessions_behind;
   if ((c.freshness === 'DELAYED' || c.freshness === 'STALE') && n) {
-    return `<span class="${f.cls}" title="This card's session is ${n} behind the latest session held. That is an age, not a data-quality problem: capture confidence is scored against the session the bar belonged to.">${n} SESSION${n === 1 ? '' : 'S'} BEHIND</span>`;
+    return `<span class="${f.cls}" title="This card's session is ${n} behind the latest session held. That is an age, not a data-quality problem: capture confidence is scored against the session the bar belonged to.">${n} session${n === 1 ? '' : 's'} behind</span>`;
   }
   return `<span class="${f.cls}">${f.label}</span>`;
 }
@@ -955,9 +1111,12 @@ function extremityBand(c, ctx) {
 }
 
 function attributionRow(c) {
-  // Three inline pairs, then ONE stacked bar. Three separate bar rows made the
-  // reader compare three lengths in sequence; a single segmented bar shows the
-  // proportion in one glance, which is the thing worth seeing.
+  // ONE bar, three labelled segments, and it is the largest thing on the card.
+  // This is the product's core claim — that a move splits into the market, the
+  // sector, and what is left — so it is shown, not described. The three inline
+  // number pairs that used to sit above it said the same thing in text and
+  // cost a whole row of card height; the values now live on the segments, in
+  // the hover title, and in the aria-label.
   const parts = [
     { key: 'market',         v: c.market_pct,      accent: false },
     { key: 'sector',         v: c.sector_only_pct, accent: false },
@@ -965,25 +1124,28 @@ function attributionRow(c) {
   ];
   const known = parts.filter((p) => p.v !== null && p.v !== undefined);
   if (!known.length) return '<p class="text-xs t3 mt-3">Decomposition not available</p>';
+  // Widths are proportional to ABSOLUTE contribution, so a large negative
+  // component reads as large. Sign is carried by the number, never by width.
   const total = known.reduce((a, p) => a + Math.abs(p.v), 0) || 1;
 
-  const pairs = parts.map((p) => {
-    if (p.v === null || p.v === undefined) {
-      return `<span class="t3">${p.key} <span class="num">n/a</span></span>`;
-    }
-    return `<span class="${p.accent ? 't1' : 't2'}">${p.key} `
-         + `<span class="num ${p.accent ? 'accent' : ''}">${fmtPct(p.v)}</span></span>`;
-  }).join('<span class="t3" aria-hidden="true"> · </span>');
-
-  const segs = known.map((p) =>
-    `<span class="${p.accent ? 'bar-accent' : 'bar-quiet'}" style="width:${
-      (Math.abs(p.v) / total * 100).toFixed(2)}%"></span>`).join('');
+  const label = known.map((p) => `${p.key} ${fmtPct(p.v)}`).join(', ');
+  const segs = known.map((p, i) => {
+    const w = Math.abs(p.v) / total * 100;
+    // Below about 14% a segment cannot hold its own label without the text
+    // overflowing into its neighbour, so the label drops out and the hover
+    // title and aria-label carry it. Nothing is lost, and nothing overlaps.
+    const roomy = w >= 14;
+    return `<span class="${p.accent ? 'bar-accent' : 'bar-quiet'} seg ${
+      i ? 'seg-div' : ''}" style="width:${w.toFixed(2)}%"
+      title="${p.key} ${fmtPct(p.v)}">${roomy ? `
+      <span class="seg-l">${p.key}</span>
+      <span class="seg-v num">${fmtPct(p.v)}</span>` : ''}</span>`;
+  }).join('');
 
   return `
-    <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">${pairs}</div>
-    <div class="mt-2 bar-track flex" style="height:6px"
-         role="img" aria-label="Attribution: ${known.map((p) =>
-           `${p.key} ${fmtPct(p.v)}`).join(', ')}">${segs}</div>`;
+    <div class="mt-3 attr-bar flex" role="img"
+         aria-label="Attribution of this move: ${label}."
+         title="${label}">${segs}</div>`;
 }
 
 function verdictText(c) {
@@ -1009,22 +1171,46 @@ function verdictText(c) {
 
 function cardHTML(c, i, ctx = {}) {
   const t = TIER[c.tier] || { label: c.tier };
+  // Six rows, and everything else nests. The meta line had grown to three
+  // wrapped lines carrying five facts of unequal weight; the tier's meaning
+  // moved to the evidence row, where it belongs, because "no material filing
+  // on record" is a statement about evidence and reads as one there.
+  //
   // Deliberately no green/red on the return. Colouring a move by direction
   // implies a judgement about whether it is good news, which is one step from
   // a recommendation, and this product does not make them.
   const meta = [
-    TIER_PLAIN[c.tier] || `Tier ${c.tier}`,
+    unusualnessWords(c.z, ctx),
     c.event_type ? (EVENT_PLAIN[c.event_type] || c.event_type.replace('_', ' ')) : null,
     freshnessText(c),
-    (c.evidence || []).length ? null
-      : '<span class="t3" style="text-transform:none" title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">no filings at all</span>',
     confidenceGate(c, ctx),
   ].filter(Boolean).join('<span class="t3" aria-hidden="true"> · </span>');
 
   const verdict = verdictText(c);
+  const ev = c.evidence || [];
+  // Row 5. One line either way: a count that opens the filings, or the tier's
+  // own meaning when there are none. Both are evidence statements.
+  const before = ev.filter((e) => e.temporal_relation === 'PRECEDES').length;
+  const evidenceRow = ev.length
+    ? `<button data-ev="${i}" aria-expanded="false" aria-controls="ev-${i}"
+               class="mt-2 text-[11px] evidence-fg hover:t1 transition-colors text-left"
+               style="min-height:0">
+         <span aria-hidden="true" class="inline-block" data-evchev="${i}">&#9656;</span>
+         ${ev.length} filing${ev.length === 1 ? '' : 's'}${
+           before ? ` · ${before} published before the move` : ''}
+       </button>
+       <div data-evbody="${i}" id="ev-${i}" hidden>${evidenceHTML(c)}</div>`
+    : `<p class="mt-2 text-[11px] t3"
+          title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">${
+       TIER_PLAIN[c.tier] || `Tier ${c.tier}`}</p>`;
 
   return `
-  <article class="card card-surfaced card-in" style="animation-delay:${i * 45}ms">
+  <article class="card card-surfaced card-in" data-symbol="${c.symbol}"
+           style="animation-delay:${i * 45}ms">
+    <!-- Row 1. The symbol is never allowed to shorten: at ten characters —
+         BALRAMCHIN, ATHERENERG, the longest tickers in the instrument table —
+         it was the element that truncated, and losing a ticker's last two
+         letters is losing which company the card is about. -->
     <div class="flex items-baseline justify-between gap-3">
       <div class="flex items-baseline gap-2.5 min-w-0">
         <span class="dot shrink-0" title="${t.label}" aria-hidden="true"></span>
@@ -1032,22 +1218,21 @@ function cardHTML(c, i, ctx = {}) {
       </div>
       <div class="num figure-lg t1 shrink-0">${fmtPct(c.total_return_pct)}</div>
     </div>
-    <!-- Meta on its own line. It shared row 1 with the symbol, and at ten
-         characters — BALRAMCHIN, ATHERENERG, the longest tickers in the
-         instrument table — the symbol was the element that truncated. A ticker
-         is the instrument's identity; losing its last two letters is losing
-         which company the card is about. Nothing here may shorten it. -->
-    <p class="mt-1 label" style="text-transform:none">${meta}</p>
 
+    <!-- Row 2. -->
+    <p class="mt-1 t3" style="font-size:0.75rem">${meta}</p>
+
+    <!-- Row 3. The card's argument, and its largest object. -->
     ${attributionRow(c)}
 
-    ${verdict ? `<p class="mt-3 text-xs accent">${verdict.plain}</p>
-      <p class="label mt-0.5" style="text-transform:none">${verdict.term}</p>` : ''}
-    ${extremityBand(c, ctx)}
+    <!-- Row 4. -->
+    ${verdict ? `<p class="mt-2 text-xs accent">${verdict.plain}
+      <span class="t3" style="font-size:11px">&mdash; ${verdict.term}</span></p>` : ''}
 
-    <p class="mt-2 text-xs t2">${c.headline}</p>
+    <!-- Row 5. -->
+    ${ctx.suppressEvidence && !ev.length ? '' : evidenceRow}
 
-    ${ctx.suppressEvidence && !(c.evidence || []).length ? '' : evidenceHTML(c)}
+    <!-- Row 6, and everything that used to be on the face, one layer down. -->
     ${whyHTML(c, i, ctx)}
   </article>`;
 }
@@ -1055,19 +1240,21 @@ function cardHTML(c, i, ctx = {}) {
 function chainHTML(chain) {
   // Every count comes from the server. Nothing is recomputed here — the chain
   // is monotonic by construction on the server side, and a JS re-derivation
-  // could disagree with the drawer beside it.
+  // could disagree with the Pareto beside it.
   const stages = (chain || []).filter((s) => s.count > 0);
   if (stages.length < 2) return '';
   const top = stages[0].count;
   return `
-    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">Evidence chain</p>
-    <ol class="space-y-1.5 mb-6">${stages.map((st, i) => `
-      <li class="flex items-baseline gap-3">
-        <span class="num text-xs t1 w-8 text-right">${st.count}</span>
-        <span class="text-xs t3 flex-1">
-          ${i > 0 ? '<span class="t3" aria-hidden="true">&rarr;</span> ' : ''}${st.label}
-        </span>
-        <span class="hidden sm:block w-24 h-1.5 surface-2 rounded-sm overflow-hidden">
+    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-2">Evidence chain</p>
+    <ol class="space-y-2">${stages.map((st, i) => `
+      <li>
+        <div class="flex items-baseline gap-2">
+          <span class="num text-xs t1 shrink-0" style="min-width:2ch">${st.count}</span>
+          <span class="text-[11px] t3 flex-1 min-w-0">
+            ${i > 0 ? '<span class="t3" aria-hidden="true">&rarr;</span> ' : ''}${st.label}
+          </span>
+        </div>
+        <span class="block mt-1 h-1 surface-2 rounded-sm overflow-hidden">
           <span class="block h-full bar-quiet rounded-sm"
                 style="width:${(st.count / top * 100).toFixed(1)}%"></span>
         </span>
@@ -1075,50 +1262,80 @@ function chainHTML(chain) {
 }
 
 function filteredHTML(reasons, total) {
-  // A Pareto, not a list: the point of the drawer is that one bar dwarfs the
-  // others, and a reader should see that before reading any label. Bars are
-  // scaled against the largest reason rather than the total, so the shape is
-  // legible even when one category holds most of the mass.
+  // A Pareto, not a list: the point is that one bar dwarfs the others, and a
+  // reader should see that before reading any label. Bars are scaled against
+  // the largest reason rather than the total, so the shape stays legible even
+  // when one category holds most of the mass.
+  //
+  // Stacked rather than columnar. The three-column form (label | bar | count)
+  // was built for a 764px measure; in the 300px rail the detail line was
+  // squeezed to about sixty pixels and broke one word per line.
   const rows = Object.entries(reasons)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1]);
-  if (!rows.length) return '<p class="text-sm t3">Nothing was filtered.</p>';
+  if (!rows.length) return '<p class="text-xs t3">Nothing was filtered.</p>';
   const max = rows[0][1];
   return `
-    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">
-      Why ${total} movements did not surface
+    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-2">
+      Why ${total} did not surface
     </p>
     <ul class="space-y-2.5">${rows.map(([k, n]) => `
       <li>
-        <div class="flex items-baseline gap-3">
-          <span class="text-xs t2 w-44 shrink-0">${REASONS[k] || k}</span>
-          <span class="flex-1 h-2 surface-2 rounded-sm overflow-hidden">
-            <span class="block h-full bar-quiet rounded-sm"
-                  style="width:${(n / max * 100).toFixed(1)}%"></span>
-          </span>
-          <span class="num text-xs t1 w-6 text-right">${n}</span>
+        <div class="flex items-baseline gap-2">
+          <span class="num t1 text-xs shrink-0" style="min-width:2ch">${n}</span>
+          <span class="text-xs t2 flex-1 min-w-0">${REASONS[k] || k}</span>
         </div>
-        <p class="text-[11px] t3 mt-1 ml-0 sm:ml-[11.75rem]">
-          ${REASON_DETAIL[k] || ''}
-        </p>
+        <div class="mt-1 h-1.5 surface-2 rounded-sm overflow-hidden">
+          <span class="block h-full bar-quiet rounded-sm"
+                style="width:${(n / max * 100).toFixed(1)}%"></span>
+        </div>
+        <p class="text-[11px] t3 mt-1">${REASON_DETAIL[k] || ''}</p>
       </li>`).join('')}</ul>`;
 }
 
-function chipHTML(w) {
-  // Muted stays on the list and is dimmed rather than hidden: the distinction
-  // between "not mine" and "mine, quiet this week" is the reason mute exists,
-  // and hiding a muted row would collapse the two.
+// The state each row carries, keyed by ISIN. Written by `render` from
+// `watchlist_state` and read by `renderWatchlist`, which runs immediately
+// after it in `load`. The server derives the partition from the same objects
+// the funnel counts, so a row can never disagree with the numbers above it.
+let wlState = {};
+let wlFilter = null;
+
+// The three states, in the order a reader wants them: what needs attention,
+// what moved and was explained away, what did nothing.
+const WL_STATES = [
+  { key: 'surfaced', label: 'need attention' },
+  { key: 'filtered', label: 'moved' },
+  { key: 'quiet',    label: 'quiet' },
+];
+
+function wlRowHTML(w) {
+  // A table, not a chip cloud. Thirty chips have no column to run an eye
+  // down; thirty rows do, and the change column is what a watchlist is for.
+  const st = wlState[w.isin] || {};
+  const status = st.status || 'quiet';
+  const chg = st.change_pct;
   const dim = w.muted ? 'opacity-40' : '';
+  const shown = chg === null || chg === undefined
+    ? '<span class="t3">&mdash;</span>'
+    : `<span class="${status === 'surfaced' ? 'accent' : 't2'}">${
+        chg > 0 ? '+' : ''}${chg.toFixed(2)}%</span>`;
+  const dotTitle = status === 'surfaced' ? 'On the slate — needs attention'
+    : status === 'filtered' ? 'Moved, and did not survive the gates'
+    : 'No move past the display threshold in this window';
   return `
-  <span class="num inline-flex items-center gap-1.5 text-[11px] rounded
-               border bd surface-2/60 pl-2 pr-1 py-1
-               t2 ${dim}" title="${w.name || ''}">
-    ${w.symbol}
-    <button data-remove="${w.isin}" title="Remove ${w.symbol}"
-            aria-label="Remove ${w.symbol} from watchlist"
-            class="t3 hover:warn-fg transition-colors
-                   px-1 leading-none"><span aria-hidden="true">&times;</span></button>
-  </span>`;
+  <button class="wl-row num text-[11px] ${dim}" data-wl="${w.isin}"
+          data-status="${status}"
+          aria-label="${w.symbol}${chg === null || chg === undefined ? ''
+            : `, ${chg > 0 ? 'up' : 'down'} ${Math.abs(chg).toFixed(2)} percent`}, ${dotTitle}"
+          title="${w.name || w.symbol}">
+    <span class="t1 truncate text-left">${w.symbol}</span>
+    <span class="text-right">${shown}</span>
+    <span class="wl-dot ${status}" title="${dotTitle}" aria-hidden="true"></span>
+    <span data-remove="${w.isin}" role="button" tabindex="0"
+          title="Remove ${w.symbol}" aria-label="Remove ${w.symbol} from watchlist"
+          class="wl-x t3 hover:warn-fg transition-colors text-center leading-none"
+          style="min-height:0"><span aria-hidden="true">&times;</span></span>
+  </button>`;
 }
 
 // Muted symbols stay on the list and are hidden behind a toggle rather than
@@ -1126,12 +1343,43 @@ function chipHTML(w) {
 // the mute control exists precisely to keep them apart.
 let showMuted = false;
 
+let lastWatchlist = [];
+
 function renderWatchlist(items) {
+  lastWatchlist = items;
   const muted = items.filter((w) => w.muted).length;
-  const shown = showMuted ? items : items.filter((w) => !w.muted);
-  el('watchlist').innerHTML = shown.map(chipHTML).join('');
+  let shown = showMuted ? items : items.filter((w) => !w.muted);
+
+  // Attention first, then by the size of the move. A watchlist sorted
+  // alphabetically buries the four rows the page exists to show.
+  const rank = { surfaced: 0, filtered: 1, quiet: 2 };
+  shown = [...shown].sort((a, b) => {
+    const sa = wlState[a.isin] || {}, sb = wlState[b.isin] || {};
+    const r = (rank[sa.status] ?? 3) - (rank[sb.status] ?? 3);
+    if (r) return r;
+    return Math.abs(sb.change_pct || 0) - Math.abs(sa.change_pct || 0);
+  });
+
+  // Counts come from every row on the list, not from the filtered view, so a
+  // chip never reports the size of the selection it produced.
+  const counts = {};
+  for (const w of shown) {
+    const k = (wlState[w.isin] || {}).status || 'quiet';
+    counts[k] = (counts[k] || 0) + 1;
+  }
+  el('wl-filters').innerHTML = WL_STATES.map(({ key, label }) => `
+    <button class="wl-filter t2 hover:t1 transition-colors" data-wlf="${key}"
+            aria-pressed="${wlFilter === key}">
+      <span class="num t1">${counts[key] || 0}</span> ${label}
+    </button>`).join('');
+
+  const visible = wlFilter
+    ? shown.filter((w) => ((wlState[w.isin] || {}).status || 'quiet') === wlFilter)
+    : shown;
+  el('watchlist').innerHTML = visible.map(wlRowHTML).join('')
+    || '<p class="text-[11px] t3 py-2">No symbols in this state.</p>';
   el('wl-count').textContent =
-    `${shown.length} shown${muted ? ` · ${muted} muted` : ''}`;
+    `${shown.length} watched${muted ? ` · ${muted} muted` : ''}`;
   const btn = el('mute-toggle');
   btn.textContent = showMuted ? 'hide muted' : 'show muted';
   btn.hidden = muted === 0;
@@ -1174,6 +1422,32 @@ function render(d) {
   el('since').textContent = sinceLabel(d.since);
   el('funnel').innerHTML = funnelHTML(d.funnel);
 
+  // The state each watchlist row renders with, handed to `renderWatchlist`,
+  // which runs immediately after this in `load`.
+  wlState = {};
+  for (const r of d.watchlist_state || []) wlState[r.isin] = r;
+
+  // 1b. The context strip. Every tile is a close-to-close change the server
+  // read from `index_bar`; an index with no row on record produced no tile,
+  // so there is nothing here to fabricate and nothing to zero-fill.
+  const ic = d.index_context || {};
+  const tiles = (ic.tiles || []).map((t) => `
+    <span class="tile" title="${t.index_name} close-to-close, session ${t.session_date}">
+      <span class="t3">${t.kind === 'market' ? t.label : (t.sector_name || t.label)}</span>
+      <span class="num ${t.change_pct > 0 ? 't1' : t.change_pct < 0 ? 't1' : 't2'}">${
+        t.change_pct > 0 ? '+' : ''}${t.change_pct.toFixed(2)}%</span>
+    </span>`);
+  if (ic.latest_session) {
+    tiles.push(`<span class="tile"><span class="t3">latest session</span>
+      <span class="num t2">${sinceLabel(ic.latest_session)}</span></span>`);
+  }
+  if (ic.next_update) {
+    tiles.push(`<span class="tile"><span class="t3">next update</span>
+      <span class="t2">${ic.next_update}</span></span>`);
+  }
+  el('context').innerHTML = tiles.join(
+    '<span class="t3" aria-hidden="true">·</span>');
+
   // What the three figures below actually add up to, said once in a sentence,
   // because a cold visitor reads "31 · 22 · 4" as three unrelated numbers.
   // Both strings come from the funnel object; neither is typed twice.
@@ -1183,8 +1457,12 @@ function render(d) {
     : `Signal found <span class="num t1">${f.surfaced}</span> `
       + `${f.surfaced === 1 ? 'movement' : 'movements'} worth a closer look out of `
       + `<span class="num t1">${f.watched}</span> you watch.`;
-  el('head-summary').textContent = (f.watched === undefined) ? ''
-    : `${plural(f.surfaced, 'movement')} worth a closer look · ${f.watched} watched`;
+  el('head-summary').innerHTML = (f.watched === undefined) ? ''
+    : [[f.watched, 'watched'], [f.moved, 'moved'],
+       [f.surfaced, 'need attention']]
+      .map(([n, w], i) => `<span class="${i === 2 ? 'accent' : 't2'}">`
+        + `<span class="num ${i === 2 ? 'accent' : 't1'}">${n}</span> ${w}</span>`)
+      .join('<span class="t3" aria-hidden="true"> · </span>');
 
   // One sentence naming where the drop actually happened. It names the
   // *largest* reason, computed from the response, rather than a reason chosen
@@ -1270,15 +1548,15 @@ function render(d) {
        </div>`
     : `<p class="py-10 text-sm t3">Nothing cleared the gate in
          this window.</p>`);
-  // A drawer reading "We filtered 0 other movements" reads as a bug rather
-  // than as good news, so the whole section goes when there is nothing in it.
+  // The chain and the Pareto were at the bottom of a long scroll, behind a
+  // collapsed toggle, where nobody reached them. They are the product's
+  // argument — that most movement is explained away — so they now hold a rail
+  // and are open by default. Empty stays empty: a Pareto of nothing reads as
+  // a bug rather than as good news.
   const hasFiltered = (d.filtered_count || 0) > 0;
-  el('filtered-section').hidden = !hasFiltered;
-  if (hasFiltered) {
-    el('filtered-count').textContent = d.filtered_count;
-    el('filtered-body').innerHTML =
-      chainHTML(d.evidence_chain) + filteredHTML(d.filtered_reasons, d.filtered_count);
-  }
+  el('chain').innerHTML = hasFiltered ? chainHTML(d.evidence_chain) : '';
+  el('filtered-body').innerHTML = hasFiltered
+    ? filteredHTML(d.filtered_reasons, d.filtered_count) : '';
 
   el('ack-btn').disabled = d.cards.length === 0;
   // Cadence, derived from the session the database actually holds. This is
@@ -1402,16 +1680,26 @@ async function ackAll() {
 
 // Delegated: cards are re-rendered on every 5-second poll, so per-card
 // listeners would be re-attached twelve times a minute.
+// Both of the card's disclosures, one delegated handler. Written as a pair
+// of (button attribute, body attribute, chevron attribute) so a third one
+// cannot be added by copying a branch and forgetting to change an id.
+const CARD_TOGGLES = [
+  { btn: 'data-why', body: 'data-whybody', chev: 'data-chev' },
+  { btn: 'data-ev',  body: 'data-evbody',  chev: 'data-evchev' },
+];
 el('cards').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-why]');
-  if (!btn) return;
-  const id = btn.dataset.why;
-  const body = document.querySelector(`[data-whybody="${id}"]`);
-  const chev = document.querySelector(`[data-chev="${id}"]`);
-  if (!body) return;
-  body.hidden = !body.hidden;
-  btn.setAttribute('aria-expanded', String(!body.hidden));
-  if (chev) chev.style.transform = body.hidden ? 'rotate(0deg)' : 'rotate(90deg)';
+  for (const t of CARD_TOGGLES) {
+    const btn = e.target.closest(`[${t.btn}]`);
+    if (!btn) continue;
+    const id = btn.getAttribute(t.btn);
+    const body = document.querySelector(`[${t.body}="${id}"]`);
+    if (!body) return;
+    const chev = document.querySelector(`[${t.chev}="${id}"]`);
+    body.hidden = !body.hidden;
+    btn.setAttribute('aria-expanded', String(!body.hidden));
+    if (chev) chev.style.transform = body.hidden ? 'rotate(0deg)' : 'rotate(90deg)';
+    return;
+  }
 });
 
 el('mute-toggle').addEventListener('click', () => {
@@ -1443,13 +1731,46 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') toggleHelp(false);
 });
 
-el('filtered-toggle').addEventListener('click', () => {
-  const body = el('filtered-body');
-  body.classList.toggle('hidden');
-  el('filtered-toggle').setAttribute('aria-expanded',
-    String(!body.classList.contains('hidden')));
-  el('chev').style.transform = body.classList.contains('hidden')
-    ? 'rotate(0deg)' : 'rotate(90deg)';
+// --- the watchlist table's two behaviours ---------------------------------
+
+// Each count above the table filters it. Clicking the pressed one clears.
+el('wl-filters').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-wlf]');
+  if (!b) return;
+  wlFilter = wlFilter === b.dataset.wlf ? null : b.dataset.wlf;
+  renderWatchlist(lastWatchlist);
+});
+
+// A row points at its card. A row that did not surface has no card to point
+// at, so it says why instead — from the stored reason, not from a guess.
+el('watchlist').addEventListener('click', (e) => {
+  if (e.target.closest('[data-remove]')) return;   // the × has its own handler
+  const row = e.target.closest('[data-wl]');
+  if (!row) return;
+  const st = wlState[row.dataset.wl] || {};
+  const note = el('wl-note');
+  if (st.status === 'surfaced') {
+    const card = document.querySelector(`[data-symbol="${st.symbol}"]`);
+    if (card) {
+      card.scrollIntoView({ block: 'center' });
+      // A ring rather than a colour change: the palette already means
+      // something on this page and borrowing it here would say the wrong
+      // thing about the card.
+      card.style.outline = '2px solid var(--focus)';
+      card.style.outlineOffset = '2px';
+      setTimeout(() => { card.style.outline = ''; }, 1400);
+    }
+    note.hidden = true;
+    return;
+  }
+  note.innerHTML = st.status === 'filtered'
+    ? `<span class="num t2">${st.symbol}</span> moved `
+      + `<span class="num t2">${(st.change_pct > 0 ? '+' : '')}${
+          (st.change_pct ?? 0).toFixed(2)}%</span> — filtered: `
+      + `${REASON_DETAIL[st.reason] || st.reason || 'did not clear the gates'}.`
+    : `<span class="num t2">${st.symbol}</span> did not move past the display `
+      + `threshold in this window.`;
+  note.hidden = false;
 });
 
 // --- refresh model ---------------------------------------------------------

@@ -57,6 +57,35 @@ PAYLOAD = {
                         "d1_threshold": 3.0, "d2_threshold": 4.0,
                         "c_gate": 0.3, "c_gate_uncorroborated": 0.5},
     "freshness_policy": {"fresh_max_sessions_behind": 0, "delayed_max_sessions_behind": 2},
+    # The context strip's tiles. Real close-to-close changes; an index with
+    # no row on record produces no tile, which is why this list is short.
+    "index_context": {
+        "tiles": [
+            {"kind": "market", "label": "Nifty 50", "index_name": "Nifty 50",
+             "change_pct": -0.17, "session_date": "2026-09-03"},
+            {"kind": "sector", "label": "Nifty Realty",
+             "index_name": "Nifty Realty", "change_pct": 2.58,
+             "session_date": "2026-09-03", "sector_id": "realty",
+             "sector_name": "Realty"},
+        ],
+        "latest_session": "2026-09-03",
+        "next_update": "when the next session's bhavcopy is published",
+    },
+    # One row per watched instrument, in all three states the table renders.
+    "watchlist_state": [
+        {"isin": "INE001", "symbol": "COALINDIA", "sector_id": "oil_gas",
+         "change_pct": 3.97, "session_date": "2026-09-02",
+         "status": "surfaced", "reason": None},
+        {"isin": "INE002", "symbol": "SPARSE", "sector_id": None,
+         "change_pct": None, "session_date": None,
+         "status": "quiet", "reason": None},
+        {"isin": "INE003", "symbol": "IFCI", "sector_id": "financial_services",
+         "change_pct": 11.93, "session_date": "2026-09-02",
+         "status": "surfaced", "reason": None},
+        {"isin": "INE004", "symbol": "ADANIPORTS", "sector_id": "services",
+         "change_pct": 2.02, "session_date": "2026-09-02",
+         "status": "filtered", "reason": "below_threshold"},
+    ],
     "all_cards_lack_evidence": False,
     "cursor_head": 5961,
     "cursor": None,
@@ -135,9 +164,20 @@ PAYLOAD = {
     ],
 }
 
+# The ISINs match `watchlist_state` above on purpose: the table joins the two
+# on `isin`, and a fixture whose keys do not line up would render every row in
+# the fallback state and prove only that the fallback works.
 WATCHLIST = [
-    {"isin": "INE1", "symbol": "COALINDIA", "name": "Coal India", "sector": "energy", "muted": False},
-    {"isin": "INE2", "symbol": "MUTED", "name": "Muted Co", "sector": "energy", "muted": True},
+    {"isin": "INE001", "symbol": "COALINDIA", "name": "Coal India",
+     "sector": "energy", "muted": False},
+    {"isin": "INE002", "symbol": "SPARSE", "name": "Sparse Co",
+     "sector": "energy", "muted": False},
+    {"isin": "INE003", "symbol": "IFCI", "name": "IFCI Ltd",
+     "sector": "financial_services", "muted": False},
+    {"isin": "INE004", "symbol": "ADANIPORTS", "name": "Adani Ports",
+     "sector": "services", "muted": False},
+    {"isin": "INE9", "symbol": "MUTED", "name": "Muted Co",
+     "sector": "energy", "muted": True},
 ]
 
 HARNESS = textwrap.dedent("""
@@ -176,19 +216,27 @@ HARNESS = textwrap.dedent("""
     // The full render path, exactly as load() drives it.
     render(payload);
     renderWatchlist(watchlist);
+    // Snapshot the populated state before the empty renders overwrite it.
+    const snap = {
+      cards_html: store['cards:html'] || '',
+      funnel_lede: store['funnel-lede:html'] || '',
+      head_summary: store['head-summary:html'] || store['head-summary:text'] || '',
+      help_body: store['help-body:html'] || '',
+      context_strip: store['context:html'] || '',
+      watchlist_html: store['watchlist:html'] || '',
+      wl_filters: store['wl-filters:html'] || '',
+      chain: store['chain:html'] || '',
+      pareto: store['filtered-body:html'] || '',
+    };
     render({ ...payload, cards: [], cursor: 12, all_cards_lack_evidence: false });
     render({ ...payload, latest_session: null });
     renderWatchlist([]);
 
-    const html = store['cards:html'] || '';
     console.log(JSON.stringify({
       ok: true,
-      cards_html_len: html.length,
-      cards_html: html,
-      funnel_lede: store['funnel-lede:html'] || '',
-      head_summary: store['head-summary:text'] || '',
-      help_body: store['help-body:html'] || '',
-      chain_rendered: (store['filtered-body:html'] || '').includes('Evidence chain'),
+      cards_html_len: snap.cards_html.length,
+      chain_rendered: snap.chain.includes('Evidence chain'),
+      ...snap,
     }));
 """).strip()
 
@@ -406,14 +454,34 @@ def test_the_card_face_carries_words_not_sigma(tmp_path):
 
 def test_the_tier_letter_left_the_face_but_not_the_page(tmp_path):
     """2c. `TIER C` read as a low grade. It and its gate expression belong in
-    Technical details — belong there, not nowhere."""
+    Technical details — belong there, not nowhere.
+
+    The tier's *meaning* is an evidence statement ("unusual, with no material
+    filing on record"), so when the card was cut to six rows it took the
+    evidence row on a card that has no filings. A card that does carry filings
+    shows the count there instead and states the tier one layer down, which is
+    what "everything else nests" means. Both are asserted, separately.
+    """
     html = _cards(tmp_path)
     face = html.split("Why this?")[0]
     assert "TIER C" not in face and "TIER B" not in face
-    assert "unusual" in face, "the face lost the tier's meaning"
-    tech = html.split("Technical details")[1]
-    assert "Tier C" in tech, "the tier letter was deleted instead of moved"
-    assert "C>=0.5" in tech, "the gate expression was deleted instead of moved"
+
+    # A card with no filings says what the tier means, on its face.
+    no_ev = [a for a in html.split("<article") if "IFCI" in a][0]
+    assert "unusual" in no_ev.split("Why this?")[0], (
+        "a card with no filings lost the tier's meaning from its face"
+    )
+    # A card with filings shows the count there, and the tier is still reachable.
+    with_ev = [a for a in html.split("<article") if "COALINDIA" in a][0]
+    assert "filing" in with_ev.split("Why this?")[0]
+
+    # Every card, either way, keeps the letter and the gate expression.
+    for article in [a for a in html.split("<article") if "Technical details" in a]:
+        tech = article.split("Technical details")[1]
+        assert "Tier " in tech, "the tier letter was deleted instead of moved"
+    assert "C>=0.5" in html.split("Technical details")[1], (
+        "the gate expression was deleted instead of moved"
+    )
 
 
 def test_the_verdict_leads_in_plain_english(tmp_path):
@@ -478,3 +546,145 @@ def test_the_plain_language_guards_fire_when_the_helper_is_deleted(tmp_path):
     r = _run(tmp_path, broken)
     assert r.returncode != 0, "deleting the confidence renderer did not fail the guard"
     assert "confidenceGate is not defined" in r.stderr
+
+
+# --- the application shell, executed ---------------------------------------
+
+
+def test_the_context_strip_is_built_from_the_payload(tmp_path):
+    """1b. Every tile is a real index change. An index with no row on record
+    produces no tile — there is nothing here to fabricate, and the guard fails
+    if a tile appears that the payload did not supply."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    strip = out["context_strip"]
+    assert strip, "the context strip rendered nothing"
+    for tile in PAYLOAD["index_context"]["tiles"]:
+        shown = tile.get("sector_name") or tile["label"]
+        assert shown in strip, f"missing context tile: {shown}"
+        assert f"{tile['change_pct']:.2f}%" in strip, (
+            f"tile {shown} lost its change"
+        )
+    # And nothing beyond what was supplied: two tiles in, two changes out.
+    assert strip.count("%") == len(PAYLOAD["index_context"]["tiles"]), (
+        "the strip rendered a percentage the payload did not carry"
+    )
+
+
+def test_the_header_carries_the_funnels_three_numbers(tmp_path):
+    """1a. The centre zone survives any scroll depth, so it must hold the
+    count rather than a label."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    head, f = out["head_summary"], PAYLOAD["funnel"]
+    missing = [k for k in ("watched", "moved", "surfaced")
+               if str(f[k]) not in head]
+    assert not missing, f"the header summary is missing {missing}: {head}"
+    assert "need attention" in head
+
+
+def test_the_watchlist_is_a_table_with_a_row_per_symbol(tmp_path):
+    """2. A row per instrument, each carrying its change and its state, and
+    the three states derived from `watchlist_state` rather than guessed."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    table = out["watchlist_html"]
+    assert table, "the watchlist rendered nothing"
+
+    unmuted = [w for w in WATCHLIST if not w["muted"]]
+    assert unmuted
+    for w in unmuted:
+        assert f'data-wl="{w["isin"]}"' in table, f"{w['symbol']} has no row"
+    assert 'data-wl="INE9"' not in table, "a muted symbol rendered by default"
+
+    # Each row's dot is the state the server assigned, not a client guess.
+    by_isin = {r_["isin"]: r_ for r_ in PAYLOAD["watchlist_state"]}
+    for isin, row in by_isin.items():
+        assert f'data-status="{row["status"]}"' in table, (
+            f"{row['symbol']} did not render as {row['status']}"
+        )
+    # And the change column carries the stored value.
+    assert "+3.97%" in table and "+11.93%" in table
+
+
+def test_the_watchlist_counts_partition_the_list(tmp_path):
+    """The three filter chips must add up to the rows they filter, or a chip
+    is reporting the size of a selection rather than of a state."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    chips = out["wl_filters"]
+    assert chips
+    counts = {row["status"] for row in PAYLOAD["watchlist_state"]}
+    for status in counts:
+        assert f'data-wlf="{status}"' in chips, f"no filter chip for {status}"
+    for label in ("need attention", "moved", "quiet"):
+        assert label in chips
+
+
+def test_the_attribution_is_one_labelled_bar(tmp_path):
+    """3a. The product's core claim is shown, not described: one bar, three
+    segments, values on the segments and in the aria-label."""
+    html = _cards(tmp_path)
+    assert "attr-bar" in html, "the attribution bar is gone"
+    card = [a for a in html.split("<article") if "COALINDIA" in a][0]
+    assert card.count("attr-bar") == 1, "more than one attribution bar per card"
+    assert re.search(r'aria-label="Attribution of this move: [^"]*market[^"]*'
+                     r'sector[^"]*stock-specific[^"]*"', card), (
+        "the attribution bar lost its screen-reader values"
+    )
+    # The three inline number pairs that used to duplicate the bar are gone
+    # from the face, but every value is still on the bar itself.
+    for v in ("+0.09%", "+0.28%", "+3.67%"):
+        assert v in card, f"the bar lost {v}"
+
+
+def test_the_base_rates_are_bars_and_keep_their_denominator(tmp_path):
+    """3b. Counts became bars; the suppression rule and `n` did not move."""
+    html = _cards(tmp_path)
+    card = [a for a in html.split("<article") if "IFCI" in a][0]
+    br = PAYLOAD["cards"][1]["outcomes"]["base_rates"]
+    assert f"out of {br['n']} past events" in card
+    for k, n in br["counts"].items():
+        assert k.lower() in card, f"the {k} row is missing"
+        assert f">{n}" in card or f"{n} " in card, f"the {k} count is missing"
+    assert 'role="img"' in card and "Historically:" in card, (
+        "the bars are not announced to a screen reader"
+    )
+
+
+def test_the_horizons_are_a_timeline_with_hollow_and_filled_markers(tmp_path):
+    """3c. Filled = observed, hollow = the session has not closed. Three
+    "not yet observable" phrases in a row read as three failures."""
+    html = _cards(tmp_path)
+    card = [a for a in html.split("<article") if "IFCI" in a][0]
+    hs = PAYLOAD["cards"][1]["outcomes"]["horizons"]
+    observed = [h for h in hs if h["residual_pct"] is not None]
+    pending = [h for h in hs if h["residual_pct"] is None]
+    assert observed and pending, "the fixture must exercise both marker states"
+    assert 'fill="var(--accent)"' in card, "no filled marker for an observed horizon"
+    assert 'fill="none"' in card, "no hollow marker for a pending horizon"
+    for h in hs:
+        assert f">+{h['h']}</text>" in card, f"the +{h['h']} marker is missing"
+    assert "not yet observable" in card, (
+        "the pending horizons lost their explanation entirely"
+    )
+
+
+def test_the_shell_guards_fire_when_the_strip_is_faked(tmp_path):
+    """R-27. A tile the payload did not supply must fail the strip guard —
+    the whole point of 1b is that nothing on it is invented."""
+    marker = "el('context').innerHTML = tiles.join("
+    script = _script()
+    assert marker in script, "the strip's write site moved; update this guard"
+    broken = script.replace(
+        marker,
+        "tiles.push('<span class=\"tile\">NIFTY BANK +1.20%</span>'); " + marker, 1)
+    r = _run(tmp_path, broken)
+    assert r.returncode == 0, (r.stderr or "")[-800:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert "NIFTY BANK" in out["context_strip"], "the mutation did not take"
+    assert out["context_strip"].count("%") != len(
+        PAYLOAD["index_context"]["tiles"]), (
+        "a fabricated tile did not change the strip's percentage count, so "
+        "the guard could not have caught it"
+    )
