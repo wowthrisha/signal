@@ -640,3 +640,19 @@ looks fine can be averaging over a warm-up pathology.
 **Decision:** Do not demonstrate it. Measured across all 497 ingested sessions, **zero** reach `breadth > 0.5`; the maximum is 0.3473 on 2026-04-01, 838 of 2,413 symbols beyond `|z| > 2`.
 **Rejected:** Lowering `BREADTH_THRESHOLD` to produce a demonstrable session, and building a demo control that renders a manufactured regime. Either would be showing a mock while describing it as a feature, and moving a threshold to make a demo work is the failure this project has refused at every other decision point.
 **Would revisit if:** a genuine market-wide session appears in the data. Two years without one is arguably evidence the threshold is set sensibly, not evidence the feature is broken — a gate that fires on an ordinary Tuesday would be the defect.
+
+---
+
+## ADR-044: Corporate announcements, not corporate actions, for publication time
+
+**Context:** Every evidence row derived from `corp_action` classified as `UNKNOWN`, because the feed carries an ex-date — when an action takes effect — and never a filing time. The temporal classifier was correct and had nothing to resolve.
+
+**Decision:** Ingest NSE's corporate-*announcements* endpoint as a second evidence source. It carries `exchdisstime`, an exchange dissemination moment, and a per-document attachment URL. `exchdisstime` is preferred over `an_dt` because publication is when a document became public and could move a price, not when a company pressed send.
+
+**Verified before adopting, not assumed:** 4,049 rows over one week showed **869 distinct HH:MM values and zero at midnight**, which is what distinguishes a broadcast timestamp from a date wearing a time. A feed that had failed that check would have been rejected rather than used as a proxy.
+
+**Rejected:** using `an_dt`, and using the ex-date as a stand-in for publication. The second is the whole reason the classifier exists.
+
+**Consequence to state rather than bury:** an announcement disseminated after the 15:30 IST close attaches to the *next* session, so `FOLLOWS` is unreachable from this path and its live count is 0 by construction. An unexplained zero would read as a quality signal it is not.
+
+**Would revisit if:** a source arrives that attaches evidence to a session by some other rule, at which point `FOLLOWS` becomes reachable and the count becomes informative.

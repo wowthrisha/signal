@@ -2079,3 +2079,133 @@ $ grep -n "build step for the UI" README.md
 ```
 
 Full suite: `308 passed, 1 skipped, 1 xfailed in 290.43s`.
+
+---
+
+# [U10] NSE corporate announcements — real publication timestamps — 2026-09-05
+
+## [U10.1] Task 1a — investigation before coding — PASS
+
+Probed `https://www.nseindia.com/api/corporate-announcements` for
+2026-08-28..2026-09-03. **HTTP 200, 4,049 rows.** Raw fields and what each one
+semantically represents:
+
+```
+'an_dt'        '03-Sep-2026 23:56:47'   when the COMPANY submitted to the exchange
+'exchdisstime' '03-Sep-2026 23:56:48'   when the EXCHANGE disseminated it publicly
+'difference'   '00:00:01'               latency between the two
+'sort_date'    '2026-09-03 23:56:47'    an_dt in ISO form
+'dt'           '03092026235647'         an_dt, compact
+'sm_isin'      'INE18UN01038'           ISIN — structured join key, no name matching
+'symbol'       'GAJA'                   display ticker
+'sm_name'      'Gaja Alternative ...'   company name
+'desc'         'Shareholders meeting'   exchange category
+'attchmntText' 'Gaja ... has informed'  exchange's own summary line
+'attchmntFile' 'https://nsearchives...' PERMALINK to the filed document
+'attFileSize', 'fileSize', 'hasXbrl', 'seq_id', 'bflag', 'csvName',
+'old_new', 'orgid', 'smIndustry'        metadata, not timestamps
+```
+
+**Is `exchdisstime` a genuine broadcast time, or an effective date in
+disguise?** Tested rather than assumed:
+
+```
+rows: 4049
+distinct HH:MM values: 869 -> not a date-in-disguise
+midnight (00:00) rows: 0
+most common times: [('18:34', 17), ('18:05', 17), ('17:56', 17), ('17:49', 16), ('17:46', 16)]
+with attachment url: 3948
+with sm_isin      : 4044
+distinct isins    : 1505
+```
+
+869 distinct times and zero midnights. It is a real dissemination moment.
+`exchdisstime` is used rather than `an_dt`, because publication is when a
+document became public and could move a price, not when a company pressed send.
+
+## [U10.2] Task 1b — ingest — PASS
+
+Schema reused; no new table. `published_at` takes the broadcast timestamp with
+`published_at_basis = FILED_AT`; `retrieved_at` stays the injected-clock fetch
+time. Window 2026-06-01..2026-09-03, chunked 30 days.
+
+```
+ingest: {'seen': 55010, 'no_isin': 58, 'no_timestamp': 0, 'no_session': 593,
+         'kept': 54359, 'unknown_isin': 10147, 'written': 44212}
+```
+
+Every rejection is counted and named. `unknown_isin` is 10,147 rows for ISINs
+we hold no instrument for — mostly SME and debt series outside the equity
+universe. A row with no time of day would be dropped, not stored at midnight
+(`no_timestamp`); none occurred in this window, and the rule is unit-tested
+anyway.
+
+## [U10.3] Task 1c — temporal counts, before and after — PASS
+
+```
+BEFORE                          AFTER
+PRECEDES                 0      PRECEDES                 30296
+SAME_SESSION_UNORDERED   0      SAME_SESSION_UNORDERED   13916
+FOLLOWS                  0      FOLLOWS                      0
+UNKNOWN               4072      UNKNOWN                   4072
+                                (evidence rows: 4,072 -> 48,284)
+```
+
+The same-session rule is unchanged: a filing inside the session yields
+`SAME_SESSION_UNORDERED`, never `PRECEDES`, because EOD bars cannot establish
+intra-session order.
+
+**`FOLLOWS` is 0 by construction, and that is worth stating.** An announcement
+disseminated after the 15:30 IST close attaches to the *next* session, so this
+ingest path can never place a document in a session that had already closed.
+The classifier supports `FOLLOWS` and is unit-tested for it; no current source
+produces one.
+
+## [U10.4] Task 1d — coverage, before and after — PASS
+
+```
+ event_type  | events | with_evidence | orderable
+ TOTAL       |   5962 |          2129 |      1231
+ JUMP        |   3806 |           796 |       765
+ DRIFT       |   1169 |           346 |       332
+ CORP_ACTION |    987 |           987 |       134
+```
+
+| | before | after |
+|---|---|---|
+| events with evidence | 1,052 (17.6 %) | 2,129 (35.7 %) |
+| events orderable | 0 | **1,231 (20.6 %)** |
+| evidence rows with a document URL | 0 | 43,704 of 48,284 |
+
+**1,231 events moved out of UNKNOWN.** Stated plainly: that is a minority —
+20.6 % of the ledger — because announcements were ingested for three months
+while the ledger spans two years. The 4,072 ex-date rows stay UNKNOWN by rule.
+
+## [U10.5] Task 1e — tests — PASS
+
+```
+$ python -m pytest tests/test_announcements.py -q
+17 passed, 1 skipped in 16.18s
+```
+
+Covers: broadcast-before-session -> PRECEDES; after -> FOLLOWS; same session ->
+SAME_SESSION_UNORDERED; NULL timestamp -> UNKNOWN; ex-date -> never PRECEDES;
+midnight rejected rather than stored; post-close attaches to the next session;
+non-http attachment becomes NULL rather than a broken link.
+
+`test_evidence_temporal.py` previously asserted every live row was UNKNOWN and
+carried a note that it should be updated deliberately when a real feed landed.
+It has been, and the surviving invariant is stronger: a row's relation is
+decided by its basis, so EX_DATE rows remain UNKNOWN however many FILED_AT rows
+sit beside them, and a FILED_AT row resolving to UNKNOWN now fails the suite
+because it would mean a NULL timestamp was stored.
+
+Full suite: `325 passed, 2 skipped, 1 xfailed in 284.53s`.
+
+## [U10.6] Tasks 2-5 — NOT STARTED
+
+Task 1 consumed the available time. Tasks 2 (fuzzy challenger + benchmark),
+3 (Signal Lab), 4 (event threads) and 5 (grounded RAG) were not begun, so
+nothing partial or untested has been committed for them. Task 5's precondition
+is now satisfied — Task 1a found real documents with permalinks — which it was
+not before this run.

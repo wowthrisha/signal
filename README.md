@@ -529,16 +529,18 @@ derived from.
 
 **Coverage, measured** (regenerate with the query in `ops/ACTION-LOG.md` [U7.1]):
 
-| event type | events | with a primary source |
-|---|---|---|
-| CORP_ACTION | 987 | 987 |
-| JUMP | 3,806 | 44 |
-| DRIFT | 1,169 | 21 |
-| **total** | **5,962** | **1,052 (17.6 %)** |
+| event type | events | with a primary source | orderable against the move |
+|---|---|---|---|
+| CORP_ACTION | 987 | 987 | 134 |
+| JUMP | 3,806 | 796 | 765 |
+| DRIFT | 1,169 | 346 | 332 |
+| **total** | **5,962** | **2,129 (35.7 %)** | **1,231 (20.6 %)** |
 
-`evidence` holds 4,072 rows. **0 carry a URL** and all 4,072
-carry `published_at_basis = EX_DATE`, which is the two limitations below stated
-as numbers rather than as prose.
+`evidence` holds 48,284 rows: **43,704 carry a document URL** and 44,212 carry a
+real filing timestamp (`published_at_basis = FILED_AT`), against 4,072 that
+carry only an ex-date. Both of the limitations described below were true of the
+corporate-actions feed alone and were fixed by ingesting announcements — the
+4,072 ex-date rows remain, and remain unorderable.
 
 Most of that shortfall is the system working rather than a gap. Tier C means
 "unusual movement, no known cause", so a JUMP with no filing behind it is
@@ -570,18 +572,42 @@ Every evidence row is therefore classified against the movement session:
 
 | relation | meaning | rows |
 |---|---|---|
-| PRECEDES | a real filing timestamp on an earlier session | 0 |
-| SAME_SESSION_UNORDERED | same session, intra-session order unknowable from EOD bars | 0 |
+| PRECEDES | a real filing timestamp on an earlier session | 30,296 |
+| SAME_SESSION_UNORDERED | same session, intra-session order unknowable from EOD bars | 13,916 |
 | FOLLOWS | a real filing timestamp on a later session | 0 |
-| **UNKNOWN** | **no publication timestamp exists** | **4,072** |
+| UNKNOWN | no publication timestamp exists | 4,072 |
 
-**All 4,072 rows are UNKNOWN, and 0 of the 1,052 evidence-bearing events can be
-ordered against their price move.** The reason is a property of the source, not
-of the code: the NSE corporate-actions feed supplies an **ex-date, never a
-filing timestamp** — `SELECT count(*) FROM evidence WHERE published_at_basis =
-'FILED_AT'` returns 0, and no row carries a time of day. Using the ex-date as a
-stand-in would manufacture an ordering the data cannot support, so the
-classifier refuses to, and the card says "Timing unknown".
+**This changed.** Ingesting NSE's corporate-*announcements* feed — a different
+endpoint from corporate *actions* — supplied what was missing: `exchdisstime`,
+an exchange dissemination moment with a real time of day. Probed over one week
+it returned 869 distinct HH:MM values and **zero at midnight**, so it is a
+broadcast timestamp rather than a date wearing a time. It also carries a
+per-document attachment URL, which is the other thing the actions feed could
+not supply: **43,704 of 48,284** evidence rows now link an original,
+where none did before.
+
+| | before | after |
+|---|---|---|
+| events with evidence | 1,052 of 5,962 (17.6 %) | **2,129 of 5,962 (35.7 %)** |
+| events orderable against their move | **0** | **1,231** |
+| evidence rows with a filing timestamp | 0 | 44,212 |
+| evidence rows with only an ex-date | 4,072 | 4,072 |
+
+**1,231 events moved out of UNKNOWN.** That is 20.6 % of all events — a real
+improvement and still a minority, because announcements were ingested for
+2026-06-01..2026-09-03 while the ledger spans further back.
+
+**`FOLLOWS` is 0 by construction, not by luck.** An announcement disseminated
+after the 15:30 IST close attaches to the *next* trading session, so this
+ingest path can never place a document in a session that had already closed
+when it appeared. The classifier supports `FOLLOWS` and is tested for it; no
+current source can produce one. Said plainly because a zero that looks like
+evidence of cleanliness is worth less than a zero that is explained.
+
+The remaining 4,072 `UNKNOWN` rows are the corporate-actions rows, and
+they stay UNKNOWN: an ex-date is when an action takes effect, not when anything
+was published, and the classifier refuses to use it as a proxy even when it
+falls before the move.
 
 That limitation is the finding. The classifier itself is complete — it produces
 all four states from a genuine filing timestamp, and same-session filings

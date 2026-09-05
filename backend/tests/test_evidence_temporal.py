@@ -140,15 +140,33 @@ def test_the_relation_is_derived_not_stored():
     assert d["temporal_label"] == "Timing unknown"
 
 
-def test_every_live_evidence_row_is_unknown_because_no_filing_times_exist(conn):
-    """The finding, asserted: this database holds zero publication timestamps,
-    so no document can be ordered against a move. If a feed with real filing
-    times is ingested, this test is expected to fail and should be updated
-    deliberately."""
+def test_ex_date_rows_stay_unknown_while_filed_at_rows_resolve(conn):
+    """Updated deliberately when the announcements feed landed.
+
+    The previous version asserted that *every* live row was UNKNOWN, and said
+    it should be updated when a feed with real filing times arrived. It has.
+    The invariant that survives is the one that matters: a row's relation is
+    decided by its basis, so EX_DATE rows are still UNKNOWN however many
+    FILED_AT rows now sit beside them.
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT published_at, published_at_basis, session_date FROM evidence")
+        cur.execute(
+            "SELECT published_at, published_at_basis, session_date FROM evidence")
         rows = cur.fetchall()
     if not rows:
         pytest.skip("no evidence rows in this database")
-    relations = {ev.temporal_relation(p, b, sd) for p, b, sd in rows}
-    assert relations == {ev.UNKNOWN}, f"unexpected relations present: {relations}"
+
+    by_basis: dict[str, set[str]] = {}
+    for published, basis, session in rows:
+        by_basis.setdefault(basis, set()).add(
+            ev.temporal_relation(published, basis, session))
+
+    assert by_basis.get(ev.BASIS_EX_DATE, {ev.UNKNOWN}) == {ev.UNKNOWN}, (
+        "an ex-date row resolved to something other than UNKNOWN"
+    )
+    if ev.BASIS_FILED_AT in by_basis:
+        assert by_basis[ev.BASIS_FILED_AT] <= {
+            ev.PRECEDES, ev.SAME_SESSION_UNORDERED, ev.FOLLOWS}, (
+            "a filed-at row resolved to UNKNOWN, which means a NULL timestamp "
+            "was stored"
+        )
