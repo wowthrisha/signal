@@ -152,6 +152,60 @@ function confidenceDots(c) {
   return `<span class="flex gap-1 items-center" title="confidence ${(c ?? 0).toFixed(2)}">${out}</span>`;
 }
 
+function decompositionHTML(c) {
+  // The whole engine exists to produce this split, so it is the visual centre
+  // of the card rather than three numbers in a row. Every value comes from the
+  // pipeline's stored attribution; nothing here is recomputed, and a component
+  // the model never estimated renders as "not available" rather than as a
+  // zero we did not measure.
+  const parts = [
+    { label: 'Market',         v: c.market_pct,      accent: false },
+    { label: 'Sector',         v: c.sector_only_pct, accent: false },
+    { label: 'Stock-specific', v: c.residual_pct,    accent: true  },
+  ];
+  const known = parts.filter((p) => p.v !== null && p.v !== undefined);
+  if (!known.length) {
+    return `<p class="mt-4 text-xs text-neutral-600">Decomposition not available</p>`;
+  }
+  // Widths are proportional to absolute contribution, so a large negative
+  // component reads as large. Sign is carried by the number, not the bar.
+  const max = Math.max(...known.map((p) => Math.abs(p.v)));
+
+  const rows = parts.map((p) => {
+    if (p.v === null || p.v === undefined) {
+      return `
+      <div class="flex items-center gap-3">
+        <span class="text-[11px] text-neutral-500 w-28 shrink-0">${p.label}</span>
+        <span class="num text-xs text-neutral-700 w-16 text-right">not available</span>
+      </div>`;
+    }
+    const w = max ? (Math.abs(p.v) / max * 100).toFixed(1) : 0;
+    return `
+      <div class="flex items-center gap-3">
+        <span class="text-[11px] ${p.accent ? 'text-neutral-300' : 'text-neutral-500'} w-28 shrink-0">${p.label}</span>
+        <span class="num text-xs ${p.accent ? 'text-neutral-100 font-medium' : 'text-neutral-400'} w-16 text-right">${fmtPct(p.v)}</span>
+        <span class="flex-1 h-2 bg-neutral-900 rounded-sm overflow-hidden">
+          <span class="block h-full rounded-sm ${p.accent ? 'bg-amber-500/80' : 'bg-neutral-700'}"
+                style="width:${w}%"></span>
+        </span>
+      </div>`;
+  }).join('');
+
+  // The verdict is the largest component by magnitude — a description of the
+  // decomposition, not a second judgement layered on top of it.
+  const biggest = known.reduce((a, b) => (Math.abs(b.v) > Math.abs(a.v) ? b : a));
+  const verdict = biggest.label === 'Stock-specific'
+    ? 'Stock-specific move'
+    : biggest.label === 'Sector' ? 'Explained by sector' : 'Explained by the market';
+  const strong = biggest.label === 'Stock-specific';
+
+  return `
+    <div class="mt-4 space-y-1.5">${rows}</div>
+    <p class="mt-3 text-[11px] uppercase tracking-[0.15em] ${strong ? 'text-amber-400/90' : 'text-neutral-500'}">
+      &rarr; ${verdict}
+    </p>`;
+}
+
 function cardHTML(c, i) {
   const t = TIER[c.tier] || { dot: '#737373', ring: 'ring-neutral-700',
                               text: 'text-neutral-400', label: c.tier };
@@ -171,20 +225,7 @@ function cardHTML(c, i) {
       <div class="num text-2xl font-semibold ${sign}">${fmtPct(c.total_return_pct)}</div>
     </div>
 
-    <div class="mt-4 grid grid-cols-3 gap-3 text-xs">
-      <div>
-        <div class="text-neutral-600 uppercase tracking-wider text-[10px]">Total</div>
-        <div class="num mt-1 text-neutral-200">${fmtPct(c.total_return_pct)}</div>
-      </div>
-      <div>
-        <div class="text-neutral-600 uppercase tracking-wider text-[10px]">Market + sector</div>
-        <div class="num mt-1 text-neutral-400">${fmtPct(c.sector_return_pct)}</div>
-      </div>
-      <div>
-        <div class="text-neutral-600 uppercase tracking-wider text-[10px]">Stock-specific</div>
-        <div class="num mt-1 text-neutral-100 font-medium">${fmtPct(c.residual_pct)}</div>
-      </div>
-    </div>
+    ${decompositionHTML(c)}
 
     ${uPct !== null ? `
     <p class="mt-4 text-sm text-neutral-300">
