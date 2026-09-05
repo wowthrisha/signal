@@ -1650,3 +1650,30 @@ Client renders server counts and computes nothing. Zero stages omitted, empty
 and single-stage inputs return an empty string (verified in node; the first
 check was rerun after a bad assertion — the probe label `'x'` matched inside
 `flex`).
+
+## [U6.5] Task 5 — record and ship — PASS
+
+Live verification after deploy `a5b744b5`:
+
+```
+$ curl -s .../api/health
+  status ok · latest_session_date 2026-09-03 · session_count 497
+  instrument_count 3044 · event_count 89
+  digest_latency: samples 1, median_ms 67.42, p95_ms 67.42
+
+$ curl -s -H "X-Signal-Session: <uuid>" .../api/digest
+funnel {'watched': 30, 'moved': 22, 'surfaced': 4}
+  ANANTRAJ    2026-09-03 FRESH    behind=0
+  COALINDIA   2026-09-02 DELAYED  behind=1
+  IFCI        2026-09-02 DELAYED  behind=1
+  RBLBANK     2026-09-03 FRESH    behind=0
+chain: moved 22 -> explained_by_market 4 -> stock_specific 18
+       -> confidence_passed 18 -> surfaced 4
+```
+
+**Note the deployment's `event_count` is 89, against 5,962 locally.** That is
+correct and expected: `scripts/seed_demo.py` exports only the events belonging
+to the 30 watchlist instruments, because a deployment does not need the whole
+ledger. Recorded here so the difference is not later mistaken for data loss.
+
+Suite: 253 passed, 1 xfailed.
