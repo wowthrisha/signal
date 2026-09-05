@@ -29,6 +29,8 @@ import pytest
 from app.api import digest as digest_api
 from app.api import outcomes as outcomes_mod
 
+STATIC = Path(digest_api.__file__).resolve().parents[1] / "static" / "index.html"
+
 ENGINE = Path(digest_api.__file__).resolve().parents[1] / "engine"
 
 
@@ -278,3 +280,81 @@ def test_an_unobservable_horizon_is_null_never_padded(conn):
         alpha=0.0, beta_mkt=1.0, beta_sec=0.0, sector_id=None, policy=POLICY)
     assert all(h["residual_pct"] is None for h in res["horizons"])
     assert all(h["outcome"] == outcomes_mod.NOT_OBSERVABLE for h in res["horizons"])
+
+
+# --- historical base rates -------------------------------------------------
+
+def test_percentages_are_suppressed_below_the_floor(conn):
+    """A percentage over a handful of events is noise wearing a decimal point.
+    Below the floor the server sends counts and `percentages: None`, so the UI
+    cannot render a figure it should not."""
+    r = outcomes_mod.base_rates(conn, "JUMP", "A", 5, POLICY)
+    if r["n"] >= outcomes_mod.MIN_N_FOR_PERCENTAGES:
+        pytest.skip(f"cohort is large (n={r['n']}); nothing to suppress")
+    assert r["percentages"] is None
+    # The shape is the same whether the cohort is small or empty — an empty
+    # cohort used to return `counts: {}` while a populated one returned zeroed
+    # keys, which made every caller branch on which it got.
+    assert set(r["counts"]) == {outcomes_mod.CONTINUED, outcomes_mod.REVERSED,
+                                outcomes_mod.NORMALIZED}
+    assert sum(r["counts"].values()) == r["n"]
+
+
+def test_a_large_cohort_reports_percentages_with_n(conn):
+    r = outcomes_mod.base_rates(conn, "JUMP", "C", 5, POLICY)
+    if r["n"] < outcomes_mod.MIN_N_FOR_PERCENTAGES:
+        pytest.skip("cohort too small in this database")
+    assert r["percentages"] is not None
+    assert r["n"] >= outcomes_mod.MIN_N_FOR_PERCENTAGES
+    assert abs(sum(r["percentages"].values()) - 100.0) < 0.2
+
+
+def test_n_is_always_present_alongside_any_percentage(conn):
+    """The rule that matters most for how this reads: no bare percentage."""
+    for event_type, tier in (("JUMP", "C"), ("DRIFT", "C"), ("JUMP", "A")):
+        r = outcomes_mod.base_rates(conn, event_type, tier, 5, POLICY)
+        assert "n" in r and isinstance(r["n"], int)
+        if r["percentages"] is not None:
+            assert r["n"] >= outcomes_mod.MIN_N_FOR_PERCENTAGES
+
+
+def test_the_page_never_prints_a_percentage_without_an_n():
+    """Static check over the template: every base-rate percentage is rendered
+    in the same block as `n=`."""
+    page = STATIC.read_text()
+    block = page[page.index("const br = o.base_rates;"):page.index("After the move")]
+    assert "br.percentages[k]" in block
+    assert "(n=${br.n})" in block
+
+
+def test_base_rates_cover_the_full_history_not_the_held_out_window(conn):
+    """Scoping a descriptive frequency to the 9-session evaluation window would
+    shrink n and conflate two different purposes."""
+    r = outcomes_mod.base_rates(conn, "JUMP", "C", 5, POLICY)
+    assert "full ingested history" in r["scope"]
+    assert "not the held-out window" in r["scope"]
+
+
+def test_base_rates_are_labelled_as_frequency_not_forecast(conn):
+    r = outcomes_mod.base_rates(conn, "JUMP", "C", 5, POLICY)
+    assert "not a forecast" in r["note"]
+    page = STATIC.read_text()
+    assert "historical frequency, not a forecast" in page
+
+
+def test_unobservable_and_unadjustable_events_are_excluded_not_counted(conn):
+    """Events with no forward window, or a corporate action with no derivable
+    factor, are dropped from the denominator rather than silently classified."""
+    r = outcomes_mod.base_rates(conn, "JUMP", "C", 5, POLICY)
+    assert r["skipped_unobservable_or_unadjustable"] >= 0
+    assert r["n"] == sum(r["counts"].values())
+
+
+def test_an_empty_cohort_has_the_same_shape_as_a_populated_one(conn):
+    """Guards the fix above: a caller must not have to branch on whether any
+    history existed."""
+    empty = outcomes_mod.base_rates(conn, "NO_SUCH_TYPE", "Z", 5, POLICY)
+    populated = outcomes_mod.base_rates(conn, "JUMP", "C", 5, POLICY)
+    assert set(empty) == set(populated), "shapes diverge between empty and populated"
+    assert empty["n"] == 0
+    assert set(empty["counts"]) == set(populated["counts"])

@@ -3092,3 +3092,52 @@ Import direction is guarded separately with an `ast` walk over
 `app/engine/**`, because a string mentioning the module is not an import.
 
 Full suite: `399 passed, 2 skipped, 1 xfailed`.
+
+## [U18.3] Task 4 — base rates — PASS, gate cleared on real data
+
+The honesty gate was checked before building anything. The surfaced cards are
+JUMP/tier C and DRIFT/tier C:
+
+```
+ event_type  | tier | total_events | observable_at_plus5
+ JUMP        | C    |          633 |                 552
+ DRIFT       | C    |          299 |                 270
+ JUMP        | A    |           17 |                  15
+```
+
+Both surfaced cohorts clear 30 comfortably, so nothing was widened to reach a
+usable n.
+
+```
+JUMP+C  h=5  n=544  counts={'CONTINUED':121,'REVERSED':126,'NORMALIZED':297}  pct={'CONTINUED':22.2,'REVERSED':23.2,'NORMALIZED':54.6}  skipped=89
+DRIFT+C h=5  n=263  counts={'CONTINUED':64,'REVERSED':56,'NORMALIZED':143}   pct={'CONTINUED':24.3,'REVERSED':21.3,'NORMALIZED':54.4}  skipped=36
+JUMP+A  h=5  n=15   counts={'CONTINUED':5,'REVERSED':5,'NORMALIZED':5}       pct=None                                                  skipped=2
+```
+
+The tier A row is the suppression rule working: n=15 < 30, so `percentages` is
+`None` and the card renders counts with *"Percentages suppressed below n=30."*
+`skipped` counts events with no forward window or an unadjustable corporate
+action — excluded from the denominator rather than silently classified.
+
+Rendered, with `n` beside every figure:
+
+```
+ANANTRAJ  Historically continued 22.2% · reversed 23.2% · normalized 54.6% (n=544)
+          After past jump at tier C over full ingested history, not the held-out
+          window, measured at +5. This is a historical frequency, not a forecast.
+LOW-N     Historically continued 5 · reversed 5 · normalized 5 (n=15)
+          … Percentages suppressed below n=30. …
+  no % rendered at n=15 : true
+```
+
+## [U18.4] A shape inconsistency found by a failing test
+
+`base_rates` returned `counts: {}` for an empty cohort and zeroed keys for a
+populated one — two shapes for "nothing", forcing every caller to branch on
+which it received. Found because the suppression test asserted counts were
+present and failed on the empty tier A cohort in the fixture database. Unified,
+with a test asserting the two shapes match.
+
+```
+full suite : 406 passed, 3 skipped, 1 xfailed
+```

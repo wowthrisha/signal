@@ -235,3 +235,172 @@ def for_event(
 
     out["horizons"] = rows
     return out
+
+
+# ---------------------------------------------------------------------------
+# Historical base rates
+#
+# "This is what happened after moves like this one, historically." A frequency,
+# not a forecast, and the UI is required to say so. Two rules keep it honest
+# rather than suggestive:
+#
+#   * `n` travels with every percentage, always. A bare "48 %" invites a reader
+#     to treat 42 observations as a law.
+#   * Below MIN_N_FOR_PERCENTAGES only counts are returned and percentages are
+#     suppressed entirely, because a percentage over a handful of events is
+#     noise wearing a decimal point.
+#
+# Computed over the **full ingested history**, never the held-out window: this
+# describes the detector's past behaviour, and scoping it to the evaluation
+# window would both shrink n and conflate two different purposes.
+# ---------------------------------------------------------------------------
+
+MIN_N_FOR_PERCENTAGES = 30
+
+_BASE_RATE_CACHE: dict = {}
+
+_COHORT = """
+WITH cal AS (
+  SELECT session_date AS d, row_number() OVER (ORDER BY session_date) AS rn
+  FROM (SELECT DISTINCT session_date FROM bar) t
+)
+SELECT e.isin, e.session_date,
+       (e.payload->>'residual')::float8,
+       (e.payload->'attribution'->>'alpha')::float8,
+       (e.payload->'attribution'->>'beta_mkt')::float8,
+       (e.payload->'attribution'->>'beta_sec')::float8,
+       i.sector_id
+FROM event e
+JOIN cal ON cal.d = e.session_date
+JOIN instrument i USING (isin)
+WHERE e.event_type = %s
+  AND e.payload->>'tier' = %s
+  AND e.payload->>'residual' IS NOT NULL
+  AND (e.payload->'attribution'->>'beta_mkt') IS NOT NULL
+"""
+
+
+def base_rates(conn, event_type: str, tier: str, horizon: int,
+               policy: Policy) -> dict:
+    """Outcome distribution for past events matching this detector and tier.
+
+    Cached per process: the ledger does not change between requests and the
+    walk covers hundreds of events.
+    """
+    key = (event_type, tier, horizon)
+    if key in _BASE_RATE_CACHE:
+        return _BASE_RATE_CACHE[key]
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT session_date FROM bar ORDER BY session_date")
+        calendar = [r[0] for r in cur.fetchall()]
+        cur.execute(_COHORT, (event_type, tier))
+        cohort = cur.fetchall()
+
+        if not cohort or not calendar:
+            # Same shape as the populated path. Two different shapes for
+            # "nothing" makes every caller branch on which one it got.
+            result = {"n": 0,
+                      "counts": {CONTINUED: 0, REVERSED: 0, NORMALIZED: 0},
+                      "percentages": None,
+                      "min_n_for_percentages": MIN_N_FOR_PERCENTAGES,
+                      "horizon": horizon, "event_type": event_type, "tier": tier,
+                      "skipped_unobservable_or_unadjustable": 0,
+                      "scope": "full ingested history, not the held-out window",
+                      "note": "no matching history"}
+            _BASE_RATE_CACHE[key] = result
+            return result
+
+        first, last = calendar[0], calendar[-1]
+        isins = sorted({r[0] for r in cohort})
+        cur.execute(
+            "SELECT isin, session_date, c FROM bar WHERE isin = ANY(%s) "
+            "AND c IS NOT NULL ORDER BY isin, session_date", (isins,))
+        closes: dict = {}
+        for isin, d, c in cur.fetchall():
+            closes.setdefault(isin, {})[d] = float(c)
+
+        cur.execute(
+            "SELECT isin, ex_date, adj_factor, adjustable FROM corp_action "
+            "WHERE isin = ANY(%s)", (isins,))
+        actions: dict = {}
+        for isin, ex, f, adj in cur.fetchall():
+            actions.setdefault(isin, []).append((ex, f, adj))
+
+        cur.execute(_INDEX, (MARKET_INDEX, first, last))
+        market = _returns(cur.fetchall())
+        cur.execute("SELECT sector_id, index_symbol FROM sector "
+                    "WHERE index_symbol IS NOT NULL")
+        sector_index = dict(cur.fetchall())
+        sector_returns: dict = {}
+        for name in sorted(set(sector_index.values())):
+            cur.execute(_INDEX, (name, first, last))
+            sector_returns[name] = _returns(cur.fetchall())
+
+    index_of = {d: i for i, d in enumerate(calendar)}
+    counts = {CONTINUED: 0, REVERSED: 0, NORMALIZED: 0}
+    skipped = 0
+
+    for isin, session, resid, alpha, bm, bs, sector_id in cohort:
+        i0 = index_of.get(session)
+        if i0 is None or i0 + horizon >= len(calendar):
+            skipped += 1
+            continue
+        window = calendar[i0 + 1: i0 + 1 + horizon]
+        px = closes.get(isin, {})
+        # An action with no derivable factor disqualifies the event rather than
+        # contributing a fabricated outcome.
+        acts = [(ex, f, adj) for ex, f, adj in actions.get(isin, [])
+                if session < ex <= window[-1]]
+        if any((not adj) or f is None for _, f, adj in acts):
+            skipped += 1
+            continue
+        factors = {ex: float(f) for ex, f, adj in acts if adj and f is not None}
+
+        srs = sector_returns.get(sector_index.get(sector_id or ""), {})
+        base = px.get(session)
+        if base is None:
+            skipped += 1
+            continue
+
+        cum, prev, total, ok = 1.0, session, 0.0, True
+        adj_px = {session: base}
+        for d in window:
+            cum *= factors.get(d, 1.0)
+            if d not in px:
+                ok = False
+                break
+            adj_px[d] = px[d] * cum
+            rm = market.get(d)
+            if rm is None:
+                ok = False
+                break
+            r = adj_px[d] / adj_px[prev] - 1.0
+            total += r - ((alpha or 0.0) + (bm or 0.0) * rm
+                          + (bs or 0.0) * srs.get(d, 0.0))
+            prev = d
+        if not ok:
+            skipped += 1
+            continue
+        label = classify(resid, total, policy)
+        if label:
+            counts[label] += 1
+
+    n = sum(counts.values())
+    result = {
+        "n": n,
+        "counts": counts,
+        "percentages": (
+            {k: round(v / n * 100.0, 1) for k, v in counts.items()}
+            if n >= MIN_N_FOR_PERCENTAGES else None
+        ),
+        "min_n_for_percentages": MIN_N_FOR_PERCENTAGES,
+        "horizon": horizon,
+        "event_type": event_type,
+        "tier": tier,
+        "skipped_unobservable_or_unadjustable": skipped,
+        "scope": "full ingested history, not the held-out window",
+        "note": "historical frequency, not a forecast",
+    }
+    _BASE_RATE_CACHE[key] = result
+    return result

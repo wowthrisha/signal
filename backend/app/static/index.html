@@ -511,7 +511,33 @@ function outcomesRow(c) {
   const word = settled
     ? `<span class="t2"> — ${settled.outcome.toLowerCase()}</span>` : '';
 
-  return `
+  const br = o.base_rates;
+  let history = '';
+  if (br && br.n) {
+    // n travels with every figure, always. Below the floor the server sends
+    // percentages: null and only counts are shown — a percentage over a
+    // handful of events is noise wearing a decimal point.
+    const order = ['CONTINUED', 'REVERSED', 'NORMALIZED'];
+    const parts = order.filter((k) => k in br.counts).map((k) => br.percentages
+      ? `${k.toLowerCase()} <span class="num">${br.percentages[k]}%</span>`
+      : `${k.toLowerCase()} <span class="num">${br.counts[k]}</span>`);
+    history = `
+      <div class="flex gap-3 py-1.5 bdb last:border-0">
+        <span class="label w-28 shrink-0 pt-0.5">Historically</span>
+        <span class="text-xs t2 flex-1">
+          ${parts.join('<span class="t3" aria-hidden="true"> · </span>')}
+          <span class="num t3">(n=${br.n})</span>
+          <span class="block t3 mt-0.5" style="font-size:11px">
+            After past ${br.event_type ? br.event_type.replace('_', ' ').toLowerCase() : 'events'}
+            at tier ${br.tier} over ${br.scope}, measured at +${br.horizon}.
+            ${br.percentages ? '' : `Percentages suppressed below n=${br.min_n_for_percentages}. `}This is a
+            historical frequency, not a forecast.
+          </span>
+        </span>
+      </div>`;
+  }
+
+  return `${history}
     <div class="flex gap-3 py-1.5 bdb last:border-0">
       <span class="label w-28 shrink-0 pt-0.5">After the move</span>
       <span class="text-xs t2 flex-1">${cells}${word}

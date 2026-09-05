@@ -731,3 +731,21 @@ The deeper objection is that a fitted model here cannot be validated. Nine held-
 **Measured, not assumed:** contrast against `--bg` is `--text` 16.34:1, `--text-2` 7.58:1, `--accent` 9.65:1, `--evidence` 10.89:1. `--text-3` is 4.07:1 — adequate for uppercase label runs and **below AA for prose**, so nine sites using it for body copy were moved to `--text-2`. `--neutral` is 2.61:1, below the 3:1 threshold for meaningful graphics; that is deliberate for the market and sector bars, which are meant to recede, and the numbers beside them carry the information.
 
 **Also rejected:** gradients, glow, coloured shadow, animated counters, and hover lift. A card is a surface, not a button; hover changes the ground and nothing else.
+
+---
+
+## ADR-049: Forward outcomes are display-only, guarded mechanically
+
+**Context:** A surfaced card says what happened. The obvious next question is what happened *afterwards*, and the data to answer it is already in `bar`.
+
+**Decision:** Compute forward stock-specific moves at +1/+3/+5 sessions at read time, attach them to the card **after the slate has selected**, and render them inside the "Why this?" drawer — never beside the return. Classification uses the residual, not the raw return, because that is the quantity the detector acted on; the model's coefficients are read from the stored event and **held fixed**, not refitted. `material_fraction` lives in `configs/outcomes.json`.
+
+**Why the isolation is mechanical rather than a convention:** an outcome is the future relative to the session being scored. If one reached detection, confidence, salience or the slate, the system would be selecting cards partly on what happened next, every figure in the benchmark would quietly become optimistic, and **no test would go red**. A convention survives exactly as long as everyone remembers it, so there are two guards: no module under `app/engine/` may import the outcomes module (checked with an `ast` walk), and selection must complete with `outcomes.for_event` monkeypatched to raise.
+
+**The second guard exists because the first design of it did not work.** Payload equivalence — comparing the digest with outcomes on and off — only catches leakage *gated on the flag*. A deliberately injected leak that ran in both branches corrupted both equally and compared equal, while 6 real `for_event` calls happened during the supposedly outcome-free build. Unreachability beats equality. Recorded in ACTION-LOG [U18.2] and R-36.
+
+**Rejected: a trajectory model.** The reasoning is ADR-047's, unchanged. A forecaster needs a label to validate against, and the only label here measures announcement co-occurrence over a 9-session held-out window in the calmest regime of the corpus (ADR-038). A fitted forecaster that cannot be validated is a liability under questioning in a way that a reported frequency is not — and every parameter would be a number nobody could justify.
+
+**Rejected: percentages without an `n`.** Base rates report `n` beside every figure and suppress percentages entirely below 30 observations. "48 %" over 42 events invites a reader to treat a frequency as a law; "48 % (n=42)" does not.
+
+**Would revisit if:** a relevance label with enough sessions to validate against exists. Both conditions, not either.

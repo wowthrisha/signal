@@ -681,12 +681,17 @@ def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None,
     outcome = None
     if outcome_conn is not None:
         att = c.attribution or {}
+        pol = outcomes_mod.Policy.load()
         outcome = outcomes_mod.for_event(
             outcome_conn, isin=c.isin, session=c.session_date,
             residual=c.residual, alpha=att.get("alpha"),
             beta_mkt=att.get("beta_mkt"), beta_sec=att.get("beta_sec"),
-            sector_id=c.sector_id, policy=outcomes_mod.Policy.load(),
+            sector_id=c.sector_id, policy=pol,
         )
+        # What happened after past events with the same detector and tier.
+        # Attached alongside the outcome, and equally display-only.
+        outcome["base_rates"] = outcomes_mod.base_rates(
+            outcome_conn, c.event_type, c.tier, max(pol.horizons), pol)
     return {
         "evidence": ev,
         "outcomes": outcome,

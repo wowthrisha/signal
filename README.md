@@ -677,6 +677,58 @@ Ingesting NSE's announcements endpoint, which does carry attachment URLs, would
 raise coverage without weakening either constraint. See
 [ADR-042](docs/DECISIONS.md).
 
+## Forward outcomes
+
+Every surfaced card carries what happened afterwards, at +1, +3 and +5
+**sessions** — the exchange calendar in `bar`, so a weekend is not +2 and a
+holiday is an absent date rather than one to reason about.
+
+The measured quantity is the **stock-specific residual**, not the raw return,
+because that is what the detector acted on. It is computed by applying the model
+stored on the event — `alpha`, `beta_mkt`, `beta_sec` — to the forward sessions,
+with the coefficients **held at their detection-session values and not
+refitted**. Refitting would answer a different question.
+
+| outcome | definition |
+|---|---|
+| CONTINUED | same sign, magnitude at least **50%** of the original residual |
+| REVERSED | opposite sign, magnitude at least **50%** |
+| NORMALIZED | magnitude below **50%** — the move faded |
+
+The fraction is `material_fraction` in `configs/outcomes.json`, never a literal.
+A horizon with no session after it returns null and renders *"not yet
+observable"*; a corporate action in the window with no derivable factor makes it
+unavailable rather than wrong, because a 1:2 split would otherwise read as a
+50 % reversal.
+
+**Outcomes are display-only, and that is enforced rather than promised.** An
+outcome is the future relative to the session being scored, so letting one touch
+detection, confidence, salience or the slate would be lookahead — and would make
+every benchmark figure optimistic without turning a single test red. Two guards:
+no module under `app/engine/` may import the outcomes module, and selection must
+complete with `outcomes.for_event` monkeypatched to raise. The second exists
+because the first version of the guard passed a real injected leak; see
+[ADR-049](docs/DECISIONS.md).
+
+### Historical base rates
+
+Each card also shows what happened after past events with the same detector and
+tier, over the **full ingested history** — not the 9-session held-out window.
+
+| cohort | n | continued | reversed | normalized |
+|---|---|---|---|---|
+| JUMP, tier C, at +5 | 544 | 22.2 % | 23.2 % | 54.6 % |
+| DRIFT, tier C, at +5 | 263 | 24.3 % | 21.3 % | 54.4 % |
+| JUMP, tier A, at +5 | 15 | 5 | 5 | 5 |
+
+**`n` appears beside every figure, and percentages are suppressed entirely below
+30 observations** — the tier A row above shows counts for exactly that reason.
+A bare "48 %" invites a reader to treat 42 observations as a law.
+
+This is a historical frequency, not a forecast, and the card says so. Note what
+it says: **the modal outcome at every tier is that the move faded.** That is a
+fact about the detector's past behaviour, not a prediction about the next one.
+
 ## Calibration
 
 ### The market-regime gate has never fired, and that is the point
