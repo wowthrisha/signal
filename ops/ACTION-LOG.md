@@ -2209,3 +2209,100 @@ Task 1 consumed the available time. Tasks 2 (fuzzy challenger + benchmark),
 nothing partial or untested has been committed for them. Task 5's precondition
 is now satisfied — Task 1a found real documents with permalinks — which it was
 not before this run.
+
+---
+
+# [U11] Fuzzy challenger, benchmarked against B2 only — 2026-09-05
+
+## [U11.1] Guard scope checked before writing any fuzzy code — PASS
+
+```
+$ grep -n "SALIENCE_DIR" backend/tests/test_salience.py
+321:SALIENCE_DIR = Path(__file__).resolve().parents[1] / "app" / "engine" / "salience"
+336:    for path in sorted(SALIENCE_DIR.rglob("*.py")):
+357:    for path in sorted(SALIENCE_DIR.rglob("*.py")):
+```
+
+The guard is scoped to `app/engine/salience/`. Placing the challenger in
+`app/engine/fuzzy/` keeps it entirely outside that scope, so **the guard needed
+no change and got none.** Confirmed after implementation:
+
+```
+$ python -m pytest tests/test_salience.py -q
+38 passed in 95.71s
+```
+
+## [U11.2] Two corrections made BEFORE the first benchmark run
+
+Both found by sanity-checking outputs rather than trusting them, and both
+recorded here so neither can later look like post-hoc tuning.
+
+1. **Shoulder-membership bug.** The trapezoid tested its out-of-range guard
+   before its plateau, so `x == d` returned 0. `U_EXTREME` ends `(…, 1.0, 1.0)`
+   and `I_HIGH` ends `(…, 3.0, 3.0)`, which meant the strongest possible input
+   scored zero:
+   ```
+   u=1.0 i=3 c=1.0 e=1.0 -> attention 0.0000 tier D admits False
+   ```
+   After the fix: `attention 0.8544 tier A admits True`.
+
+2. **Tier B analogue required a `U` term §7 does not require.** With `u=None`
+   no rule fired, dropping the exact case Tier B exists for — information
+   arriving without a price move. Separately, `I_HIGH = (2,3,3,3)` gives an
+   ordinary `CORP_ACTION` (I=2) zero membership, so `I_MATERIAL = (1,2,3,3)`
+   was added to mirror §7's crisp `I >= 2`.
+
+Parity with the decision table after both corrections:
+
+```
+  Tier A: I=2 U=1.0 C=1.0    attention 0.6538 tier B admits=True expected=True OK
+  Tier B: I=2 U=0.5 C=1.0    attention 0.5000 tier C admits=True expected=True OK
+  Tier B: I=2 U=None C=1.0   attention 0.5000 tier C admits=True expected=True OK
+  Tier C: I=0 U=1.0 C=1.0    attention 0.5000 tier C admits=True expected=True OK
+  Tier D: I=0 U=0.9 C=1.0    attention 0.1607 tier D admits=False expected=False OK
+  Tier D: I=2 U=1.0 C=0.1    attention 0.1456 tier D admits=False expected=False OK
+  I=1 is not material        attention 0.0000 tier D admits=False expected=False OK
+```
+
+## [U11.3] Benchmark — B2 vs B2-fuzzy — PASS
+
+Identical detection, attribution, held-out window and labels. Only the salience
+gate differs. B0 and B1 remain in the table as unchanged reference rows and are
+**not** the comparator, because comparing a gate change against a detector
+change would confound the two.
+
+```
+metric                              B2      B2-fuzzy
+alerts                             166           193
+alerts_per_user_day           0.188529      0.219194
+precision                     0.018072      0.015544
+recall                        0.030928      0.030928
+event_coverage                0.034884      0.034884
+redundant_alert_rate               0.0           0.0
+market_day_alert_count              90           103
+
+tier mix B2      : {'A': 2, 'B': 1, 'C': 163}
+tier mix B2-fuzzy: {'B': 60, 'C': 133}
+
+VERDICT : CHALLENGER DEGRADES; deterministic gates stay the default
+improved: []
+degraded: ['alerts 166 -> 193', 'alerts_per_user_day 0.188529 -> 0.219194',
+           'market_day_alert_count 90 -> 103', 'precision 0.018072 -> 0.015544']
+
+reference rows unchanged: B0 alerts 3251 | B1 alerts 1038
+```
+
+**Not a trade-off — a straight loss.** Fuzzy admits 27 more alerts and finds no
+additional ground-truth positives (recall and coverage identical to four
+decimal places), so the extra alerts are pure precision loss. The pre-fixed
+decision rule — a win on one metric and a loss on another is not a win — did not
+need to be invoked, but is implemented in `_gate_verdict` and would have
+returned `TRADE-OFF — NOT A WIN` had it applied.
+
+Deterministic §7 gates remain the default. The fuzzy code stays in the
+repository, benchmarked and losing.
+
+```
+$ python -m pytest tests/test_fuzzy_policy.py -q
+18 passed in 0.05s
+```

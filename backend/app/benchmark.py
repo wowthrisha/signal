@@ -45,6 +45,7 @@ import psycopg
 from app.core.clock import FixedClock
 from app.detect import MARKET_INDEX, build_pipeline
 from app.engine.detect.ewma import EwmaVol, standardize
+from app.engine.fuzzy import policy as fuzzy
 from app.engine.pipeline import Thresholds
 from app.engine.salience import slate as slate_mod
 from app.normalize.loader import load_sessions
@@ -70,6 +71,11 @@ SECTOR_CAP = slate_mod.MAX_PER_SECTOR
 WATCHLIST_SIZE = 30
 
 ROWS = ["A", "B", "C", "D", "E", "F"]
+# The challenger. Identical to row F in detection, attribution, window and
+# labels; the *only* difference is the salience gate. It is deliberately not
+# compared against B0 — that would confound a gate change with a detector
+# change and make a meaningless improvement look like a real one.
+ROW_FUZZY = "F_fuzzy"
 ROW_LABEL = {
     "A": "fixed percentage threshold",
     "B": "+ EWMA volatility standardization",
@@ -78,7 +84,8 @@ ROW_LABEL = {
     "E": "+ importance gate, tiers B and A",
     "F": "+ slate entity collapse and sector cap",
 }
-SYSTEM_OF_ROW = {"A": "B0", "B": "B1", "F": "B2"}
+SYSTEM_OF_ROW = {"A": "B0", "B": "B1", "F": "B2", ROW_FUZZY: "B2-fuzzy"}
+ROW_LABEL[ROW_FUZZY] = "+ fuzzy salience gate (challenger, same detection as F)"
 
 
 @dataclass(frozen=True)
@@ -153,6 +160,7 @@ def alerts_for_row(
     sigma_raw: dict[tuple[str, date], float | None],
     sector_of: dict[str, str | None],
     held_out: set[date],
+    evidence: dict[tuple[str, date], float] | None = None,
 ) -> list[Alert]:
     """One decision rule applied to the shared SymbolResult stream.
 
@@ -160,6 +168,7 @@ def alerts_for_row(
     so a difference between two rows is the component and only the component.
     """
     alerts: list[Alert] = []
+    evidence = evidence or {}
     for session in sessions:
         if session.session_date not in held_out:
             continue
@@ -192,11 +201,17 @@ def alerts_for_row(
                 continue
             if row in ("E", "F") and not (res.verdict and res.verdict.admitted):
                 continue
+            if row == ROW_FUZZY:
+                strength = evidence.get((res.isin, res.session_date), 0.0)
+                attention, _ = fuzzy.infer(res.u, res.i, res.c, strength)
+                if attention < fuzzy.ADMIT_AT:
+                    continue
+                tier = fuzzy.fuzzy_tier(attention)
             for kind in fired:
                 per_session.append(Alert(res.isin, res.session_date, kind,
                                          sector, tier, res.u))
 
-        if row == "F":
+        if row in ("F", ROW_FUZZY):
             per_session = _slate(per_session)
         alerts.extend(per_session)
     return alerts
@@ -348,10 +363,13 @@ def run(
     market_days = top_market_days(market, held_out)
     universe_size = len(pipe.isins)
 
+    evidence_strength = _evidence_strength(conn, held_out)
+
     rows: dict[str, dict] = {}
     alerts_by_row: dict[str, list[Alert]] = {}
-    for row in ROWS:
-        alerts = alerts_for_row(row, sessions, sigma_raw, pipe.sector_of, held_out)
+    for row in ROWS + [ROW_FUZZY]:
+        alerts = alerts_for_row(row, sessions, sigma_raw, pipe.sector_of,
+                                held_out, evidence_strength)
         alerts_by_row[row] = alerts
         m = score(alerts, truth, detectable_truth, len(held_out),
                   universe_size, market_days)
@@ -361,9 +379,13 @@ def run(
     a0 = rows["A"]["alerts"]
     reduction = (1.0 - rows["F"]["alerts"] / a0) if a0 else None
 
-    tier_mix: dict[str, int] = defaultdict(int)
-    for a in alerts_by_row["F"]:
-        tier_mix[a.tier or "?"] += 1
+    def _mix(row: str) -> dict[str, int]:
+        m: dict[str, int] = defaultdict(int)
+        for a in alerts_by_row[row]:
+            m[a.tier or "?"] += 1
+        return dict(sorted(m.items()))
+
+    tier_mix = _mix("F")
 
     return {
         "generated_at": datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
@@ -407,10 +429,79 @@ def run(
         },
         "systems": {
             "B0": rows["A"], "B1": rows["B"], "B2": rows["F"],
+            "B2-fuzzy": rows[ROW_FUZZY],
+        },
+        # The only comparison that isolates the gate. B0 and B1 remain in the
+        # table as unchanged reference rows and are NOT the fuzzy comparator.
+        "gate_comparison": {
+            "note": ("B2 vs B2-fuzzy: identical detection, attribution, "
+                     "held-out window and labels; differing only in the "
+                     "salience gate."),
+            "B2": rows["F"],
+            "B2-fuzzy": rows[ROW_FUZZY],
+            "tier_mix_B2": _mix("F"),
+            "tier_mix_B2_fuzzy": _mix(ROW_FUZZY),
+            "verdict": _gate_verdict(rows["F"], rows[ROW_FUZZY]),
         },
         "ablation": rows,
-        "tier_mix_row_F": dict(sorted(tier_mix.items())),
+        "tier_mix_row_F": dict(tier_mix),
     }
+
+
+_EVIDENCE_SQL = """
+SELECT isin, session_date,
+       bool_or(published_at_basis = 'FILED_AT') AS orderable,
+       bool_or(published_at_basis = 'FILED_AT'
+               AND published_at::date < session_date) AS precedes
+FROM evidence
+WHERE session_date = ANY(%s)
+GROUP BY isin, session_date
+"""
+
+
+def _evidence_strength(conn, held_out: set[date]) -> dict[tuple[str, date], float]:
+    """Provenance quality per (isin, session), for the fuzzy policy's fourth
+    input. Read from the evidence table, so the challenger uses the temporal
+    classifier's output rather than a second opinion about it."""
+    if not held_out:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(_EVIDENCE_SQL, (sorted(held_out),))
+        return {
+            (isin, sd): fuzzy.evidence_strength(True, bool(orderable), bool(precedes))
+            for isin, sd, orderable, precedes in cur.fetchall()
+        }
+
+
+def _gate_verdict(deterministic: dict, challenger: dict) -> dict:
+    """Did the challenger earn the default?
+
+    **A trade-off is not a win.** The ablation already shows four of five
+    transitions improving one metric while degrading another; a fifth of those
+    is not an improvement, it is another point on the same frontier. The
+    challenger takes the default only if it improves at least one metric and
+    degrades none.
+    """
+    lower_better = {"alerts", "alerts_per_user_day", "redundant_alert_rate",
+                    "market_day_alert_count"}
+    higher_better = {"precision", "recall", "event_coverage"}
+    better, worse = [], []
+    for key in sorted(lower_better | higher_better):
+        a, b = deterministic.get(key), challenger.get(key)
+        if a is None or b is None or a == b:
+            continue
+        improved = (b < a) if key in lower_better else (b > a)
+        (better if improved else worse).append(f"{key} {a} -> {b}")
+    if better and not worse:
+        outcome = "CHALLENGER EARNS THE DEFAULT"
+    elif better and worse:
+        outcome = "TRADE-OFF — NOT A WIN; deterministic gates stay the default"
+    elif worse:
+        outcome = "CHALLENGER DEGRADES; deterministic gates stay the default"
+    else:
+        outcome = "NO MEASURABLE DIFFERENCE; deterministic gates stay the default"
+    return {"outcome": outcome, "improved": better, "degraded": worse,
+            "default_policy": "deterministic §7 gates"}
 
 
 def pipe_market(pipe) -> dict[date, float]:

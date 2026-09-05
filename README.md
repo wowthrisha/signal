@@ -149,6 +149,60 @@ exactly the move this project has refused everywhere else. So the window stayed 
 Every rate below is measured on `2026-08-24..2026-09-03`. Read them as orders of
 magnitude.
 
+### The fuzzy challenger was benchmarked and did not earn the default
+
+A fuzzy attention policy — Mamdani inference over unusualness, materiality,
+evidence strength and confidence, with a published rule table and no fitted
+weights — was implemented as a **challenger**, not a replacement, and measured.
+
+It is compared against **B2 only**. B0 and B1 stay in the table above as
+unchanged reference rows and are deliberately *not* the comparator: B2 and
+B2-fuzzy share detection, attribution, held-out window and labels, and differ
+in exactly one thing, the salience gate. Comparing fuzzy against B0 would
+confound a gate change with a detector change and let a meaningless difference
+look like a result.
+
+| metric | B2 (deterministic §7 gates) | B2-fuzzy |
+|---|---|---|
+| `alerts` | 166 | 193 |
+| `alerts_per_user_day` | 0.188529 | 0.219194 |
+| `precision` | 0.018072 | 0.015544 |
+| `recall` | 0.030928 | 0.030928 |
+| `event_coverage` | 0.034884 | 0.034884 |
+| `redundant_alert_rate` | 0.0 | 0.0 |
+| `market_day_alert_count` | 90 | 103 |
+
+Per-tier mix: **B2** `{"A": 2, "B": 1, "C": 163}` · **B2-fuzzy** `{"B": 60, "C": 133}`.
+
+**Verdict: CHALLENGER DEGRADES; deterministic gates stay the default.**
+
+Degraded: `alerts 166 -> 193`, `alerts_per_user_day 0.188529 -> 0.219194`, `market_day_alert_count 90 -> 103`, `precision 0.018072 -> 0.015544`.
+Improved: **none**.
+
+Fuzzy admits 27 more alerts and catches **no additional ground-truth
+positives** — `recall` and `event_coverage` are identical to four decimal
+places — so the extra alerts are pure precision loss. This is not a trade-off
+to weigh up; it is a straight loss on every metric that moved.
+
+The decision rule was fixed before the run and would have applied either way:
+**a win on one metric and a loss on another is not a win.** The ablation above
+already shows four of five transitions trading precision for coverage; a fifth
+point on that frontier is not an improvement. The challenger takes the default
+only by improving something and degrading nothing.
+
+The membership functions were **not tuned**. Their cut points reuse §7's own
+numbers (0.95 and 0.99 on `U`, `I >= 2`, `C >= 0.3`/`0.5`) as set boundaries,
+and the policy is asserted to agree with the decision table at every crisp cut
+point, so the comparison isolates graded membership rather than a different
+theory of attention. Two corrections were made to the rule table *before* the
+first benchmark run and are recorded as such: a shoulder-membership bug that
+gave the strongest possible input zero attention, and a Tier B analogue that
+required a `U` term §7 does not require.
+
+The code stays in the repository, benchmarked and failing to win, because a
+challenger you were willing to lose is worth more than one you were not. See
+[ADR-045](docs/DECISIONS.md).
+
 ### Ablation — does each component earn its place?
 
 | row | component added | alerts | alerts/user/day | precision | recall | coverage | redundant | mkt-day alerts |

@@ -656,3 +656,58 @@ looks fine can be averaging over a warm-up pathology.
 **Consequence to state rather than bury:** an announcement disseminated after the 15:30 IST close attaches to the *next* session, so `FOLLOWS` is unreachable from this path and its live count is 0 by construction. An unexplained zero would read as a quality signal it is not.
 
 **Would revisit if:** a source arrives that attaches evidence to a session by some other rule, at which point `FOLLOWS` becomes reachable and the count becomes informative.
+
+---
+
+## ADR-045: "There are no weights" is a claim about the shipped policy, not the repository
+
+**Context:** A fuzzy attention policy was to be benchmarked as a challenger to the §7 gates. `tests/test_salience.py` walks the AST of every module under `app/engine/salience/` and fails the build if arithmetic ever joins two score variables — which is what "there are no weights in this system" means operationally. Mamdani defuzzification is a centroid, and a centroid is a weighted average by construction. The two cannot coexist in one directory.
+
+**Decision:** Put the fuzzy policy in `app/engine/fuzzy/`, outside the guard's scope, and leave the guard exactly as written. The claim is scoped explicitly: **"there are no weights" is a statement about the policy Signal ships, and it remains literally true of it.** The guard still runs over `salience/`, still passes, and still protects the default. The fuzzy module is the declared exception, and it exists precisely so the claim about the default can go on being made with evidence rather than assertion.
+
+**Rejected: weakening or rewriting the guard.** Adding a directory exclusion, an allow-list, or a "fuzzy is fine" carve-out would convert a structural invariant into a convention, and a convention is what the guard was written to replace. The answer to "how did you justify your weights?" has to stay "the shipped policy has none, and here is the test" — a guard with an exception in it cannot say that.
+
+**Verified, not assumed:** `test_fuzzy_policy.py` asserts the fuzzy module is not under `salience/` and re-runs the guard's own logic over `salience/` inside the fuzzy test file, so moving the challenger into the protected directory breaks the build in a place that explains why.
+
+**Would revisit if:** the fuzzy policy ever became the default. It would then have to be justified on its own terms, and the honest move would be retiring the "no weights" claim rather than relocating code to preserve it.
+
+---
+
+## ADR-046: The fuzzy challenger was measured and kept the losing result
+
+**Context:** ADR-030 rejected a weighted sum on the grounds that the quantities have incomparable units and no labelled data exists to fit weights against. Fuzzy inference is the obvious counter-proposal: graded membership without fitted weights. It deserved a measurement rather than an argument.
+
+**Decision:** Keep the deterministic §7 gates as the default. Keep the fuzzy implementation in the repository, benchmarked and losing.
+
+**The measurement**, B2 against B2-fuzzy — identical detection, attribution, held-out window and labels, differing only in the salience gate:
+
+| metric | B2 | B2-fuzzy |
+|---|---|---|
+| alerts | 166 | 193 |
+| alerts_per_user_day | 0.188529 | 0.219194 |
+| precision | 0.018072 | 0.015544 |
+| recall | 0.030928 | 0.030928 |
+| event_coverage | 0.034884 | 0.034884 |
+| market_day_alert_count | 90 | 103 |
+
+Fuzzy admits 27 more alerts and finds **no additional ground-truth positives** — recall and coverage are identical — so every extra alert is precision lost. Four metrics degrade and none improves.
+
+**Rejected: tuning the membership functions until fuzzy won.** The cut points reuse §7's own numbers and the policy is asserted to agree with the decision table at every crisp cut, so the comparison isolates graded membership. Two corrections were made before the first run — a shoulder-membership bug, and a Tier B analogue that wrongly required a `U` term — and both are recorded as pre-run corrections rather than presented as neutral refinements.
+
+**Also rejected: calling a trade-off a win.** The rule was fixed before the run: improving one metric while degrading another is not an improvement. The ablation already shows four of five transitions on that frontier; a fifth is another point on it, not progress.
+
+**Would revisit if:** a labelled relevance signal ever exists. Fuzzy's plausible advantage is smoothness near the cut points, and nothing in an occurrence-based label can reward that.
+
+---
+
+## ADR-047: No ANFIS
+
+**Context:** ANFIS is the natural next step from a fuzzy policy — keep the rule structure, learn the membership functions from data.
+
+**Decision:** Do not implement it.
+
+**Rejected because there is nothing to train on.** ANFIS fits membership parameters by gradient descent against labelled outputs. The only label this project has is corporate-action occurrence, which R-13 already records as measuring announcement co-occurrence rather than reader relevance — and which the dividend test showed is weaker than assumed. Fitting membership functions to it would produce a model tuned to predict dividend ex-dates, presented as a model of what a reader should see.
+
+The deeper objection is that a fitted model here cannot be validated. Nine held-out sessions in the calmest regime of the corpus (ADR-038) will not distinguish a real improvement from an artefact, and an unvalidatable fitted model is a liability under questioning in a way that a published rule table is not: every ANFIS parameter would be a number nobody could justify, which is exactly the position ADR-030 rejected a weighted sum to avoid.
+
+**Would revisit if:** a relevance label with enough sessions to validate against exists. Both conditions, not either.
