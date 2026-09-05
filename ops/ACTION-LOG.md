@@ -1050,3 +1050,96 @@ job; the ledger was mixing two detectors. `make evaluate` regenerates the F2
 artifacts on demand.
 
 **Date:** 2026-09-05  **Status:** PASS
+
+---
+
+# [U3] UI additions over existing data — 2026-09-05
+
+## [U3.0] Recovery after the session was interrupted by machine sleep
+
+State established from commands before anything was edited, because a
+half-written `index.html` is the worst state to package from.
+
+```
+$ git status --short
+ M backend/app/api/digest.py
+ M backend/app/engine/salience/slate.py
+ M backend/tests/test_corporate_actions.py
+?? backend/tests/test_no_advice_language.py
+
+$ git log --oneline | head -5
+aa5a7cb ops: ADR-034 Railway over AWS, risk rows R-12..R-14, correct R-09 and R-10
+3e055c9 deploy: reset the demo visit cursor on seed load
+3035261 fix: seed applies on every boot instead of only when empty
+e2a348f fix: seed every instrument so symbol resolution works on the demo
+0273f12 fix: seed export serialised JSONB with Python repr
+
+$ cd backend && python -m pytest tests/ -q
+215 passed, 1 xfailed in 129.68s (0:02:09)
+
+$ curl -s localhost:8000/api/digest | python3 -c "...print(d['funnel'], len(d['cards']))"
+{'watched': 30, 'moved': 22, 'surfaced': 4} 4
+
+$ curl -s localhost:8000/ | head -5
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+```
+
+**Finding: nothing was corrupted.** `index.html` is absent from `git status`, so the
+UI work had not begun. The suite had *risen* — 208 passed / 1 failed before the
+interruption, 215 passed / 1 xfailed after — because the uncommitted work was the
+new `test_no_advice_language.py` (7 cases) plus the xfail on the cliff test. The
+uncommitted changes were complete, passing, and were committed as-is at `ef7bf38`.
+Logged as R-16.
+
+## [U3.1] Live deployment still serving
+
+```
+$ curl -s -o /dev/null -w "%{http_code}\n" https://signal-api-production-7d51.up.railway.app/
+200
+
+$ curl -s .../api/digest | python3 -c "...print(d['funnel'], len(d['cards']))"
+{'watched': 31, 'moved': 0, 'surfaced': 0} 0
+```
+
+Page green. `watched: 31` and `surfaced: 0` is *use*, not breakage — a visitor added a
+symbol and pressed "Mark all as seen". The seed resets the demo cursor on every boot,
+so the next push restores the opening state. No rollback taken.
+
+## [U3.2] Three UI additions, committed one at a time
+
+Each step: patch, reload, verify HTTP 200, validate the extracted script with
+`node --check`, commit. An interruption costs one step, not four.
+
+```
+d59daed ui: suppression Pareto in the filter drawer            HTTP 200 15260B  JS SYNTAX OK
+38f2556 ui: movement decomposition as proportional bars        HTTP 200 17251B  JS SYNTAX OK
+26a5583 ui: "Why this?" expander and funnel subline            HTTP 200 20860B  JS SYNTAX OK
+```
+
+Beyond syntax, the render functions were executed in node against the live digest and
+against a card with every optional field null:
+
+```
+cards in digest: 4
+cardHTML bytes : 20568
+has decomposition bars : true
+has verdict line       : true
+has Why this expander  : true
+drawer bytes           : 1369
+drawer heading         : true
+null card renders      : true | says not available: true
+```
+
+## [U3.3] Two figures in the brief did not survive checking
+
+- Brief: "five of six ablation rows are TRADE-OFF". Six rows produce **five
+  transitions**; `grep -c "TRADE-OFF" results/latest/ablation.md` returns **4**, and
+  `grep -c "EARNS ITS PLACE"` returns **1**.
+- Brief: "redundant_alert_rate 0.2745 -> 0.0000". That is the **short-history** run.
+  `results/latest` is the full-history run and reads **0.2658 -> 0.0000**.
+
+README states the repo's numbers.

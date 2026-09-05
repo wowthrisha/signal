@@ -558,3 +558,12 @@ looks fine can be averaging over a warm-up pathology.
 **Decision:** Deploy on Railway — repository connect plus a Postgres plugin, live and externally verified in one session. Seeded with a 26,236-row slice rather than 1.09M bars.
 **Rejected:** ECS Fargate or Lightsail with a self-managed Postgres container. It clears the "runs on AWS" bar while being strictly worse than Railway on durability, and a demo whose data vanishes on redeploy is not a production-appropriate deployment, only a differently-branded one.
 **Would revisit if:** the IAM user is granted RDS and App Runner, at which point the same root `Dockerfile` deploys unchanged — nothing in the image is Railway-specific.
+
+---
+
+## ADR-035: Show the suppression, do not hide it
+
+**Context:** The digest surfaces 4 cards from 30 watched instruments. The 18 movements it discards are the product's actual claim, and they were reachable only as a count — "We filtered 18 other movements".
+**Decision:** Render the discards as a Pareto in the drawer, bars scaled against the largest reason, plus a "Why this?" expander on every card showing the stored tier, gate, `U`, `I`, residual and confidence that admitted it.
+**Rejected:** Leaving the count alone. A filter a user cannot inspect is indistinguishable from a filter that does not work, and "we removed 18 things, trust us" is the exact posture this product exists to argue against. Also rejected: generating the explanation. Every row reads a stored field and a null renders "not available", because a plausible guess in the explanation would undo the reason the trace is persisted at all.
+**Would revisit if:** the drawer's reason buckets stop being mutually exclusive, at which point a Pareto misrepresents the split and the shape needs to change with it.
