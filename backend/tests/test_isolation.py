@@ -16,8 +16,19 @@ SENTINEL = date(1991, 3, 4)
 
 
 def test_tests_do_not_point_at_the_ingested_database(test_database_url):
-    assert _dbname(test_database_url) != _dbname(DEV_DATABASE_URL)
-    assert _dbname(test_database_url) == "signal_test"
+    """The invariant is *not the dev database*, plus a recognisable name.
+
+    This previously asserted the name was exactly `signal_test`. That pinned an
+    implementation detail rather than the property, and it stood in the way of
+    the fix for a real defect: a fixed name meant two concurrent pytest
+    sessions shared one database, and `DROP DATABASE ... WITH (FORCE)` in one
+    session's setup tore down the other's connections mid-run. The name now
+    carries a PID suffix, so the prefix is checked instead — still enough to
+    fail if anyone points the suite at `signal` itself.
+    """
+    name = _dbname(test_database_url)
+    assert name != _dbname(DEV_DATABASE_URL), "tests are pointed at the dev database"
+    assert name.startswith("signal_test"), f"unrecognised test database: {name!r}"
 
 
 def test_database_url_env_is_redirected_during_the_run(test_database_url, monkeypatch):

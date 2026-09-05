@@ -2944,3 +2944,68 @@ full suite : 382 passed, 2 skipped, 1 xfailed
 guards     : 62 passed
 contrast   : --text 16.34:1 · --text-2 7.58:1 · --accent 9.65:1 (unchanged)
 ```
+
+---
+
+# [U17] Test-suite concurrency defect — 2026-09-05
+
+## [U17.1] The symptom, and why it was not a fluke
+
+```
+$ python -m pytest tests/ -q
+337 passed, 1 xfailed, 2 warnings, 47 errors in 13.67s
+```
+
+13.67 seconds against a ~190-second suite: the session-scoped database fixture
+failed at setup and every test needing a database errored. An immediate re-run
+gave `382 passed`, which is exactly the shape that gets written off as a flake.
+
+## [U17.2] Reproduced rather than assumed
+
+`tests/conftest.py` used a fixed database name and dropped it with
+`DROP DATABASE ... WITH (FORCE)` at setup. Two pytest sessions therefore share
+one database, and the second session's setup terminates the first session's
+connections mid-run. Run two modules at once:
+
+```
+session A: 4 errors in 0.27s
+session B: 9 passed, 3 errors in 0.26s
+   7 DROP DATABASE      7 ERROR at setup
+   8 OperationalError   12 does not exist
+```
+
+The same signature. **I caused the original failure myself** — an earlier full
+suite was still running in the background while foreground pytest commands ran
+against the same database.
+
+## [U17.3] Fix
+
+`TEST_DB_NAME` is now `signal_test_{pid}`; `SIGNAL_TEST_DB` still overrides it
+for a caller that wants a fixed name. Reproduction after the fix:
+
+```
+session A: 4 passed in 15.29s
+session B: 11 passed, 1 skipped in 16.57s
+```
+
+## [U17.4] The fix broke a guard, and the guard was over-specified
+
+```
+E  assert _dbname(test_database_url) == "signal_test"
+E  AssertionError: assert 'signal_test_62662' == 'signal_test'
+```
+
+`test_tests_do_not_point_at_the_ingested_database` asserted two things: that the
+test database is not the dev database — the real invariant — and that its name
+is the literal `signal_test`, which pins an implementation detail. The second
+was relaxed to a prefix check, which still fails if anyone points the suite at
+`signal` itself. **The isolation property is unchanged; only the literal went.**
+
+Also dropped a `seedtest` database left behind by my own manual seed
+verification in [U14.6]. No test referenced it, but it was litter.
+
+```
+$ python -m pytest tests/ -q
+382 passed, 2 skipped, 1 xfailed, 2 warnings in 190.33s
+leftover databases: none
+```

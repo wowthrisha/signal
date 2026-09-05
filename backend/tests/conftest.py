@@ -30,7 +30,16 @@ DEV_DATABASE_URL = os.environ.get(
     "SIGNAL_DEV_DATABASE_URL",
     os.environ.get("DATABASE_URL", "postgresql://signal:signal@localhost:5433/signal"),
 )
-TEST_DB_NAME = os.environ.get("SIGNAL_TEST_DB", "signal_test")
+# Unique per process. A fixed name means two pytest sessions share one
+# database, and `DROP DATABASE ... WITH (FORCE)` in one session's setup
+# terminates the other's connections mid-run — which surfaces as a wall of
+# `OperationalError: database "signal_test" does not exist` and looks exactly
+# like a flaky suite. Reproduced by running two modules concurrently: 7 errors
+# at setup across the pair. The PID suffix makes concurrent runs independent.
+#
+# `SIGNAL_TEST_DB` still overrides it outright, for a caller that wants a
+# fixed name and knows it is the only one running.
+TEST_DB_NAME = os.environ.get("SIGNAL_TEST_DB") or f"signal_test_{os.getpid()}"
 # Database used to issue CREATE/DROP DATABASE; cannot be the one being dropped.
 MAINTENANCE_DB = os.environ.get("SIGNAL_MAINTENANCE_DB", "postgres")
 
