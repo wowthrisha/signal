@@ -1,4 +1,4 @@
-.PHONY: up down shell-db migrate ingest evaluate detect calibrate test probe
+.PHONY: up down shell-db migrate ingest evaluate replay detect calibrate test probe
 
 up:
 	docker compose up --build
@@ -10,6 +10,9 @@ shell-db:
 	docker compose exec db psql -U signal signal
 
 evaluate:
+	cd backend && python -m app.benchmark
+
+replay:
 	cd backend && python -m app.evaluate --config ../configs/bench.yaml
 
 probe:
