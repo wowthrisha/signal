@@ -145,6 +145,14 @@ const REASON_DETAIL = {
   below_threshold:     'moved, but within its own normal range',
   low_confidence:      'data we do not trust enough to show',
 };
+// Same reasons in a form that reads correctly after "most of them because
+// they …". The drawer's phrasing is written for a row label and does not
+// survive being dropped into a sentence.
+const REASON_CLAUSE = {
+  explained_by_market: 'moved with the market or their sector',
+  below_threshold:     'stayed inside their own normal range',
+  low_confidence:      'rest on data we do not trust enough to show',
+};
 
 const fmtPct = (v) =>
   v === null || v === undefined ? '—' : (v > 0 ? '+' : '') + v.toFixed(2) + '%';
@@ -507,13 +515,20 @@ function render(d) {
   el('since').textContent = sinceLabel(d.since);
   el('funnel').innerHTML = funnelHTML(d.funnel);
 
-  // One sentence naming where the drop happened. Both numbers come from the
-  // response; the threshold is the API's display threshold, not a JS constant.
-  const explained = (d.filtered_reasons || {}).explained_by_market || 0;
+  // One sentence naming where the drop actually happened. It names the
+  // *largest* reason, computed from the response, rather than a reason chosen
+  // in advance: previously it always cited explained_by_market, which is 4 of
+  // 18 here while below_threshold is 14. Citing the smaller bucket is true
+  // sentence by sentence and misleading overall, which is the failure mode
+  // this whole product exists to argue against.
+  const reasons = d.filtered_reasons || {};
+  const top = Object.entries(reasons).filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])[0];
   el('funnel-sub').innerHTML = d.funnel.moved
     ? `<span class="num text-neutral-300">${d.funnel.moved}</span> moved more than 1%. ` +
       `<span class="num text-neutral-300">${d.filtered_count}</span> were filtered` +
-      (explained ? `, <span class="num text-neutral-300">${explained}</span> of them explained by their sector or the market.` : '.')
+      (top ? `, most of them because they ${REASON_CLAUSE[top[0]] || top[0]}` +
+             ` <span class="num text-neutral-300">(${top[1]})</span>.` : '.')
     : '';
   el('cards').innerHTML = d.cards.map(cardHTML).join('') || (caughtUp
     ? `<div class="py-20 text-center card-in">

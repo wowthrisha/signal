@@ -1677,3 +1677,54 @@ to the 30 watchlist instruments, because a deployment does not need the whole
 ledger. Recorded here so the difference is not later mistaken for data loss.
 
 Suite: 253 passed, 1 xfailed.
+
+---
+
+# [U7] Funnel subline, evidence layer, regime card — 2026-09-05
+
+## [U7.0] Task 0 — funnel subline vs live data — PASS, premise did not hold
+
+Live stage counts, verbatim:
+
+```
+funnel: {'watched': 30, 'moved': 22, 'surfaced': 4}
+filtered_count: 18 reasons: {'explained_by_market': 4, 'below_threshold': 14, 'low_confidence': 0}
+  moved                 22  moved more than 1%
+  explained_by_market    4  explained by market or sector
+  stock_specific        18  stock-specific candidates
+  confidence_passed     18  passed the confidence gate
+  surfaced               4  surfaced
+surfaced_below_display_threshold: 0
+```
+
+Deployed subline source:
+
+```
+513:  el('funnel-sub').innerHTML = d.funnel.moved
+514-    ? `...${d.funnel.moved}...</span> moved more than 1%. ` +
+515-      `...${d.filtered_count}...</span> were filtered` +
+516-      (explained ? `, ...${explained}... of them explained by their sector or the market.` : '.')
+```
+
+It rendered: *"22 moved more than 1%. **18 were filtered**, 4 of them explained
+by their sector or the market."*
+
+**No false claim.** It said 18 were *filtered*, not 18 were *explained*, and 4
+matches `explained_by_market` exactly. The `18 -> 14 -> 4 -> 4 -> 4` figures in
+the brief were the brief's own illustration from the previous run (which
+instructed "Do NOT hardcode 18 -> 14 -> 4 -> 4 -> 4. That was an
+illustration."). They were never reported as live output; the chain reported
+was `22 -> 4 -> 18 -> 18 -> 4`.
+
+**A weaker real defect was found and fixed.** The sentence always cited
+`explained_by_market`, a reason chosen in advance. Here that is 4 of 18 while
+`below_threshold` is 14. Citing the smaller bucket is true sentence-by-sentence
+and misleading overall — the exact failure this product argues against. The
+subline now names whichever reason is largest, computed from the response:
+
+```
+BEFORE: 22 moved more than 1%. 18 were filtered, 4 of them explained by their sector or the market.
+AFTER : 22 moved more than 1%. 18 were filtered, most of them because they stayed inside their own normal range (14).
+```
+
+Logged as R-22.
