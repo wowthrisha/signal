@@ -2522,3 +2522,60 @@ Contrast, recomputed after the prose migration:
 ```
 
 Full suite: `366 passed, 2 skipped, 1 xfailed in 290.24s`.
+
+---
+
+# [U14] Confidence diagnosis, extremity phrasing, card density — 2026-09-05
+
+## [U14.1] Task 1a/1b — DIAGNOSIS: confidence is correct; the UI conflated two quantities
+
+**Distribution first.** Confidence is not universally 1.00 — 414 distinct
+values across 5,962 events, of which only **105 are exactly 1.0** and 161 are
+0. The largest single bucket is 0.4 (1,428 events). So the question is not
+"why is confidence always 1" but "why these four".
+
+**Each term of the min, for the surfaced ISINs:**
+
+```
+  symbol   | session_date | event_type | confidence | source_trust | freshness | liquidity | history | sector_pen |   binding    | bar_status
+ ANANTRAJ  | 2026-09-03   | JUMP       |          1 | 1.0          | 1.0       | 1.0       | 1.0     | 1.0        | source_trust | ACTIVE
+ COALINDIA | 2026-09-02   | JUMP       |          1 | 1.0          | 1.0       | 1.0       | 1.0     | 1.0        | source_trust | ACTIVE
+ IFCI      | 2026-09-02   | DRIFT      |          1 | 1.0          | 1.0       | 1.0       | 1.0     | 1.0        | source_trust | ACTIVE
+ IFCI      | 2026-09-02   | JUMP       |          1 | 1.0          | 1.0       | 1.0       | 1.0     | 1.0        | source_trust | ACTIVE
+ RBLBANK   | 2026-09-03   | DRIFT      |          1 | 1.0          | 1.0       | 1.0       | 1.0     | 1.0        | source_trust | ACTIVE
+ RBLBANK   | 2026-09-03   | JUMP       |          1 | 1.0          | 1.0       | 1.0       | 1.0     | 1.0        | source_trust | ACTIVE
+
+latest session in bar: 2026-09-03
+```
+
+**Which of the three is true: none of them.**
+
+- **(i) freshness is not in the min** — FALSE. `scores.Confidence.value` is
+  `min(source_trust, freshness, liquidity_adequacy, history_adequacy)` at
+  `scores.py:184`, and `freshness` is stored per event at 1.0.
+- **(ii) computed at ingest, never recomputed** — true as a statement of fact,
+  but it is not the defect. Confidence is a property of an observation *at the
+  moment it was observed*. Recomputing it against "now" would make a card's
+  trustworthiness decay with age, which conflates *can this number be believed*
+  with *how recent is it*. §7 keeps those apart deliberately.
+- **(iii) delayed is display-only and never reaches the score** — closest, but
+  it mis-frames the situation as a missing wire.
+
+**The actual finding: the two numbers measure different things and the card
+put them side by side as though they were one axis.**
+
+- `confidence.freshness` answers *was the bar current for the session being
+  scored?* The pipeline passes `staleness_sessions=0` when the bar for session
+  T exists and is OK (`pipeline.py:410`). COALINDIA's 2026-09-02 bar was the
+  current bar **on 2026-09-02**. 1.0 is correct.
+- The `DELAYED · 1 SESSION BEHIND` badge answers *how many sessions separate
+  this card's session from the latest session we now hold?* Computed at read
+  time against `max(session_date)`. 1 is also correct.
+
+Both are right. Neither is the other. A 1-session-behind card with
+`confidence 1.00` is not a contradiction — it says *this observation was fully
+trustworthy when captured, and it is now one session old.*
+
+**Per 1c: the cause is not a bug, so the engine is unchanged.** No threshold,
+no scoring path, no stored value was touched. The reconciliation is in the UI,
+where the collision was manufactured.
