@@ -116,6 +116,13 @@ def load(conn, src: Path) -> str:
     sql = gzip.open(src, "rt", encoding="utf-8").read()
     with conn.cursor() as cur:
         cur.execute(sql)
+        # Reset the demo visit cursor so a fresh deploy opens on cards rather
+        # than on the caught-up state. The cursor is monotonic under GREATEST
+        # by design (hard rule 6), so it cannot be wound back through the API
+        # — and it should not be. Deleting the row here is a deploy-time
+        # fixture reset, not a cursor rewind: it puts the demo user back in
+        # the "never visited" state the lookback fallback is written for.
+        cur.execute("DELETE FROM visit_cursor WHERE user_id = %s", (DEMO_USER_ID,))
     conn.commit()
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM bar")
