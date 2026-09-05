@@ -1434,3 +1434,44 @@ Tasks 1 (per-card freshness), 2 (`/api/health`), 3 (fresh EXPLAIN) and 4
 and the determinism proof, which produced findings; the four remaining items are
 presentation over data that is already correct. The [U2] EXPLAIN plan is still
 in the README and still shows index scans with no Seq Scan.
+
+---
+
+# [U6] Freshness, health, plan, evidence chain — 2026-09-05
+
+Logged per task, before the next task begins.
+
+## [U6.0] Task 0 — results/ staleness check — PASS (with a caveat reported, not fixed)
+
+```
+$ python3 -c "import json; print(json.load(open('results/latest/metrics.json'))['git_sha'])"
+b93299abb1e211162533d733a8745ee2be64dfb4
+
+$ git rev-parse HEAD
+73e908173df12a07d1e955a7246d5806cae44e5e
+```
+
+They differ by one commit. What is in it:
+
+```
+$ git diff --stat b93299a..HEAD
+ README.md                                   |  74 +++++++++++-
+ backend/tests/test_benchmark_determinism.py |  77 +++++++++++++
+ docs/DECISIONS.md                           |  18 +++
+ ops/ACTION-LOG.md                           | 138 ++++++++++++++++++++++
+ ops/RISK-REGISTER.md                        |   5 +-
+ results/20260905T070648Z/ablation.md        |  51 +++++++++
+ results/20260905T070648Z/metrics.json       | 170 ++++++++++++++++++++++++++++
+ results/20260905T070805Z/ablation.md        |  51 +++++++++
+ results/20260905T070805Z/metrics.json       | 170 ++++++++++++++++++++++++++++
+ results/latest                              |   2 +-
+ 10 files changed, 751 insertions(+), 5 deletions(-)
+
+$ git diff --name-only b93299a..HEAD | grep -E "backend/app/(engine|benchmark|normalize|ingest)"
+  none — only tests, docs, ops
+```
+
+**Assessment: the SHA is stale, the numbers are not.** No engine, benchmark,
+normalizer or ingest code changed between the two commits, so the metrics still
+describe the code that produced them. Reported rather than silently
+regenerated, per the task instruction.
