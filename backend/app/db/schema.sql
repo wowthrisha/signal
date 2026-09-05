@@ -145,3 +145,40 @@ ALTER TABLE event ADD COLUMN IF NOT EXISTS gate TEXT;
 -- Attribution / detector state carried between sessions (§4, §8).
 ALTER TABLE symbol_state ADD COLUMN IF NOT EXISTS sigma NUMERIC;
 ALTER TABLE symbol_state ADD COLUMN IF NOT EXISTS cooldown_left INT DEFAULT 0;
+
+-- ---------------------------------------------------------------------------
+-- S6: evidence layer (spec §10). Provenance only — retrieval, never generation.
+--
+-- One row per (isin, session_date, event_type): the primary source behind a
+-- card. `published_at` and `retrieved_at` are separate and both required,
+-- because "when the exchange said it" and "when we fetched it" answer different
+-- questions and conflating them hides staleness.
+--
+-- `url` is NULLABLE on purpose. The NSE corporate-actions feed is a structured
+-- API listing with no per-record permalink, so for those rows there is no
+-- document to link. Storing a company homepage or a filtered listing page in
+-- its place would be citation theatre — a link that looks like a source and is
+-- not one — so the column stays NULL and the UI says the original is not
+-- linkable.
+--
+-- `published_at_basis` records what `published_at` actually is. For a corporate
+-- action the feed carries no publication timestamp, only an ex-date, so the row
+-- says EX_DATE rather than implying we know when it was filed.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS evidence (
+  isin              TEXT NOT NULL REFERENCES instrument(isin),
+  session_date      DATE NOT NULL,
+  event_type        TEXT NOT NULL,
+  source_tier       SMALLINT NOT NULL CHECK (source_tier IN (1, 2, 3)),
+  source_name       TEXT NOT NULL,
+  document_type     TEXT NOT NULL,
+  title             TEXT NOT NULL,
+  published_at      TIMESTAMPTZ NOT NULL,
+  published_at_basis TEXT NOT NULL,
+  retrieved_at      TIMESTAMPTZ NOT NULL,
+  url               TEXT,
+  checksum          TEXT NOT NULL,
+  PRIMARY KEY (isin, session_date, event_type, checksum)
+);
+
+CREATE INDEX IF NOT EXISTS evidence_lookup ON evidence (isin, session_date, event_type);

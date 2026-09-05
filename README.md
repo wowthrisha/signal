@@ -490,6 +490,88 @@ What this does *not* claim: we have not run a million users. This is arithmetic
 over a measured single-user plan, and its purpose is to make obvious which term
 carries the user count. Only one does, and it is the cheap one.
 
+## What is actually new here
+
+Not "AI applied to a watchlist". That space has incumbents: **Groww shipped GR-1,
+an AI investing assistant, in August 2026**, and Robinhood ships an AI digest. Any
+claim that nobody combines a model with market context would be false, so this
+project does not make one.
+
+The narrower claim it does make is about *structure*:
+
+1. **Detection, attribution and attention allocation are separate stages with
+   separate failure modes**, rather than one scoring function. Most watchlist
+   alerting collapses them into a threshold.
+2. **The suppression is measured and shown.** `make evaluate` generates the
+   comparison against two baselines and a six-row ablation; the drawer shows the
+   reader what was discarded and why. The headline figure —
+   `alert_reduction_vs_B0` — needs no ground-truth label at all.
+3. **Replay is deterministic.** Eight fault scenarios, a byte-stable ledger digest,
+   and a `BIGSERIAL` cursor that advances under `GREATEST`.
+4. **Every displayed number has provenance.** The tier, the gate string, `U`, `I`,
+   `C` and the attribution split are read from the stored event, not recomputed for
+   display, so "Why this?" is answered from fields. A missing field renders "not
+   available"; nothing is generated.
+
+Whether that combination is unique is not something this repository can prove, and
+it does not try to.
+
+## Evidence
+
+Every surfaced card carries the primary source behind it, or says plainly that
+there isn't one. This is retrieval and provenance — no generation, no
+summarisation, no model anywhere in the path.
+
+An evidence row records source tier (1 exchange / 2 company IR / 3 regulator),
+source name, document type, the exchange's own title verbatim, `published_at`
+and `retrieved_at` as **separate** fields, and a checksum over the fields it was
+derived from.
+
+**Coverage, measured:**
+
+| event type | events | with a primary source |
+|---|---|---|
+| CORP_ACTION | 987 | 987 |
+| JUMP | 3,806 | 44 |
+| DRIFT | 1,169 | 21 |
+| **total** | **5,962** | **1,052 (17.6 %)** |
+
+Most of that shortfall is the system working rather than a gap. Tier C means
+"unusual movement, no known cause", so a JUMP with no filing behind it is
+exactly what the tier says it is, and the card renders *"No corroborating event
+found. This movement was detected from price alone."*
+
+**Two honest limitations, both visible in the product:**
+
+- **No card can link an original.** The NSE corporate-actions feed is a
+  structured API listing with no per-record permalink, so `url` is NULL for
+  every backfilled row and the card says the original is not linkable. Putting a
+  company homepage behind a "view original" button would be citation theatre — a
+  link that looks like a source, resolves to something else, and manufactures
+  confidence in the one reader who bothered to check.
+- **`published_at` is an ex-date, not a filing time.** The feed carries no
+  publication timestamp. Rather than write the ex-date in and say nothing, every
+  row carries `published_at_basis: EX_DATE` so it states what its own timestamp
+  means.
+
+Ingesting NSE's announcements endpoint, which does carry attachment URLs, would
+raise coverage without weakening either constraint. See
+[ADR-042](docs/DECISIONS.md).
+
+## Market-wide regime suppression has never fired
+
+Breadth suppression (§8) emits one regime card instead of fifty individual ones
+when more than half the universe moves together. Measured across all 497
+ingested sessions, **zero reach the `breadth > 0.5` gate**. The maximum is
+**0.3473 on 2026-04-01** — 838 of 2,413 symbols beyond `|z| > 2`, a severe day
+and still two thirds of the way there.
+
+The threshold was not lowered to produce a demonstrable session, and no demo
+control renders a manufactured one. The logic is implemented and unit-tested in
+`tests/test_breadth.py`; what is missing is a real session to show it on. Two
+years without one is arguably evidence the gate is set sensibly — one that fired
+on an ordinary Tuesday would be the defect.
+
 ## What we deliberately did NOT build
 
 | Not built | Why |

@@ -225,6 +225,51 @@ const TIER_MEANING = {
   C: 'Tier C: unusual movement, no known cause',
 };
 
+const TIER_SOURCE = { 1: 'Exchange', 2: 'Company IR', 3: 'Regulator' };
+
+function evidenceHTML(c) {
+  // Provenance, rendered from stored fields. No link is ever synthesised: if
+  // the source has no per-record permalink the block says so, because a link
+  // to a homepage in place of a filing is citation theatre — it looks like a
+  // source, resolves to something else, and manufactures confidence.
+  const ev = c.evidence || [];
+  if (!ev.length) {
+    return `
+      <div class="mt-4 pt-3 border-t border-neutral-900">
+        <p class="text-[10px] uppercase tracking-[0.2em] text-neutral-700">Evidence</p>
+        <p class="mt-1.5 text-xs text-neutral-600">
+          No corroborating event found. This movement was detected from price
+          alone.
+        </p>
+      </div>`;
+  }
+  return `
+    <div class="mt-4 pt-3 border-t border-neutral-900">
+      <p class="text-[10px] uppercase tracking-[0.2em] text-neutral-700 mb-2">Evidence</p>
+      ${ev.map((e) => `
+        <div class="mb-2 last:mb-0">
+          <p class="text-xs text-neutral-300">${e.title}</p>
+          <p class="num mt-1 text-[11px] text-neutral-600">
+            ${e.source_name} · ${e.document_type}
+            · tier ${e.source_tier} ${TIER_SOURCE[e.source_tier] || ''}
+          </p>
+          <p class="num mt-0.5 text-[11px] text-neutral-700">
+            published ${e.published_at.slice(0, 10)}
+            <span class="text-neutral-800">(${e.published_at_basis.toLowerCase().replace('_', ' ')})</span>
+            · retrieved ${e.retrieved_at.slice(0, 10)}
+          </p>
+          ${e.linkable
+            ? `<a href="${e.url}" target="_blank" rel="noopener noreferrer"
+                  class="inline-block mt-1.5 text-[10px] uppercase tracking-widest
+                         text-neutral-400 hover:text-neutral-100 border border-neutral-800
+                         rounded px-1.5 py-0.5 transition-colors">View original &nearr;</a>`
+            : `<p class="mt-1.5 text-[11px] text-neutral-700">
+                 Structured exchange record — no per-document link published.
+               </p>`}
+        </div>`).join('')}
+    </div>`;
+}
+
 function whyHTML(c, i) {
   // Every row reads a stored field. Nothing is inferred, nothing is generated,
   // and a null renders as "not available" — a guess here would undo the point
@@ -390,6 +435,7 @@ function cardHTML(c, i) {
         ${confidenceDots(c.confidence)}
       </div>
     </div>
+    ${evidenceHTML(c)}
     ${whyHTML(c, i)}
   </article>`;
 }

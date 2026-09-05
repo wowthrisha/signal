@@ -621,3 +621,22 @@ looks fine can be averaging over a warm-up pathology.
 **Decision:** Derive the chain in `build_digest` by re-partitioning the counts the reason loop already produces, so the stages are monotonic by construction and cannot disagree with the drawer beside them. The client renders and computes nothing.
 **Rejected:** Using `len(cards)` as the final stage. A card can clear every §7 gate on a move below `MOVED_DISPLAY_THRESHOLD_PCT` and so never enter the `moved` population — the display threshold is a funnel label and has never gated the slate. Folding those in would break monotonicity for a presentation reason; relaxing the invariant to accommodate it would hide a real bug the day one appears. The chain reports `surfaced_from_moved` and names the remainder as `surfaced_below_display_threshold`.
 **Would revisit if:** the display threshold ever gates admission, at which point the two populations coincide and the extra field becomes dead weight.
+
+---
+
+## ADR-042: Evidence before RAG — a deterministic provenance layer is the prerequisite
+
+**Context:** The obvious next feature is retrieval-augmented generation over filings. It was not built. An evidence layer was built instead.
+**Decision:** Ship deterministic provenance first: one `evidence` row per event, recording source tier, document type, the exchange's own title verbatim, `published_at` and `retrieved_at` as separate fields, a `published_at_basis` saying what the timestamp actually is, and a checksum over the fields the row was derived from. No generation of any kind.
+**Rejected:** Going straight to RAG. A generation layer inherits the trustworthiness of its citations, so building it on a provenance layer that does not exist means every generated sentence is unfalsifiable by construction. Order matters: with `evidence` in place, a future generated sentence can be required to cite a row that exists, and a guard can reject any numeric token absent from that row. Without it there is nothing to check against.
+**Also rejected: linking a company homepage in place of a filing.** The NSE corporate-actions feed has no per-record permalink, so `url` is NULL for every backfilled row and the card says the original is not linkable. A homepage under a "view original" button is citation theatre — it looks like a source, resolves to something else, and manufactures confidence in exactly the reader who bothered to check. Null is the honest value and 17.6 % coverage is the honest number.
+**Would revisit if:** a feed with per-document permalinks is ingested (NSE's announcements endpoint carries attachment URLs). That raises coverage without weakening the constraint, which is the right order of operations.
+
+---
+
+## ADR-043: No market-regime demo, because no session in the data qualifies
+
+**Context:** Breadth suppression (§8) has been implemented and unit-tested since S1 and has never been visible in the product. The task was to demonstrate it on a real session.
+**Decision:** Do not demonstrate it. Measured across all 497 ingested sessions, **zero** reach `breadth > 0.5`; the maximum is 0.3473 on 2026-04-01, 838 of 2,413 symbols beyond `|z| > 2`.
+**Rejected:** Lowering `BREADTH_THRESHOLD` to produce a demonstrable session, and building a demo control that renders a manufactured regime. Either would be showing a mock while describing it as a feature, and moving a threshold to make a demo work is the failure this project has refused at every other decision point.
+**Would revisit if:** a genuine market-wide session appears in the data. Two years without one is arguably evidence the threshold is set sensibly, not evidence the feature is broken — a gate that fires on an ordinary Tuesday would be the defect.

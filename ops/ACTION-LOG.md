@@ -1728,3 +1728,135 @@ AFTER : 22 moved more than 1%. 18 were filtered, most of them because they staye
 ```
 
 Logged as R-22.
+
+## [U7.1] Task 1 — Evidence Explorer — PASS
+
+Deterministic provenance. No LLM, no generation, no summarisation, no new
+external source: the backfill re-reads the corporate-actions ingest already in
+Postgres.
+
+**1a. Schema.** `evidence`, keyed `(isin, session_date, event_type, checksum)`.
+`published_at` and `retrieved_at` are separate NOT NULL columns. Two deliberate
+design choices, both costing coverage:
+
+- `url` is **nullable and null for every corporate-action row.** The NSE feed is
+  a structured API listing with no per-record permalink. A company homepage or a
+  filtered listing page in that field would be citation theatre — a link that
+  looks like a source, resolves to something else, and manufactures confidence.
+- `published_at_basis` exists because the feed carries an **ex-date, not a
+  filing timestamp.** Writing the ex-date into `published_at` silently would
+  claim we know when the company filed. Each row says `EX_DATE`.
+
+**1b. Backfill.**
+
+```
+backfill: {'corp_actions_read': 4072, 'evidence_rows': 4072, 'skipped_invalid': 0}
+```
+
+Coverage, which is the honest part:
+
+```
+ event_type  | events | with_evidence | without_evidence
+-------------+--------+---------------+------------------
+ JUMP        |   3806 |            44 |             3762
+ DRIFT       |   1169 |            21 |             1148
+ CORP_ACTION |    987 |           987 |                0
+```
+
+**1,052 of 5,962 events (17.6 %) have a primary source.** That is not a gap to
+apologise for — Tier C means "unusual movement, no known cause", so a JUMP
+without a filing is the system working, and the card says so.
+
+**1c/1d.** Cards carry an `evidence` array; empty is truthful, not a failure.
+
+```
+MCX         CORP_ACTION  evidence=1
+  {"source_tier": 1, "source_name": "NSE Corporate Actions", "document_type":
+   "Corporate action record", "title": "Dividend - Rs 8 Per Share",
+   "published_at": "2026-08-28T00:00:00+00:00", "published_at_basis": "EX_DATE",
+   "retrieved_at": "2026-09-05T03:37:22.467842+00:00", "url": null,
+   "linkable": false, "checksum": "117e0691f7fc4817240916f913b54ae68e3c1646"}
+ADANIPORTS  JUMP         evidence=0
+```
+
+Render checks in node:
+
+```
+no-evidence state : true
+null url no <a>   : true
+linkable renders a: true
+no href="null"    : true
+basis shown       : true
+```
+
+**1e.** `python -m pytest tests/test_evidence.py -q` -> `11 passed, 1 skipped`.
+The skip is a guard for a window with no corporate-action card. Tests cover
+missing `published_at`, missing `retrieved_at`, an undeclared basis, an invalid
+tier, verbatim title, checksum sensitivity, backfill idempotence, and that a
+null url renders no anchor.
+
+## [U7.2] Task 2 — market regime card — SKIPPED, threshold never reached
+
+Measured breadth across all 497 sessions, using the shipped detector:
+
+```
+threshold: 0.5
+sessions with is_regime True: 0
+top 10 breadth sessions:
+   2026-04-01  fraction=0.3473  extreme=838/2413  regime=False
+   2025-04-01  fraction=0.2880  extreme=599/2080  regime=False
+   2025-01-13  fraction=0.2041  extreme=396/1940  regime=False
+   2025-02-03  fraction=0.1668  extreme=329/1973  regime=False
+   2024-10-30  fraction=0.1641  extreme=293/1785  regime=False
+   2026-01-30  fraction=0.1610  extreme=385/2392  regime=False
+   2025-01-27  fraction=0.1552  extreme=304/1959  regime=False
+   2025-05-13  fraction=0.1522  extreme=317/2083  regime=False
+   2026-01-28  fraction=0.1451  extreme=347/2391  regime=False
+   2025-01-06  fraction=0.1431  extreme=276/1929  regime=False
+```
+
+**No session in two years of NSE data reaches `breadth > 0.5`.** The maximum is
+**0.3473 on 2026-04-01** — 838 of 2,413 symbols beyond `|z| > 2`, which is a
+severe day and still only two thirds of the way to the gate.
+
+`BREADTH_THRESHOLD` was **not** lowered, and no demo control was built to render
+a regime session, because the only way to produce one from this data is to move
+the threshold — which is the one thing the task forbade and the thing this
+project has refused throughout. Building a UI for a state the data cannot reach
+would be demonstrating a mock, not a feature.
+
+The suppression logic itself is implemented and unit-tested
+(`tests/test_breadth.py`); what is absent is a real session to show it on.
+Logged as R-23.
+
+## [U7.3] Task 3 — record and ship — PASS, with a self-inflicted regression found and fixed
+
+**Regression found while writing this section.** The README's
+"## What is actually new here" — the GR-1 prior-art section added in [U4] —
+had been **silently deleted** by my own [U6.3] edit. That edit regenerated the
+scaling section by replacing everything between `## How this scales` and
+`## What we deliberately did NOT build`, and the novelty section sat inside
+that span.
+
+```
+$ git show 42030ee^:README.md | grep -c "What is actually new here"
+1
+$ grep -c "What is actually new here" README.md
+0
+```
+
+Restored verbatim from `42030ee^` rather than rewritten from memory. Logged as
+R-25: a span-replacement edit is only safe when the span's contents are known,
+and "regenerate everything between these two headings" is not.
+
+Sections now present:
+
+```
+## Run it / ## The problem, decomposed / ## How "meaningful" is defined
+## Current state / ## Results / ## What we do NOT claim / ## Edge cases handled
+## How this scales / ## What is actually new here / ## Evidence
+## Market-wide regime suppression has never fired
+## What we deliberately did NOT build / ## Decisions
+```
+
+Suite: `264 passed, 1 skipped, 1 xfailed in 288.51s`.

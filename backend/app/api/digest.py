@@ -36,6 +36,7 @@ import psycopg
 from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
+from app.api import evidence as evidence_mod
 from app.api import freshness as fresh_mod
 from app.core.clock import WallClock
 from app.engine.salience import slate as slate_mod
@@ -517,6 +518,10 @@ def build_digest(
         cur.execute("SELECT DISTINCT session_date FROM bar ORDER BY session_date")
         all_sessions = [r[0] for r in cur.fetchall()]
     policy = fresh_mod.Policy.load()
+    # Provenance for the cards, read from the evidence table. No network call
+    # and no second fetch that could disagree with the data the card was built
+    # from — this re-reads the ingest we already ran.
+    evidence_by_key = evidence_mod.load_for(conn, isins, since, latest)
 
     window_set = set(sessions)
 
@@ -607,7 +612,7 @@ def build_digest(
             "moved": len(moves),
             "surfaced": len(cards),
         },
-        "cards": [_card(c, all_sessions, policy) for c in cards],
+        "cards": [_card(c, all_sessions, policy, evidence_by_key) for c in cards],
         "filtered_count": sum(reasons.values()),
         "filtered_reasons": reasons,
         # What an ack should advance to. Read it here, send it back to
@@ -623,10 +628,16 @@ def build_digest(
     }
 
 
-def _card(c: slate_mod.Candidate, calendar=(), policy=None) -> dict:
+def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None) -> dict:
     state, behind = fresh_mod.classify(
         c.session_date, calendar, status=c.status, policy=policy)
+    # An empty list is a truthful answer, not a failure: most price-detected
+    # movements have no filing behind them, which is precisely what Tier C
+    # ("unusual movement, no known cause") means. The card says so rather than
+    # hiding the block.
+    ev = (evidence or {}).get((c.isin, c.session_date), [])
     return {
+        "evidence": ev,
         "freshness": state,
         "sessions_behind": behind,
         "symbol": c.symbol,
