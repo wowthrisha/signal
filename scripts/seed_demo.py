@@ -105,17 +105,24 @@ def export(conn, out: Path) -> int:
 
 
 def load(conn, src: Path) -> str:
+    """Apply the seed. Safe to run on every boot.
+
+    Every statement in the export is `ON CONFLICT DO NOTHING`, so this is
+    idempotent by construction and there is no need to gate it on an empty
+    database. Gating on `bar` was worse than useless: it made a redeploy that
+    widened the seed silently do nothing, which is how a deployment ended up
+    answering "Unknown symbol: TCS" while the committed seed contained TCS.
+    """
+    sql = gzip.open(src, "rt", encoding="utf-8").read()
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM bar")
-        if cur.fetchone()[0]:
-            return "skipped: bar already populated"
-        sql = gzip.open(src, "rt", encoding="utf-8").read()
         cur.execute(sql)
     conn.commit()
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM bar")
         bars = cur.fetchone()[0]
-    return f"loaded: {bars} bars"
+        cur.execute("SELECT count(*) FROM instrument")
+        instruments = cur.fetchone()[0]
+    return f"loaded: {bars} bars, {instruments} instruments"
 
 
 def main(argv: list[str] | None = None) -> int:
