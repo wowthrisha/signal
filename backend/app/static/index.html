@@ -45,9 +45,9 @@
           "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 
-  --step: 8px;             /* vertical rhythm */
-  --card-pad: 24px;
-  --card-gap: 16px;
+  --step: 8px;                          /* the vertical rhythm unit */
+  --card-pad: calc(var(--step) * 3);    /* 24px */
+  --card-gap: calc(var(--step) * 2);    /* 16px */
   --content: 1120px;
   --rail: 280px;
 }
@@ -160,7 +160,7 @@ input::placeholder { color: var(--text-3); }
   <aside class="lg:sticky lg:top-8">
     <h2 class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">Watchlist</h2>
     <div class="flex items-center gap-2">
-      <input id="add-input" type="text" placeholder="Add a symbol — e.g. TCS"
+      <input id="add-input" type="text" aria-label="Add a symbol to your watchlist" placeholder="Add a symbol — e.g. TCS"
              autocomplete="off" spellcheck="false"
              class="num flex-1 surface-2 border bd rounded
                     px-3 py-2 text-sm t1 placeholder:t3
@@ -199,6 +199,7 @@ input::placeholder { color: var(--text-3); }
                      transition-colors disabled:opacity-30
                      disabled:hover:bg-transparent">Mark all as seen</button>
       <span id="cursor-state" class="num text-[11px] t3"></span>
+      <span id="cadence" class="num text-[11px] t3"></span>
     </div>
     <p id="funnel-sub" class="mt-3 text-sm t2"></p>
     <p class="mt-4 text-xs t2 max-w-lg leading-relaxed">
@@ -212,14 +213,14 @@ input::placeholder { color: var(--text-3); }
   <div id="api-banner" hidden
        class="mb-4 rounded border bd surface-2 px-3 py-2
               text-xs accent"></div>
-  <section id="cards"></section>
+  <section id="cards" aria-live="polite" aria-busy="true"></section>
 
   <!-- 4. Filtered, collapsed -->
   <section id="filtered-section" class="mt-8" hidden>
-    <button id="filtered-toggle"
+    <button id="filtered-toggle" aria-expanded="false" aria-controls="filtered-body"
             class="w-full text-left text-sm t2 hover:t1
                    transition-colors py-3 border-t bd flex items-center gap-2">
-      <span id="chev" class="inline-block transition-transform t3">▸</span>
+      <span id="chev" aria-hidden="true" class="inline-block transition-transform t3">▸</span>
       <span>We filtered <span id="filtered-count" class="num t2">0</span> other movements</span>
     </button>
     <div id="filtered-body" class="hidden pb-5 pl-5 pt-1"></div>
@@ -239,8 +240,9 @@ input::placeholder { color: var(--text-3); }
 </footer>
 
 <script>
-// Tier is a gate, not a score (spec §7), so the colour is a category label —
-// three distinct hues, never a gradient that would imply an ordering by degree.
+// Tier is a gate, not a score (spec §7). It used to be three hues; it is now
+// one amber dot plus the letter, because a colour ramp across A/B/C would
+// imply an ordering by degree that a gate does not have.
 const TIER = {
   // One accent, not three. Amber marks "this is the thing to look at"; the
   // tier letter is carried by the pill beside it, so the dot does not need to
@@ -437,11 +439,11 @@ function whyHTML(c, i) {
     </div>`;
 
   return `
-    <button data-why="${i}"
+    <button data-why="${i}" aria-expanded="false" aria-controls="why-${i}"
             class="mt-4 text-[11px] t3 hover:t2 transition-colors">
-      <span class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
+      <span aria-hidden="true" class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
     </button>
-    <div data-whybody="${i}" hidden class="mt-2 pl-3 border-l bd">
+    <div data-whybody="${i}" id="why-${i}" hidden class="mt-2 pl-3 border-l bd">
       ${row('Unusual', u)}
       ${row('Material', imp)}
       ${row('Stock-specific', resid)}
@@ -523,7 +525,7 @@ function decompositionHTML(c) {
   return `
     <div class="mt-4 space-y-1.5">${rows}</div>
     <p class="mt-3 text-[11px] uppercase tracking-[0.15em] ${strong ? 'accent' : 't3'}">
-      &rarr; ${verdict}
+      <span aria-hidden="true">&rarr;</span> ${verdict}
     </p>`;
 }
 
@@ -588,7 +590,7 @@ function chainHTML(chain) {
       <li class="flex items-baseline gap-3">
         <span class="num text-xs t1 w-8 text-right">${st.count}</span>
         <span class="text-xs t3 flex-1">
-          ${i > 0 ? '<span class="t3">&rarr;</span> ' : ''}${st.label}
+          ${i > 0 ? '<span class="t3" aria-hidden="true">&rarr;</span> ' : ''}${st.label}
         </span>
         <span class="hidden sm:block w-24 h-1.5 surface-2 rounded-sm overflow-hidden">
           <span class="block h-full bar-quiet rounded-sm"
@@ -638,8 +640,9 @@ function chipHTML(w) {
                t2 ${dim}" title="${w.name || ''}">
     ${w.symbol}
     <button data-remove="${w.isin}" title="Remove ${w.symbol}"
+            aria-label="Remove ${w.symbol} from watchlist"
             class="t3 hover:warn-fg transition-colors
-                   px-1 leading-none">&times;</button>
+                   px-1 leading-none"><span aria-hidden="true">&times;</span></button>
   </span>`;
 }
 
@@ -711,10 +714,11 @@ function render(d) {
       (top ? `, most of them because they ${REASON_CLAUSE[top[0]] || top[0]}` +
              ` <span class="num t2">(${top[1]})</span>.` : '.')
     : '';
+  el('cards').setAttribute('aria-busy', 'false');
   el('cards').innerHTML = d.cards.map(cardHTML).join('') || (caughtUp
     ? `<div class="py-20 text-center card-in">
          <div class="mx-auto w-8 h-8 rounded-full border bd
-                     flex items-center justify-center t3 text-xs">&check;</div>
+                     flex items-center justify-center t3 text-xs" aria-hidden="true">&check;</div>
          <p class="mt-5 text-base t2">Nothing meaningful has changed
            since you last looked.</p>
          <p class="mt-3 text-xs t3 max-w-sm mx-auto leading-relaxed">
@@ -735,6 +739,14 @@ function render(d) {
   }
 
   el('ack-btn').disabled = d.cards.length === 0;
+  // Cadence, derived from the session the database actually holds. This is
+  // end-of-day data: saying anything that implies a live intraday feed would
+  // be false, and hardcoding a date would go stale silently the moment the
+  // next bhavcopy lands.
+  el('cadence').textContent = d.latest_session
+    ? `Latest session ${sinceLabel(d.latest_session)} · next update after market close`
+    : 'No sessions ingested yet';
+
   el('cursor-state').textContent =
     d.cursor === null || d.cursor === undefined
       ? `no cursor yet — showing the last 2 sessions · head ${cursorHead}`
@@ -747,18 +759,23 @@ function render(d) {
 // nothing distinguishes it from "nothing happened today".
 let everRendered = false;
 
-async function load() {
+async function load(opts = {}) {
   try {
     // Both in flight together: the watchlist and the digest are derived from
     // the same rows, so showing one updated and the other stale would be a lie
     // the user can see.
+    // The background check sends conditional-request semantics; a foreground
+    // load (first paint, focus, post-mutation) always wants the current state.
+    const cacheMode = opts.background ? 'no-cache' : 'no-store';
     const [dRes, wRes] = await Promise.all([
-      fetch('/api/digest', { cache: 'no-store', headers: HDRS }),
-      fetch('/api/watchlist', { cache: 'no-store', headers: HDRS }),
+      fetch('/api/digest', { cache: cacheMode, headers: HDRS }),
+      fetch('/api/watchlist', { cache: cacheMode, headers: HDRS }),
     ]);
+    // 304 is a success with nothing to redraw, not a failure.
+    if (dRes.status === 304) { everRendered = true; banner(''); return; }
     if (!dRes.ok) throw new Error('HTTP ' + dRes.status);
     render(await dRes.json());
-    if (wRes.ok) renderWatchlist(await wRes.json());
+    if (wRes.ok && wRes.status !== 304) renderWatchlist(await wRes.json());
     everRendered = true;
     banner('');
   } catch (e) {
@@ -769,7 +786,7 @@ async function load() {
       el('funnel').innerHTML =
         `<span class="accent text-base">Digest unavailable — ${e.message}</span>`;
       el('cards').innerHTML =
-        `<p class="py-10 text-sm t3">The API is not responding. This page retries every 5 seconds.</p>`;
+        `<p class="py-10 text-sm t3">The API is not responding. This page retries when the tab regains focus.</p>`;
     }
   }
 }
@@ -825,6 +842,7 @@ el('cards').addEventListener('click', (e) => {
   const chev = document.querySelector(`[data-chev="${id}"]`);
   if (!body) return;
   body.hidden = !body.hidden;
+  btn.setAttribute('aria-expanded', String(!body.hidden));
   if (chev) chev.style.transform = body.hidden ? 'rotate(0deg)' : 'rotate(90deg)';
 });
 
@@ -848,13 +866,46 @@ el('watchlist').addEventListener('click', (e) => {
 el('filtered-toggle').addEventListener('click', () => {
   const body = el('filtered-body');
   body.classList.toggle('hidden');
+  el('filtered-toggle').setAttribute('aria-expanded',
+    String(!body.classList.contains('hidden')));
   el('chev').style.transform = body.classList.contains('hidden')
     ? 'rotate(0deg)' : 'rotate(90deg)';
 });
 
+// --- refresh model ---------------------------------------------------------
+//
+// The page used to poll every 5 seconds. That was wrong twice over: the data
+// is end-of-day, so 719 of every 720 requests could not possibly return
+// anything new, and a fast pulse on a page about *not* reacting to noise
+// contradicts the product in the one place a reader can see it.
+//
+// What actually changes the view is a user action or a new session. So:
+// refetch immediately after a mutation, refetch when the tab regains focus,
+// and keep one slow background check as a safety net rather than a heartbeat.
+const BACKGROUND_REFRESH_MS = 60000;
+
+let refreshTimer = null;
+
+function scheduleBackgroundRefresh() {
+  // Only while the tab is visible. A backgrounded tab polling a market that
+  // closed hours ago is pure waste, and browsers throttle it unpredictably
+  // anyway.
+  clearInterval(refreshTimer);
+  if (document.visibilityState === 'visible') {
+    refreshTimer = setInterval(() => load({ background: true }),
+                               BACKGROUND_REFRESH_MS);
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') load();
+  scheduleBackgroundRefresh();
+});
+window.addEventListener('focus', () => load());
+
 el('cards').innerHTML = skeletonHTML(3);
 load();
-setInterval(load, 5000);
+scheduleBackgroundRefresh();
 </script>
 </body>
 </html>

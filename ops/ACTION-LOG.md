@@ -2406,3 +2406,119 @@ New guards: no hex outside `:root`, no surviving Tailwind palette class, and
 `--up` or `--down` reappears.
 
 Full suite: `355 passed, 2 skipped, 1 xfailed in 287.84s`.
+
+---
+
+# [U13] Refresh model, accessibility guard, guard verification — 2026-09-05
+
+## [U13.1] Refresh model replaced — PASS
+
+`setInterval(load, 5000)` is gone. It was wrong twice over: the data is
+end-of-day, so 719 of every 720 requests could not return anything new, and a
+five-second pulse on a page whose argument is *not reacting to noise*
+contradicts the product in the one place a reader can see it.
+
+Replaced with: refetch after every mutation, refetch on `focus` and on
+`visibilitychange` to visible, and one 60-second background check that runs
+**only while the tab is visible** and sends `cache: 'no-cache'` so a `304` is
+handled as success-with-nothing-to-redraw rather than an error.
+
+## [U13.2] Cadence line derived from live data — PASS
+
+```
+latest_session from API : 2026-09-03
+cadence line rendered   : "Latest session 03 Sept 2026 · next update after market close"
+derived, not hardcoded  : true
+null-session wording    : "No sessions ingested yet"
+```
+
+The date comes from `latest_session` in the digest response, which the API
+reads from `max(session_date)` in `bar`. No date string appears in the
+template, and the empty-history path says so rather than printing a fake date.
+The wording says "after market close" and never implies an intraday feed.
+
+## [U13.3] VERIFY 15 — SVG guard — PASS, and vacuous, which is stated
+
+The product ships **zero** inline `<svg>`. The guard is therefore preventative,
+and `test_the_product_currently_ships_no_inline_svg` documents that rather than
+letting a green tick imply coverage that does not exist.
+
+Per R-27 the checker is exercised against synthetic markup and rejects: a bare
+`<svg>`, one with `role="img"` but no label, one with a label but no role, and
+one whose label is too short to be descriptive. It accepts the two legitimate
+forms — labelled graphic, or `aria-hidden="true"` decoration.
+
+Real accessibility work done alongside it: `aria-label` on the glyph-only
+remove button and the symbol input, `aria-hidden` on decorative chevrons and
+arrows, `aria-expanded`/`aria-controls` on both disclosures with the state
+updated in JS, and `aria-live="polite"` plus `aria-busy` on the card region.
+
+```
+$ python -m pytest tests/test_accessibility.py -q
+9 passed
+```
+
+## [U13.4] VERIFY 16 — the /lab guard did NOT fire, and that was the finding
+
+**What the guard permits:**
+
+```
+A. Named module-level UPPERCASE constants (declared structure, reviewable):
+     line  41  _CHECKOUT = 3
+     line  57  RISK_ROW_COLUMNS = 7
+B. Small-integer allow-list (slicing, column offsets): [0, 1, 2, 3, 4, 8, 12]
+C. Everything else: none — no unnamed numeric literal survives
+```
+
+**Then it was tested rather than trusted**, by injecting a genuinely hardcoded
+displayed metric into the calibration section:
+
+```python
+f"<p>max breadth 0.3473 across 497 sessions</p>"
+```
+
+```
+=== with a hardcoded metric injected ===
+1 passed, 2 warnings in 0.16s        <-- THE GUARD PASSED
+```
+
+**The guard missed the primary failure it exists to prevent.** It walked
+numeric AST constants only, and to `ast` those digits are part of a *string*,
+not numbers. A figure typed into markup — the exact thing that must never
+happen — was invisible to it. Logged as R-31.
+
+Fixed by scanning string literals too, exempting the `_PAGE` CSS template by
+name so pixel and rem values do not trip it. Re-running the same injection:
+
+```
+=== with a hardcoded metric injected ===
+1 failed, 9 passed, 2 warnings in 0.40s
+    "figures typed into string literals — these render as text and are "
+=== after restore ===
+10 passed, 2 warnings in 0.34s
+```
+
+## [U13.5] VERIFY sweep — three more findings, all fixed
+
+- **V2 failed**: `--step` was declared and never referenced. `--card-pad` and
+  `--card-gap` now derive from it via `calc()`, so the 8px grid is stated once
+  instead of implied by two independent values. All 20 tokens now used.
+- **Stale comment** found while grepping for gradients: the `TIER` block still
+  described "three distinct hues", which was replaced by a single amber dot two
+  commits earlier. Corrected.
+- **V10**: "digital twin" appears three times, all correct — twice in the frozen
+  spec's own prohibition list, and once in `replay/provider.py` stating *"this
+  is a deterministic market replay harness. Not a digital twin."* No product
+  surface uses the term as a description.
+
+Contrast, recomputed after the prose migration:
+
+```
+  --text     #E8EAED   16.34:1   body AA 4.5:1 PASS
+  --text-2   #9BA1AC    7.58:1   body AA 4.5:1 PASS
+  --accent   #F5A524    9.65:1   body AA 4.5:1 PASS
+  (reference) --text-3 #6B7280    4.07:1   labels only, never body
+  (reference) --neutral #4B5563   2.61:1   bar fills, not text
+```
+
+Full suite: `366 passed, 2 skipped, 1 xfailed in 290.24s`.

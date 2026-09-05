@@ -27,6 +27,14 @@ SOURCE = Path(lab_mod.__file__)
 # an artifact.
 ALLOWED = {0, 1, 2, 3, 4, 8, 12}
 
+# The CSS block is one large string literal full of legitimate pixel and rem
+# values. It is exempted by name; every other string in the module is scanned.
+CSS_TEMPLATE = "_PAGE"
+
+# A figure typed into markup looks like this: a decimal, or an integer long
+# enough to be a count rather than a column index.
+_FIGURE_IN_TEXT = re.compile(r"\b\d+\.\d+\b|\b\d{3,}\b")
+
 
 def _numeric_literals(path: Path) -> list[tuple[int, object]]:
     """Numeric constants in Python code, excluding anything inside a string —
@@ -56,12 +64,63 @@ def _numeric_literals(path: Path) -> list[tuple[int, object]]:
     return out
 
 
+def _figures_in_strings(path: Path) -> list[tuple[int, str]]:
+    """Numbers typed into string literals — the case an AST numeric scan misses
+    entirely.
+
+    This was found the hard way. The original guard walked numeric constants
+    only, so injecting `f"<p>max breadth 0.3473 across 497 sessions</p>"` into
+    the calibration section passed cleanly: to `ast` those digits are part of a
+    string, not numbers. A figure typed into markup is the *primary* failure
+    this guard exists to prevent, and the guard could not see it (R-31).
+    """
+    tree = ast.parse(path.read_text(), filename=str(path))
+    exempt: set[int] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == CSS_TEMPLATE for t in node.targets
+        ):
+            for sub in ast.walk(node.value):
+                exempt.add(id(sub))
+
+    out = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) \
+                and id(node) not in exempt:
+            for hit in _FIGURE_IN_TEXT.findall(node.value):
+                out.append((node.lineno, hit))
+    return out
+
+
 def test_the_lab_module_contains_no_data_constant():
     offenders = [(ln, v) for ln, v in _numeric_literals(SOURCE) if v not in ALLOWED]
     assert not offenders, (
         "numeric literals in the lab module — every figure must come from a "
         f"query or an artifact: {offenders}"
     )
+
+
+def test_no_figure_is_typed_into_the_lab_markup():
+    offenders = _figures_in_strings(SOURCE)
+    assert not offenders, (
+        "figures typed into string literals — these render as text and are "
+        f"indistinguishable from measured values: {offenders}"
+    )
+
+
+def test_the_string_guard_fires_on_a_figure_typed_into_markup(tmp_path):
+    """R-31. The exact injection that slipped past the numeric-only guard."""
+    probe = tmp_path / "probe.py"
+    probe.write_text(
+        '_PAGE = "body {{ margin: 0; padding: 24px; }}"\n'
+        'def render():\n'
+        '    return "<p>max breadth 0.3473 across 497 sessions</p>"\n'
+    )
+    found = _figures_in_strings(probe)
+    assert ("0.3473" in [v for _, v in found]
+            and "497" in [v for _, v in found]), found
+    # And the CSS template is exempt, so pixel values do not trip it.
+    assert not any(v == "24" for _, v in found)
 
 
 def test_the_guard_would_actually_catch_a_typed_number(tmp_path):
