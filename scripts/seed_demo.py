@@ -50,6 +50,14 @@ TABLES = [
     ("event",
      "SELECT * FROM event WHERE isin IN (SELECT isin FROM watchlist_item "
      "WHERE user_id = %(uid)s)", {}),
+    # Evidence for the demo instruments only. This is what makes provenance
+    # visible on the deployment: without it every card renders "NO EVIDENCE",
+    # which is a truthful state but not the one this data supports. Restricted
+    # to the watchlist because the full table is 48k rows and a deployment does
+    # not need the ones no card can reach.
+    ("evidence",
+     "SELECT * FROM evidence WHERE isin IN (SELECT isin FROM watchlist_item "
+     "WHERE user_id = %(uid)s)", {}),
 ]
 
 

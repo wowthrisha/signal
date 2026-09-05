@@ -2662,3 +2662,55 @@ guards still fire     : 55 passed (salience AST, advice language, a11y, lab, REA
 contrast unchanged    : --text 16.34:1 · --text-2 7.58:1 · --accent 9.65:1
 confidence distribution: 414 distinct values, 105 at 1.0, 5,962 events (before == after)
 ```
+
+## [U14.6] Seed announcement evidence to Railway — PASS
+
+**Honesty gate checked first, before touching the seed.** The question was
+whether demo-watchlist symbols genuinely have announcements in the digest
+window, or whether making the deployment show evidence would require staging it.
+
+```
+ ann_rows_for_watchlist | distinct_isins | with_permalink
+                    857 |             21 |            852
+
+  symbol   | session_date | filings | precedes | linkable
+ COALINDIA | 2026-09-02   |       4 |        3 |        4
+ IFCI      | 2026-09-03   |       2 |        2 |        2
+ RBLBANK   | 2026-09-03   |       5 |        3 |        5
+```
+
+Real data, no staging required. **No symbol was added to the watchlist.**
+
+**Root cause was broader than "corp-action evidence only".** `scripts/seed_demo.py`
+did not export the `evidence` table *at all* — its `TABLES` list ran sector,
+instrument, bar, index_bar, corp_action, event. Railway therefore held **zero**
+evidence rows of any kind, which is why `all_cards_lack_evidence` was `true`
+there and `false` locally.
+
+Fixed by adding one watchlist-scoped export. Not all 48,284 rows — a deployment
+does not need evidence for instruments no card can reach:
+
+```
+seed size: 649722 -> 726661 bytes (+76939)
+evidence INSERTs: 938
+  with a url    : 852
+  FILED_AT rows : 857
+  EX_DATE rows  : 81
+```
+
+Verified by loading into a clean database and rebuilding the digest, so the
+deployment is reproducible from the committed seed rather than from whatever
+happens to be in the dev database:
+
+```
+funnel: {'watched': 30, 'moved': 22, 'surfaced': 4} | all_cards_lack_evidence: False
+  ANANTRAJ    0 filings  []
+  COALINDIA   4 filings  ['PRECEDES', 'PRECEDES', 'SAME_SESSION_UNORDERED', 'PRECEDES']  linkable=4
+  IFCI        0 filings  []
+  RBLBANK     5 filings  ['SAME_SESSION_UNORDERED', 'PRECEDES', ...]                     linkable=5
+```
+
+**Two of four cards still show NO EVIDENCE, and that is left alone.** ANANTRAJ
+and IFCI have no filing on their own session — IFCI's announcements are dated
+2026-09-03 while its card is 2026-09-02, so they do not attach. Both are Tier C,
+"unusual movement, no known cause", and the empty state is the accurate one.
