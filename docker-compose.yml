@@ -21,9 +21,16 @@ services:
       retries: 10
 
   api:
-    build: ./backend
-    environment:
-      DATABASE_URL: postgresql://signal:signal@db:5432/signal
+    # Builds the SAME image the deployment uses. It used to build
+    # `./backend`, whose CMD is a bare uvicorn, and then override the command
+    # here as well — so `scripts/boot.sh`, the only thing that applies the
+    # schema and loads the committed seed, never ran under compose. A fresh
+    # clone therefore came up with 0 sessions and 0 cards while the README
+    # said data ships with it. One image, one boot path, no second place for
+    # seed logic to live.
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     depends_on:
@@ -37,7 +44,11 @@ services:
       # regenerated benchmark shows up without a rebuild.
       - ./results:/results:ro
       - ./ops:/ops:ro
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # No command override: the image's CMD is boot.sh. RELOAD keeps the
+    # dev ergonomics the override was there for.
+    environment:
+      DATABASE_URL: postgresql://signal:signal@db:5432/signal
+      RELOAD: "1"
 
 volumes:
   pg_data:

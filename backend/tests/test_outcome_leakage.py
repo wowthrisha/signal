@@ -334,8 +334,16 @@ def test_base_rates_cover_the_full_history_not_the_held_out_window(conn):
     """Scoping a descriptive frequency to the 9-session evaluation window would
     shrink n and conflate two different purposes."""
     r = outcomes_mod.base_rates(conn, "JUMP", "C", 5, POLICY)
-    assert "full ingested history" in r["scope"]
+    # The invariant is the exclusion, not the wording. "full ingested history"
+    # was dropped from the phrasing because on a reduced deployment it sat
+    # beside n=9 and read as a contradiction; the cohort now reports the
+    # sessions and events it was actually drawn from instead of asserting a
+    # scope it cannot verify.
     assert "not the held-out window" in r["scope"]
+    assert r["cohort_sessions"] > 0, "the cohort must report its own span"
+    assert r["cohort_events"] >= r["n"], (
+        "the cohort cannot contain more classified events than the database holds"
+    )
 
 
 def test_base_rates_are_labelled_as_frequency_not_forecast(conn):

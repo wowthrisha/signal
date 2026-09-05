@@ -3259,3 +3259,90 @@ their own, which `test_outcome_leakage.py` already does.
 ```
 full suite : 412 passed, 2 skipped, 1 xfailed
 ```
+
+---
+
+# [U20] Clean-clone blocker, stale figures, cohort provenance — 2026-09-06
+
+## [U20.1] Task 1 — a fresh clone served an empty page
+
+`docker compose up`, the README's headline instruction, produced
+`0 sessions, 0 instruments, 0 events, 0 cards`.
+
+Mechanism: compose built `./backend`, whose CMD is a bare uvicorn, **and** then
+overrode the command as well. `scripts/boot.sh` — the only thing that applies
+the schema and loads the committed seed — ran on the Railway path only. Two
+image definitions had silently diverged, and the documented path was the broken
+one.
+
+Fixed by deleting the divergence rather than patching around it: compose now
+builds the **same root `Dockerfile` the deployment uses**, the command override
+is gone so the image's `CMD` (`boot.sh`) runs, and `backend/Dockerfile` is
+removed — compose was its only consumer. `boot.sh` honours a `RELOAD` env var so
+compose keeps the `--reload` ergonomics the override existed for. Seed logic
+still lives in exactly one place.
+
+```
+$ docker compose logs api | grep boot:
+boot: applying schema
+schema applied: schema.sql -> signal
+boot: seeding demo slice if empty
+loaded: 1093808 bars, 3044 instruments
+boot: starting uvicorn on 8000
+```
+
+## [U20.2] Task 2 — one stale figure, and the rest verified
+
+README claimed `215 passed, 1 xfailed`; actual is `412 passed, 2 skipped,
+1 xfailed`. Regenerated from a live run. Every other numeric claim was swept
+against the database and the benchmark artifact:
+
+```
+  sessions_in_bar   497       OK      bars            1093808   OK
+  instruments       3044      OK      events          5962      OK
+  corp_actions      4072      OK      index_bars      69992     OK
+  evidence_rows     48284     OK      evidence_urls   43704     OK
+  alert_reduction   0.948939  OK      held_out        9         OK
+  universe_size     2935      OK
+```
+
+No other mismatch.
+
+## [U20.3] Task 3 — the n=9 contradiction
+
+The line read "over full ingested history" beside `n=9` on the deployment,
+because the phrase was a constant while `n` was measured. It now reports the
+cohort's own provenance from the same query: *"drawn from 5,962 events across
+497 sessions in this database, not the held-out window."* On a reduced
+deployment those numbers shrink with `n` instead of contradicting it. Nothing
+is cached — `cohort_sessions` and `cohort_events` are read per request.
+
+## [U20.4] Task 4 — "not yet observable" now says why
+
+Derived, not hardcoded: when every horizon is pending *and* the card's own
+freshness is FRESH, the event sits on the newest session held.
+
+```
+ANANTRAJ  … +5 not yet observable — detected on the latest session held; outcomes appear as sessions close.
+COALINDIA … +1 +0.62% … — normalized
+```
+
+## [U20.5] Task 5 — two visuals
+
+5a: the band carries `-3σ` / `3σ` tick labels and the marker's own value
+(`3.11σ`, `4.33σ`, `4.83σ`, `3.36σ`), so two bands are no longer
+indistinguishable. `aria-label` unchanged.
+
+5b: confidence is a 44px bar with the §7 gate of 0.3 marked, coloured accent
+above and warn below; the numeric value moved to the tooltip.
+
+All six SVGs carry `role="img"` and an `aria-label`.
+
+## [U20.6] Two tests pinned strings this run changed
+
+`test_the_card_distinguishes_capture_confidence_from_card_age` asserted the old
+confidence tooltip verbatim, and `test_base_rates_cover_the_full_history_...`
+asserted the literal phrase "full ingested history" — the exact wording removed
+as the fix for [U20.3]. Both were rewritten to assert the property: that the two
+controls state which question they answer, and that the cohort excludes the
+held-out window while reporting the span it was drawn from.

@@ -67,7 +67,10 @@ def test_the_card_distinguishes_capture_confidence_from_card_age():
     markup = STATIC.read_text()
     assert "SESSION${n === 1 ? '' : 'S'} BEHIND" in markup
     assert ">DELAYED<" not in markup
-    assert "It is not a statement about the card's age." in markup
+    # The property, not the sentence. The confidence tooltip was rewritten when
+    # confidence became a gate bar rather than a bare number; what must survive
+    # is that both controls state which question they answer.
+    assert "Not a statement about the card's age." in markup
     assert "capture confidence is scored against the session the bar belonged to" in markup
 
 

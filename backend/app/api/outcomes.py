@@ -306,7 +306,9 @@ def base_rates(conn, event_type: str, tier: str, horizon: int,
                       "min_n_for_percentages": MIN_N_FOR_PERCENTAGES,
                       "horizon": horizon, "event_type": event_type, "tier": tier,
                       "skipped_unobservable_or_unadjustable": 0,
-                      "scope": "full ingested history, not the held-out window",
+                      "scope": "not the held-out window",
+                      "cohort_sessions": len(calendar),
+                      "cohort_events": 0,
                       "note": "no matching history"}
             _BASE_RATE_CACHE[key] = result
             return result
@@ -387,6 +389,15 @@ def base_rates(conn, event_type: str, tier: str, horizon: int,
             counts[label] += 1
 
     n = sum(counts.values())
+    # What the cohort was actually drawn from. The old text said "full ingested
+    # history" unconditionally, which on a reduced deployment sat beside n=9 and
+    # read as a contradiction. Both numbers come from the same query, so the
+    # sentence cannot claim more history than the database holds.
+    cohort_sessions = len(calendar)
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM event")
+        cohort_events = cur.fetchone()[0]
+
     result = {
         "n": n,
         "counts": counts,
@@ -399,7 +410,9 @@ def base_rates(conn, event_type: str, tier: str, horizon: int,
         "event_type": event_type,
         "tier": tier,
         "skipped_unobservable_or_unadjustable": skipped,
-        "scope": "full ingested history, not the held-out window",
+        "scope": "not the held-out window",
+        "cohort_sessions": cohort_sessions,
+        "cohort_events": cohort_events,
         "note": "historical frequency, not a forecast",
     }
     _BASE_RATE_CACHE[key] = result

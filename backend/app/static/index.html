@@ -504,6 +504,16 @@ function outcomesRow(c) {
     return `<span class="t2"><span class="t3">+${h.h}</span> ${shown}</span>`;
   }).join('<span class="t3" aria-hidden="true"> · </span>');
 
+  // Why nothing is observable yet, derived rather than assumed: an event on
+  // the newest session we hold has no session after it. Three "not yet
+  // observable" cells with no explanation read as broken.
+  const allPending = o.horizons.every((h) => h.outcome === 'NOT_YET_OBSERVABLE');
+  const onLatest = allPending && c.freshness === 'FRESH';
+  const pendingWhy = !allPending ? ''
+    : onLatest
+      ? ' <span class="t3">— detected on the latest session held; outcomes appear as sessions close.</span>'
+      : ' <span class="t3">— no later session is in this database yet.</span>';
+
   // One word, from the longest horizon that was actually observable.
   const settled = [...o.horizons].reverse()
     .find((h) => h.outcome && h.outcome !== 'NOT_YET_OBSERVABLE'
@@ -529,7 +539,10 @@ function outcomesRow(c) {
           <span class="num t3">(n=${br.n})</span>
           <span class="block t3 mt-0.5" style="font-size:11px">
             After past ${br.event_type ? br.event_type.replace('_', ' ').toLowerCase() : 'events'}
-            at tier ${br.tier} over ${br.scope}, measured at +${br.horizon}.
+            at tier ${br.tier}, measured at +${br.horizon}, drawn from
+            <span class="num">${br.cohort_events ?? '—'}</span> events across
+            <span class="num">${br.cohort_sessions ?? '—'}</span> sessions in this
+            database, ${br.scope}.
             ${br.percentages ? '' : `Percentages suppressed below n=${br.min_n_for_percentages}. `}This is a
             historical frequency, not a forecast.
           </span>
@@ -540,7 +553,7 @@ function outcomesRow(c) {
   return `${history}
     <div class="flex gap-3 py-1.5 bdb last:border-0">
       <span class="label w-28 shrink-0 pt-0.5">After the move</span>
-      <span class="text-xs t2 flex-1">${cells}${word}
+      <span class="text-xs t2 flex-1">${cells}${word}${pendingWhy}
         <span class="block t3 mt-0.5" style="font-size:11px">Stock-specific,
         measured after the fact. Not a forecast.</span>
       </span>
@@ -677,6 +690,30 @@ function extremityText(c, ecdfWindow) {
   return `more extreme than ${pct.toFixed(1)}% of ${n}`;
 }
 
+function confidenceGate(c) {
+  // "conf 1.00" is a number without a scale — a reader cannot tell whether it
+  // is good. The gate is what matters: §7 admits a corroborated card at
+  // C >= 0.3, so the bar shows where the value sits relative to that line.
+  // The numeric value stays in the tooltip for anyone who wants it.
+  const v = c.confidence;
+  if (v === null || v === undefined) return null;
+  const W = 44, H = 8, GATE = 0.3;
+  const gx = (GATE * W).toFixed(1);
+  const above = v >= GATE;
+  return `<span class="inline-flex items-center gap-1.5"
+       title="Confidence ${v.toFixed(2)} against the §7 gate of ${GATE}. Trust in the bar at the session it was scored on: the minimum of source, freshness, liquidity and history. Not a statement about the card's age.">
+    <span class="t3">conf</span>
+    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
+         aria-label="Confidence ${v.toFixed(2)}, ${above ? 'above' : 'below'} the 0.3 gate">
+      <rect x="0" y="2" width="${W}" height="4" fill="var(--surface-2)" rx="2"></rect>
+      <rect x="0" y="2" width="${(v * W).toFixed(1)}" height="4" rx="2"
+            fill="${above ? 'var(--accent)' : 'var(--warn)'}"></rect>
+      <line x1="${gx}" y1="0" x2="${gx}" y2="${H}"
+            stroke="var(--text-2)" stroke-width="1"></line>
+    </svg>
+  </span>`;
+}
+
 function extremityBand(c, ctx) {
   // The control chart the SPC work already implies: D1 tests |z| against h1,
   // and this draws exactly that test. The band is the instrument's own normal
@@ -716,8 +753,8 @@ function extremityBand(c, ctx) {
   // aria-label, which is where a screen reader reads it. Drawing both would
   // keep the duplication and add a graphic on top of it.
   return `
-    <div class="mt-3">
-      <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
+    <div class="mt-3 flex items-center gap-3">
+      <svg width="${W}" height="${H + 10}" viewBox="0 0 ${W} ${H + 10}" role="img"
            aria-label="${sentence}. Standardised residual ${z.toFixed(2)} sigma against a normal range of plus or minus ${h1} sigma."
            class="shrink-0">
         <line x1="6" y1="${H / 2}" x2="${W - 6}" y2="${H / 2}"
@@ -729,7 +766,14 @@ function extremityBand(c, ctx) {
         <line x1="${x(h1)}" y1="${H / 2 - 6}" x2="${x(h1)}" y2="${H / 2 + 6}"
               stroke="var(--text-3)" stroke-width="1"></line>
         ${marker}
+        <text x="${x(h1).toFixed(1)}" y="${H - 1}" text-anchor="middle"
+              fill="var(--text-3)" style="font-size:9px;font-family:var(--mono)"
+              aria-hidden="true">${h1}&#963;</text>
+        <text x="${x(-h1).toFixed(1)}" y="${H - 1}" text-anchor="middle"
+              fill="var(--text-3)" style="font-size:9px;font-family:var(--mono)"
+              aria-hidden="true">-${h1}&#963;</text>
       </svg>
+      <span class="num text-xs ${outside ? 'accent' : 't2'}">${z.toFixed(2)}&#963;</span>
     </div>`;
 }
 
@@ -787,9 +831,7 @@ function cardHTML(c, i, ctx = {}) {
     freshnessText(c),
     (c.evidence || []).length ? null
       : '<span class="t3" title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">NO EVIDENCE</span>',
-    c.confidence === null || c.confidence === undefined
-      ? null
-      : `<span title="Trust in the bar at the session it was scored on: min of source, freshness, liquidity and history. It is not a statement about the card's age.">conf <span class="num">${c.confidence.toFixed(2)}</span></span>`,
+    confidenceGate(c),
   ].filter(Boolean).join('<span class="t3" aria-hidden="true"> · </span>');
 
   const verdict = verdictText(c);
