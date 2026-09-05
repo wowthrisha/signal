@@ -567,3 +567,21 @@ looks fine can be averaging over a warm-up pathology.
 **Decision:** Render the discards as a Pareto in the drawer, bars scaled against the largest reason, plus a "Why this?" expander on every card showing the stored tier, gate, `U`, `I`, residual and confidence that admitted it.
 **Rejected:** Leaving the count alone. A filter a user cannot inspect is indistinguishable from a filter that does not work, and "we removed 18 things, trust us" is the exact posture this product exists to argue against. Also rejected: generating the explanation. Every row reads a stored field and a null renders "not available", because a plausible guess in the explanation would undo the reason the trace is persisted at all.
 **Would revisit if:** the drawer's reason buckets stop being mutually exclusive, at which point a Pareto misrepresents the split and the shape needs to change with it.
+
+---
+
+## ADR-036: Per-visitor demo state, keyed on a self-asserted header
+
+**Context:** The public demo wrote to a single `DEMO_USER_ID` row. Within a day a visitor pressed "Mark all as seen", the cursor persisted, and every later arrival saw an empty digest with nothing indicating a fault.
+**Decision:** The browser mints a uuid into `localStorage` and sends it as `X-Signal-Session`. A new session clones the template watchlist and starts with a null cursor. `DEMO_USER_ID` becomes a template that visitors read and never write.
+**Rejected:** A scheduled reset of the demo row every ten minutes. It leaves a window in which the demo is blank, and the window is exactly as long as it takes a judge to open the link after someone else clicked. Also rejected: real auth, which is out of scope and solves a problem the demo does not have.
+**Would revisit if:** the demo ever holds anything worth protecting. The header is self-asserted, carries no secret, and grants nothing but a private copy of a public watchlist — it is isolation, not authentication, and must not be mistaken for one.
+
+---
+
+## ADR-037: No RAG, no fundamentals, no regulatory watcher
+
+**Context:** Each is an obvious-looking addition to a financial product and each was considered.
+**Decision:** Scope all three out, on the record, with reasons in the README.
+**Rejected:** Building them. RAG solves a retrieval problem this data does not have — the exchange already links every announcement to an ISIN — while adding an index, a chunking strategy and a hallucination surface. Fundamentals answer "is this a good company", a different product, and putting them on a card is an implicit recommendation. A credible regulatory watcher needs circular ingestion, entity resolution and legal review of every emitted string; done badly in a day it produces exactly the confident-wrong output §21 exists to prevent.
+**Would revisit if:** there is an evaluation harness for the addition. The reason this project can defend its detector is that `make evaluate` measures it; adding a component with no way to tell whether it helps would break that pattern.

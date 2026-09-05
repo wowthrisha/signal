@@ -404,6 +404,32 @@ What this does *not* claim: we have not run a million users. This is arithmetic 
 measured single-user plan, and the thing it is designed to make obvious is which term
 has the user count in it. Only one does, and it is the cheap one.
 
+## What is actually new here
+
+Not "AI applied to a watchlist". That space has incumbents: **Groww shipped GR-1,
+an AI investing assistant, in August 2026**, and Robinhood ships an AI digest. Any
+claim that nobody combines a model with market context would be false, so this
+project does not make one.
+
+The narrower claim it does make is about *structure*:
+
+1. **Detection, attribution and attention allocation are separate stages with
+   separate failure modes**, rather than one scoring function. Most watchlist
+   alerting collapses them into a threshold.
+2. **The suppression is measured and shown.** `make evaluate` generates the
+   comparison against two baselines and a six-row ablation; the drawer shows the
+   reader what was discarded and why. The headline figure —
+   `alert_reduction_vs_B0` — needs no ground-truth label at all.
+3. **Replay is deterministic.** Eight fault scenarios, a byte-stable ledger digest,
+   and a `BIGSERIAL` cursor that advances under `GREATEST`.
+4. **Every displayed number has provenance.** The tier, the gate string, `U`, `I`,
+   `C` and the attribution split are read from the stored event, not recomputed for
+   display, so "Why this?" is answered from fields. A missing field renders "not
+   available"; nothing is generated.
+
+Whether that combination is unique is not something this repository can prove, and
+it does not try to.
+
 ## What we deliberately did NOT build
 
 | Not built | Why |
@@ -414,6 +440,9 @@ has the user count in it. Only one does, and it is the cheap one.
 | Deep learning | There are no labels. "Was this movement meaningful?" has no ground truth to fit against. |
 | Vector database | Lexical matching wins at this corpus size; embedding 2,900 tickers and a few thousand action lines solves nothing that `upper()` and an index do not. |
 | WebSockets | Nothing is bidirectional. A digest is read on visit; a 5-second poll is the whole requirement. |
+| RAG over filings | The exchange already links every announcement to an ISIN, so retrieval solves a problem this data does not have. It would add an index to maintain, a chunking strategy to defend, and a hallucination surface — for context the structured feed already carries. Scoped out on the record rather than left as an implied gap. |
+| Company fundamentals | Earnings quality, valuation and balance-sheet screens answer "is this a good company", which is a different product. Signal answers "did something change since you last looked". Mixing them would put an implicit recommendation on the card. |
+| Regulatory / compliance watcher | A credible one needs SEBI circular ingestion, entity resolution against a filings corpus, and a legal review of every string it emits. That is weeks, and doing it badly in a day would produce exactly the confident-wrong output §21 exists to prevent. |
 
 ## Decisions
 

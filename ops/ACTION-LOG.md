@@ -1143,3 +1143,96 @@ null card renders      : true | says not available: true
   `results/latest` is the full-history run and reads **0.2658 -> 0.0000**.
 
 README states the repo's numbers.
+
+---
+
+# [U4] Two P0 production defects, layout, narrowed claim — 2026-09-05
+
+## [U4.1] P0: the public demo opened empty
+
+```
+$ curl -s .../api/digest | python3 -c "...print(d['funnel'], 'cursor', d['cursor'], 'cards', len(d['cards']))"
+{'watched': 32, 'moved': 0, 'surfaced': 0} cursor 5961 cards 0
+```
+
+A visitor pressed "Mark all as seen"; the cursor persisted on the shared
+`DEMO_USER_ID` row; every later arrival saw nothing, with no indication of a fault.
+
+**Chose per-visitor state over the scheduled-reset fallback.** A reset leaves a
+blank window exactly as long as the gap between one visitor clicking and the next
+arriving. Verified locally and live:
+
+```
+LIVE: fresh visitor A   {'watched': 31, 'moved': 22, 'surfaced': 4} 4 ['ANANTRAJ','COALINDIA','IFCI','RBLBANK']
+LIVE: A marks all seen  A now: {'watched': 31, 'moved': 0, 'surfaced': 0} 0
+LIVE: fresh visitor B   B: {'watched': 31, 'moved': 22, 'surfaced': 4} 4
+malformed header        {'watched': 30, 'moved': 22, 'surfaced': 4}
+```
+
+Logged R-17, ADR-036.
+
+## [U4.2] P0: MCX rendered twice — diagnosed before fixing
+
+```
+$ psql -c "SELECT symbol, count(*), array_agg(isin) FROM instrument GROUP BY symbol HAVING count(*) > 1;"
+(124 rows)   MCX | 2 | {INE745G01035,INE745G01043}
+
+   symbol   |     isin     | status | bars |   first    |    last
+ KOTAKBANK  | INE237A01028 | ACTIVE |  340 | 2024-09-02 | 2026-01-13
+ KOTAKBANK  | INE237A01036 | ACTIVE |  157 | 2026-01-14 | 2026-09-03
+ MCX        | INE745G01035 | ACTIVE |  332 | 2024-09-02 | 2026-01-01
+ MCX        | INE745G01043 | ACTIVE |  165 | 2026-01-02 | 2026-09-03
+ SHRIRAMFIN | INE721A01013 | ACTIVE |   90 | 2024-09-02 | 2025-01-09
+ SHRIRAMFIN | INE721A01047 | ACTIVE |  407 | 2025-01-10 | 2026-09-03
+
+pairs with bars on both sides: 124
+duplicate symbols on the demo watchlist: (none)
+```
+
+**Answer to "do both ISINs carry bars": yes, all 124 pairs — but the ranges are
+non-overlapping and contiguous.** MCX's old ISIN ends 2026-01-01 and its successor
+begins 2026-01-02. That is a succession, so the same company is *not* scored twice
+and this is a UI/resolution defect, not a data-integrity one. A test now guards that
+premise: if two ISINs for a symbol ever overlap in time they are distinct
+instruments, and deduplicating by symbol would be hiding a real company.
+
+Live confirmation of the cause and the fix:
+
+```
+before:  rows: 32  duplicated symbols: {'MCX': 2}   INE745G01043 / INE745G01035
+after :  rows: 31  dupes: {}
+MCX resolves to: INE745G01043
+```
+
+Logged R-18. Four regression tests in `tests/test_watchlist_identity.py`.
+
+## [U4.3] Layout, typography, states
+
+Committed separately, page verified and `node --check` run after each:
+
+```
+8ae1a46 two-column layout, self-healing template, hide the empty drawer   HTTP 200 23226B
+7fcd676 card surfaces and a typographic hierarchy                         HTTP 200 25259B
+<this>  loading skeleton and a never-blank failure path                   HTTP 200 27200B
+```
+
+Render functions executed in node against the live digest each time, including a
+card with every optional field null and the zero-filtered drawer case.
+
+## [U4.4] Suite
+
+```
+$ cd backend && python -m pytest tests/ -q
+219 passed, 1 xfailed in 137.03s (0:02:17)
+```
+
+Up from 215 passed / 1 xfailed: the four new identity tests.
+
+## [U4.5] Not done, and why
+
+- **3e evidence funnel chain** and **Task 4 (freshness states, `/api/health`,
+  fresh EXPLAIN)** were not reached. Time went to the two P0 production defects,
+  which were the difference between a demo that works for a judge and one that does
+  not. The existing `EXPLAIN (ANALYZE, BUFFERS)` plan from [U2] is still in the
+  README and still shows index scans, no Seq Scan.
+- The held-out window stays at 9 sessions, disclosed in the README.
