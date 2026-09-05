@@ -42,6 +42,7 @@
                      disabled:hover:bg-transparent">Mark all as seen</button>
       <span id="cursor-state" class="num text-[11px] text-neutral-700"></span>
     </div>
+    <p id="funnel-sub" class="mt-3 text-sm text-neutral-500"></p>
     <p class="mt-4 text-xs text-neutral-600 max-w-lg leading-relaxed">
       Movement is measured close-to-close. Attention is what survives
       attribution against the market and sector, the instrument's own history,
@@ -152,6 +153,53 @@ function confidenceDots(c) {
   return `<span class="flex gap-1 items-center" title="confidence ${(c ?? 0).toFixed(2)}">${out}</span>`;
 }
 
+const TIER_MEANING = {
+  A: 'Tier A: material event and unusual movement',
+  B: 'Tier B: material event, movement within normal range',
+  C: 'Tier C: unusual movement, no known cause',
+};
+
+function whyHTML(c, i) {
+  // Every row reads a stored field. Nothing is inferred, nothing is generated,
+  // and a null renders as "not available" — a guess here would undo the point
+  // of storing the trace in the first place.
+  const na = '<span class="text-neutral-700">not available</span>';
+  const u = (c.u_score === null || c.u_score === undefined)
+    ? na
+    : `more extreme than <span class="num text-neutral-100">${(c.u_score * 100).toFixed(1)}%</span> of its own recent history`;
+  const imp = (c.i_score === null || c.i_score === undefined) ? na
+    : c.i_score >= 2
+      ? `${(c.event_type || 'event').toLowerCase().replace('_', ' ')} <span class="num">(I=${c.i_score})</span>`
+      : `<span class="num">I=${c.i_score}</span> — no material event on file`;
+  const resid = (c.residual_pct === null || c.residual_pct === undefined) ? na
+    : `residual <span class="num text-neutral-100">${fmtPct(c.residual_pct)}</span> vs sector <span class="num">${
+        c.sector_only_pct === null || c.sector_only_pct === undefined ? '—' : fmtPct(c.sector_only_pct)}</span>`;
+  const conf = (c.confidence === null || c.confidence === undefined) ? na
+    : `<span class="num text-neutral-100">${c.confidence.toFixed(2)}</span>`;
+  const admitted = TIER_MEANING[c.tier]
+    ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num text-neutral-600">· ${c.gate}</span>` : ''}`
+    : na;
+
+  const row = (k, v) => `
+    <div class="flex gap-3 py-1.5 border-b border-neutral-900 last:border-0">
+      <span class="text-[10px] uppercase tracking-wider text-neutral-600 w-28 shrink-0 pt-0.5">${k}</span>
+      <span class="text-xs text-neutral-400 flex-1">${v}</span>
+    </div>`;
+
+  return `
+    <button data-why="${i}"
+            class="mt-4 text-[11px] text-neutral-600 hover:text-neutral-300 transition-colors">
+      <span class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
+    </button>
+    <div data-whybody="${i}" hidden class="mt-2 pl-3 border-l border-neutral-800">
+      ${row('Unusual', u)}
+      ${row('Material', imp)}
+      ${row('Stock-specific', resid)}
+      ${row('Confidence', conf)}
+      ${row('Admitted by', admitted)}
+    </div>`;
+}
+
 function decompositionHTML(c) {
   // The whole engine exists to produce this split, so it is the visual centre
   // of the card rather than three numbers in a row. Every value comes from the
@@ -240,6 +288,7 @@ function cardHTML(c, i) {
         ${confidenceDots(c.confidence)}
       </div>
     </div>
+    ${whyHTML(c, i)}
   </article>`;
 }
 
@@ -303,6 +352,15 @@ function render(d) {
 
   el('since').textContent = sinceLabel(d.since);
   el('funnel').innerHTML = funnelHTML(d.funnel);
+
+  // One sentence naming where the drop happened. Both numbers come from the
+  // response; the threshold is the API's display threshold, not a JS constant.
+  const explained = (d.filtered_reasons || {}).explained_by_market || 0;
+  el('funnel-sub').innerHTML = d.funnel.moved
+    ? `<span class="num text-neutral-300">${d.funnel.moved}</span> moved more than 1%. ` +
+      `<span class="num text-neutral-300">${d.filtered_count}</span> were filtered` +
+      (explained ? `, <span class="num text-neutral-300">${explained}</span> of them explained by their sector or the market.` : '.')
+    : '';
   el('cards').innerHTML = d.cards.map(cardHTML).join('') || (caughtUp
     ? `<div class="py-20 text-center card-in">
          <div class="mx-auto w-8 h-8 rounded-full border border-neutral-800
@@ -386,6 +444,19 @@ async function ackAll() {
     await load();
   } catch (e) { showError(e.message); }
 }
+
+// Delegated: cards are re-rendered on every 5-second poll, so per-card
+// listeners would be re-attached twelve times a minute.
+el('cards').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-why]');
+  if (!btn) return;
+  const id = btn.dataset.why;
+  const body = document.querySelector(`[data-whybody="${id}"]`);
+  const chev = document.querySelector(`[data-chev="${id}"]`);
+  if (!body) return;
+  body.hidden = !body.hidden;
+  if (chev) chev.style.transform = body.hidden ? 'rotate(0deg)' : 'rotate(90deg)';
+});
 
 el('ack-btn').addEventListener('click', ackAll);
 el('add-btn').addEventListener('click', addSymbol);
