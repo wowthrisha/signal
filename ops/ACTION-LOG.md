@@ -1236,3 +1236,63 @@ Up from 215 passed / 1 xfailed: the four new identity tests.
   not. The existing `EXPLAIN (ANALYZE, BUFFERS)` plan from [U2] is still in the
   README and still shows index scans, no Seq Scan.
 - The held-out window stays at 9 sessions, disclosed in the README.
+
+---
+
+# [U5] Predictions, written and committed BEFORE the tests are run — 2026-09-05
+
+This section is committed on its own, ahead of any result, so the git history
+shows the predictions preceded the evidence. If a result contradicts a
+prediction below, the prediction stays exactly as written and the contradiction
+is reported. Nothing here is edited after the fact.
+
+## [U5.P1] Task 6 — the dividend hypothesis
+
+**Hypothesis under test:** 708 of 1,016 corporate actions being `DIVIDEND`
+depresses precision, because a dividend ex-date is an announcement without price
+materiality. This is currently an assumption in the README and the risk
+register. It has never been tested.
+
+**Prediction, stated before running anything:**
+
+> If dividends are non-material, then the distribution of `abs(standardised
+> residual)` on dividend ex-dates should be indistinguishable from a random
+> session for the same symbol, while splits, bonuses and rights should not.
+
+**Concretely, what would confirm it:** `DIVIDEND` shows a ratio of mean
+`abs(z)` on the event session to its matched baseline near 1.0, while
+`SPLIT`, `BONUS` and `RIGHTS` show ratios materially above 1.0.
+
+**What would falsify it:** `DIVIDEND` shows a ratio materially above 1.0 — i.e.
+dividend ex-dates *do* carry abnormal stock-specific movement — or the
+non-dividend types show no elevation either, which would mean the label is
+uninformative for a reason that has nothing to do with dividends.
+
+**Pre-committed consequence.** If falsified, the original label is kept and a
+paragraph is written saying the dividend explanation was tested and rejected.
+No new label is built to rescue a hypothesis the data does not support.
+
+**Sample sizes are known in advance and are a limitation, not a result:**
+DIVIDEND 708, SPLIT 18, BONUS 14, RIGHTS 15, BUYBACK 16, DEMERGER 4 per the
+brief — to be re-counted from the repo. Everything except DIVIDEND is a small
+sample, so the comparison is descriptive and is not a significance test.
+
+## [U5.P2] Task 5 — the held-out window
+
+**Prediction, stated before running anything:**
+
+> Widening the hold-out from 9 sessions to 100+ will span materially different
+> volatility regimes, because the corpus now covers 2024-09 to 2026-09 and two
+> years of Indian equities do not hold one regime. I expect NIFTY realised
+> volatility to differ by more than 25% between the 9-session window and a
+> 100+ session window, and ground-truth density (positives per session) to
+> differ as well, because corporate-action calendars cluster seasonally.
+
+**Consequence if that holds:** pooling metrics across the wider window
+produces one misleading average. The defensible outcomes are then to widen and
+report per regime, or to keep 9 and say why — not to widen and quote a single
+pooled precision.
+
+**What would falsify it:** volatility and density are stable across the
+candidate windows, in which case widening is straightforwardly correct and the
+only reason not to is warm-up leakage.
