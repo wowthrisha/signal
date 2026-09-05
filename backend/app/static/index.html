@@ -96,6 +96,9 @@
   </section>
 
   <!-- 3. Cards -->
+  <div id="api-banner" hidden
+       class="mb-4 rounded border border-amber-900/60 bg-amber-950/30 px-3 py-2
+              text-xs text-amber-300/90"></div>
   <section id="cards"></section>
 
   <!-- 4. Filtered, collapsed -->
@@ -425,6 +428,32 @@ function renderWatchlist(items) {
 // client never invents a cursor value — it echoes back what the server said.
 let cursorHead = 0;
 
+function skeletonHTML(n) {
+  // Never a blank column while the first request is in flight. The skeleton
+  // matches the real card's geometry so the layout does not jump when data
+  // lands.
+  return Array.from({ length: n }, (_, i) => `
+    <article class="my-4 p-5 rounded-lg border border-neutral-900 bg-neutral-950/40"
+             style="opacity:${1 - i * 0.22}">
+      <div class="flex justify-between gap-4">
+        <div class="h-5 w-28 rounded bg-neutral-900 animate-pulse"></div>
+        <div class="h-6 w-20 rounded bg-neutral-900 animate-pulse"></div>
+      </div>
+      <div class="mt-3 h-3 w-40 rounded bg-neutral-900/70 animate-pulse"></div>
+      <div class="mt-5 space-y-2">
+        <div class="h-2 w-full rounded bg-neutral-900/70 animate-pulse"></div>
+        <div class="h-2 w-4/5 rounded bg-neutral-900/70 animate-pulse"></div>
+        <div class="h-2 w-2/3 rounded bg-neutral-900/70 animate-pulse"></div>
+      </div>
+    </article>`).join('');
+}
+
+function banner(msg) {
+  const b = el('api-banner');
+  b.textContent = msg || '';
+  b.hidden = !msg;
+}
+
 function render(d) {
   cursorHead = d.cursor_head || 0;
   const caughtUp = d.cards.length === 0 && d.cursor !== null && d.cursor !== undefined;
@@ -469,6 +498,12 @@ function render(d) {
       : `cursor ${d.cursor} · head ${cursorHead}`;
 }
 
+// Whether a good render has ever landed. On a later failure the last good
+// view is kept and a banner explains why it is not moving — a blank page with
+// no explanation is the worst possible failure for a live demo, because
+// nothing distinguishes it from "nothing happened today".
+let everRendered = false;
+
 async function load() {
   try {
     // Both in flight together: the watchlist and the digest are derived from
@@ -481,9 +516,18 @@ async function load() {
     if (!dRes.ok) throw new Error('HTTP ' + dRes.status);
     render(await dRes.json());
     if (wRes.ok) renderWatchlist(await wRes.json());
+    everRendered = true;
+    banner('');
   } catch (e) {
-    el('funnel').innerHTML =
-      `<span class="text-rose-400 text-base">digest unavailable — ${e.message}</span>`;
+    if (everRendered) {
+      banner(`Showing the last successful update — the API did not respond (${e.message}).`);
+    } else {
+      banner('');
+      el('funnel').innerHTML =
+        `<span class="text-amber-400 text-base">Digest unavailable — ${e.message}</span>`;
+      el('cards').innerHTML =
+        `<p class="py-10 text-sm text-neutral-600">The API is not responding. This page retries every 5 seconds.</p>`;
+    }
   }
 }
 
@@ -565,6 +609,7 @@ el('filtered-toggle').addEventListener('click', () => {
     ? 'rotate(0deg)' : 'rotate(90deg)';
 });
 
+el('cards').innerHTML = skeletonHTML(3);
 load();
 setInterval(load, 5000);
 </script>
