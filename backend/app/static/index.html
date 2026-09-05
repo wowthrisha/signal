@@ -643,6 +643,28 @@ function cardHTML(c, i, ctx = {}) {
   </article>`;
 }
 
+function chainHTML(chain) {
+  // Every count comes from the server. Nothing is recomputed here — the chain
+  // is monotonic by construction on the server side, and a JS re-derivation
+  // could disagree with the drawer beside it.
+  const stages = (chain || []).filter((s) => s.count > 0);
+  if (stages.length < 2) return '';
+  const top = stages[0].count;
+  return `
+    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">Evidence chain</p>
+    <ol class="space-y-1.5 mb-6">${stages.map((st, i) => `
+      <li class="flex items-baseline gap-3">
+        <span class="num text-xs t1 w-8 text-right">${st.count}</span>
+        <span class="text-xs t3 flex-1">
+          ${i > 0 ? '<span class="t3" aria-hidden="true">&rarr;</span> ' : ''}${st.label}
+        </span>
+        <span class="hidden sm:block w-24 h-1.5 surface-2 rounded-sm overflow-hidden">
+          <span class="block h-full bar-quiet rounded-sm"
+                style="width:${(st.count / top * 100).toFixed(1)}%"></span>
+        </span>
+      </li>`).join('')}</ol>`;
+}
+
 function filteredHTML(reasons, total) {
   // A Pareto, not a list: the point of the drawer is that one bar dwarfs the
   // others, and a reader should see that before reading any label. Bars are
@@ -831,14 +853,35 @@ async function load(opts = {}) {
     everRendered = true;
     banner('');
   } catch (e) {
+    // Two failures, two messages. This block used to report every exception as
+    // "the API is not responding", so a ReferenceError inside a render
+    // function — thrown *after* a 200 was parsed and the funnel already drawn —
+    // told the reader the backend was down. It was not. Sending someone to
+    // check the server when the bug is in the page costs them the one thing an
+    // error message exists to give.
+    //
+    // A network failure is a TypeError from fetch itself, or an explicit
+    // "HTTP <code>" we raised. Anything else reached us from render(), which
+    // means the data arrived and the page mishandled it.
+    const isNetwork = (e instanceof TypeError && /fetch|network|load failed/i.test(e.message))
+                      || /^HTTP \d+$/.test(e.message || '');
     if (everRendered) {
-      banner(`Showing the last successful update — the API did not respond (${e.message}).`);
-    } else {
+      banner(isNetwork
+        ? `Showing the last successful update — the API did not respond (${e.message}).`
+        : `Part of this page failed to render (${e.name}: ${e.message}). The data above loaded normally.`);
+    } else if (isNetwork) {
       banner('');
       el('funnel').innerHTML =
         `<span class="accent text-base">Digest unavailable — ${e.message}</span>`;
       el('cards').innerHTML =
         `<p class="py-10 text-sm t3">The API is not responding. This page retries when the tab regains focus.</p>`;
+    } else {
+      banner('');
+      el('funnel').innerHTML =
+        `<span class="accent text-base">This page failed to render</span>`;
+      el('cards').innerHTML =
+        `<p class="py-10 text-sm t3">Display error: <span class="num">${e.name}: ${e.message}</span>.
+         The digest API responded normally — this is a bug in the page, not an outage.</p>`;
     }
   }
 }

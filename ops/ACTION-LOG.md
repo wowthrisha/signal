@@ -2754,3 +2754,83 @@ Nine of the nine filings across the two cards are `PRECEDES` or
 `SAME_SESSION_UNORDERED` — **zero `FOLLOWS`**, consistent with R-28: a
 post-close announcement attaches to the next session, so this path cannot
 produce one.
+
+---
+
+# [U15] Production regression: chainHTML ReferenceError — 2026-09-05
+
+## [U15.1] Bug 1 — what the regex edit actually removed
+
+The card/evidence compaction in `c6ff694` replaced a **span** of source:
+
+```python
+start = s.index("function cardHTML(c, i) {")
+end   = s.index("function filteredHTML(reasons, total)")
+s = s[:start] + new_card + s[end:]
+```
+
+At `c6ff694~1` that span contained three functions, not one:
+
+```
+532:function cardHTML(c, i) {
+580:function chainHTML(chain) {        <-- inside the replaced span
+602:function filteredHTML(reasons, total) {
+```
+
+`chainHTML` was deleted along with the old `cardHTML`. The **call site
+survived** at line 790, so the page threw `ReferenceError: chainHTML is not
+defined` the moment the drawer rendered.
+
+Restored **verbatim** from `c6ff694~1` — not retyped, and deliberately **not**
+wrapped in a `typeof` guard or given a fallback. A missing renderer must crash
+the way it did; hiding it would silently drop the evidence chain from the
+drawer while the page looked healthy, which is a worse failure than the one
+being fixed.
+
+**This is the third instance of one edit shape:** `freshnessBadge`'s regex took
+`freshnessText`; a README span-replacement took a whole section (R-25); this
+took `chainHTML`. Logged as R-33.
+
+## [U15.2] Bug 2 — the error message lied
+
+`/api/digest` answered 200. The funnel had already drawn "21 moved · 17
+filtered". Then `render()` threw, the single `catch` treated every exception as
+a transport failure, and the page told the reader *"The API is not
+responding."* It was responding. Sending someone to check a healthy server is
+worse than saying nothing.
+
+The two states are now distinguished by the shape of the error: a `TypeError`
+from `fetch` itself, or an explicit `HTTP <code>` we raised, is a network
+failure; anything else arrived from `render()`, which means the data was fine
+and the page mishandled it. That case now reads *"This page failed to render …
+The digest API responded normally — this is a bug in the page, not an
+outage."* and names the exception.
+
+## [U15.3] The actual finding — 375 tests passed while this shipped
+
+Every UI guard **inspects markup**. None **executes** it. A render function can
+be deleted outright and every one stays green, because the strings they look
+for live in the callers that still reference the missing name.
+
+Demonstrated rather than asserted — `chainHTML` deleted from the real file:
+
+```
+$ pytest tests/test_render_execution.py -q
+3 failed, 1 passed
+
+$ pytest tests/test_readme_sections.py tests/test_accessibility.py tests/test_lab.py -q
+47 passed          <-- the same broken file
+```
+
+**47 markup guards pass on a file that crashes on load.** That is the gap.
+
+`tests/test_render_execution.py` runs the page's script in node against a
+realistic payload — cards with and without evidence, several temporal
+relations, an all-null card, the caught-up state, an empty watchlist — and
+fails on any thrown exception. It also asserts the chain's *output* reaches the
+drawer, because a restored function wired to nothing is the same outage.
+
+Per R-27 the guard is proved to fire, on the real file, above. Restored:
+`4 passed`.
+
+Full suite: `382 passed, 2 skipped, 1 xfailed in 288.18s`.
