@@ -1523,3 +1523,49 @@ day-based rule.
 Client renders the server's verdict and does not recompute it; a JS date
 subtraction would reintroduce the same bug. Badge verified in node against the
 live digest, including the UNKNOWN and absent-field paths.
+
+## [U6.2] Task 2 — GET /api/health — PASS
+
+```
+$ curl -s localhost:8000/api/health | python3 -m json.tool
+{
+    "status": "ok",
+    "data": {
+        "latest_session_date": "2026-09-03",
+        "session_count": 497,
+        "instrument_count": 3044,
+        "event_count": 5962
+    },
+    "digest_latency": {
+        "population": "successful GET /api/digest requests served by this process",
+        "window": "most recent 200 requests (in-memory ring, per process)",
+        "statistic": "median and p95, milliseconds, measured server-side",
+        "samples": 3,
+        "median_ms": 170.54,
+        "p95_ms": 184.42,
+        "note": "resets on deploy; not shared across replicas"
+    }
+}
+```
+
+**The latency population is defined in the payload itself**, because an
+unlabelled "latency: 12ms" is unfalsifiable — a reader cannot tell mean from
+median or what it covers. Successful digests only: a fast 500 is not a fast
+response, and counting failures would make the metric improve as the service
+degraded. The ring is per-process and resets on deploy, which the payload says
+rather than leaving to be discovered.
+
+```
+$ python -m pytest tests/test_health.py -q
+10 passed, 2 warnings in 18.37s
+```
+
+Two leak checks, not one: key names are asserted against
+password/url/secret/token/dsn/host/port, **and** the serialised body is checked
+for `postgresql://` — a DSN pasted into a `reason` string would pass a key-only
+check and still leak the password. `psycopg.OperationalError` text is
+deliberately not echoed for the same reason.
+
+Empty history returns 200 `"empty"` (a fresh deploy is up and truthfully holds
+nothing); database-unreachable returns 503 with a fixed `database_unreachable`
+token and no traceback.

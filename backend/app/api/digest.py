@@ -635,9 +635,14 @@ class AckRequest(BaseModel):
 @router.get("/api/digest")
 def digest(x_signal_session: str | None = Header(default=None)) -> dict:
     user_id = resolve_user(x_signal_session)
-    with connect() as conn:
-        seed_watchlist(conn, user_id)
-        return build_digest(conn, user_id)
+    # Timed here rather than in middleware so the population is exactly "a
+    # digest was built", which is what /api/health claims to report.
+    from app.api.health import record_digest_latency
+
+    with record_digest_latency():
+        with connect() as conn:
+            seed_watchlist(conn, user_id)
+            return build_digest(conn, user_id)
 
 
 @router.post("/api/digest/ack")
