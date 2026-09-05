@@ -86,8 +86,33 @@ def _rendered_strings(path: Path):
                     continue
                 yield node.lineno, node.value
     else:
+        # Same rule as the Python branch, for the same reason: a `//` comment
+        # explaining *why* the card is not coloured by direction is not text a
+        # user can read. The comment that caught this said "a recommendation —
+        # and this product does not make them", which is the guard firing on
+        # its own rationale.
+        in_block = False
         for lineno, line in enumerate(path.read_text().splitlines(), 1):
-            yield lineno, line
+            text = line
+            if in_block:
+                if "*/" in text:
+                    text = text.split("*/", 1)[1]
+                    in_block = False
+                else:
+                    continue
+            while "/*" in text:
+                head, rest = text.split("/*", 1)
+                if "*/" in rest:
+                    text = head + rest.split("*/", 1)[1]
+                else:
+                    text = head
+                    in_block = True
+                    break
+            stripped = text.lstrip()
+            if stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            text = text.split("//")[0] if "://" not in text else text
+            yield lineno, text
 
 
 def test_rendered_surfaces_carry_no_advice_language():
