@@ -43,8 +43,17 @@ class MuteRequest(BaseModel):
 # alias rows), so without it every POST would 404. Alias still comes first so
 # that the moment aliases are backfilled, they win — and the fallback then only
 # covers instruments that never had a rename.
+# 124 symbols map to more than one ISIN, because a face-value change mints a
+# new one and NSE keeps both ACTIVE (ADR-018). The pairs hold non-overlapping
+# contiguous ranges — MCX's old ISIN ends 2026-01-01, its successor begins
+# 2026-01-02 — so exactly one of them is live.
+#
+# Ordering by `isin` picked the *dead* one for MCX (…035 sorts before …043),
+# which put a second, permanently empty MCX chip on the live demo. The tie is
+# broken on the latest session each ISIN has a bar for: the live instrument is
+# the one still trading.
 _RESOLVE = """
-SELECT isin FROM (
+SELECT r.isin FROM (
     SELECT a.isin, 0 AS rank
     FROM symbol_alias a
     WHERE upper(a.symbol) = %(sym)s AND a.valid_to IS NULL
@@ -53,16 +62,25 @@ SELECT isin FROM (
     FROM instrument i
     WHERE upper(i.symbol) = %(sym)s AND i.status = 'ACTIVE'
 ) r
-ORDER BY rank, isin
+LEFT JOIN (SELECT isin, max(session_date) AS last_bar FROM bar GROUP BY isin) b
+  ON b.isin = r.isin
+ORDER BY b.last_bar DESC NULLS LAST, r.rank, r.isin
 LIMIT 1
 """
 
+# One row per *live* symbol. A watchlist that already contains a superseded
+# ISIN — added before the resolver was fixed, or carried in from a seed —
+# would otherwise render two identical chips, one of which can never show a
+# card. DISTINCT ON keeps the ISIN with the most recent bar.
 _LIST = """
-SELECT w.isin, i.symbol, i.name, i.sector_id, coalesce(w.muted, FALSE)
+SELECT DISTINCT ON (i.symbol)
+       w.isin, i.symbol, i.name, i.sector_id, coalesce(w.muted, FALSE)
 FROM watchlist_item w
 JOIN instrument i USING (isin)
+LEFT JOIN (SELECT isin, max(session_date) AS last_bar FROM bar GROUP BY isin) b
+  ON b.isin = w.isin
 WHERE w.user_id = %s
-ORDER BY i.symbol
+ORDER BY i.symbol, b.last_bar DESC NULLS LAST, w.isin
 """
 
 _ADD = """

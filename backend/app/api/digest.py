@@ -180,14 +180,19 @@ _SESSIONS = """
 SELECT session_date FROM bar GROUP BY session_date ORDER BY session_date DESC LIMIT %s
 """
 
+# DISTINCT ON for the same reason as watchlist._LIST: a superseded ISIN on the
+# list must not be counted as a second watched instrument, or the funnel's
+# first number overstates what the user actually follows.
 _WATCHLIST = """
-SELECT w.isin, i.symbol, i.name, i.sector_id
+SELECT DISTINCT ON (i.symbol) w.isin, i.symbol, i.name, i.sector_id
 FROM watchlist_item w
 JOIN instrument i USING (isin)
+LEFT JOIN (SELECT isin, max(session_date) AS last_bar FROM bar GROUP BY isin) lb
+  ON lb.isin = w.isin
 -- COALESCE, not a bare NOT: `muted` is nullable, and `NOT NULL` is NULL,
 -- which this WHERE would drop — silently muting a row nobody muted.
 WHERE w.user_id = %s AND NOT coalesce(w.muted, FALSE)
-ORDER BY i.symbol
+ORDER BY i.symbol, lb.last_bar DESC NULLS LAST, w.isin
 """
 
 _BARS = """
