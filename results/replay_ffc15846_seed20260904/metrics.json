@@ -1,0 +1,103 @@
+{
+  "config_hash": "ffc15846",
+  "replay_digest": "6979368bdd30ec817e8627eeacba48e16c270132443ae0a0938acb5d53aa884f",
+  "scenarios": {
+    "api_failure": {
+      "circuit_breaks": 1,
+      "duplicates_collapsed": 0,
+      "events_emitted": 58209,
+      "events_inserted": 57752,
+      "ledger_digest": "cd514353b666fe48afdf0a605d672f75f5194b5a2544da3772899d49a588e527",
+      "observations": 309356,
+      "sessions": 126,
+      "stale": 0,
+      "suppressed": 0,
+      "uncertain": 0
+    },
+    "clean": {
+      "circuit_breaks": 0,
+      "duplicates_collapsed": 0,
+      "events_emitted": 57912,
+      "events_inserted": 57912,
+      "ledger_digest": "f1ffc27a1bcd102a8db14ab68b0b3c2071484313a508c591780fce32d9c1bc72",
+      "observations": 309352,
+      "sessions": 126,
+      "stale": 0,
+      "suppressed": 0,
+      "uncertain": 0
+    },
+    "conflicting": {
+      "circuit_breaks": 0,
+      "duplicates_collapsed": 0,
+      "events_emitted": 57912,
+      "events_inserted": 57912,
+      "ledger_digest": "1a65280f453084645c854effccfce75a56dbe59ceb9e48e52d88ddb020793b60",
+      "observations": 309352,
+      "sessions": 126,
+      "stale": 0,
+      "suppressed": 57912,
+      "uncertain": 309352
+    },
+    "delayed": {
+      "circuit_breaks": 0,
+      "duplicates_collapsed": 0,
+      "events_emitted": 57250,
+      "events_inserted": 57250,
+      "ledger_digest": "db3ab360783bbc18338a2cf31607efe257ca22fe67e8d2782e8126b390662c7a",
+      "observations": 304074,
+      "sessions": 126,
+      "stale": 0,
+      "suppressed": 0,
+      "uncertain": 0
+    },
+    "duplicate": {
+      "circuit_breaks": 0,
+      "duplicates_collapsed": 6182,
+      "events_emitted": 57912,
+      "events_inserted": 57912,
+      "ledger_digest": "f1ffc27a1bcd102a8db14ab68b0b3c2071484313a508c591780fce32d9c1bc72",
+      "observations": 309352,
+      "sessions": 126,
+      "stale": 0,
+      "suppressed": 0,
+      "uncertain": 0
+    },
+    "missing": {
+      "circuit_breaks": 0,
+      "duplicates_collapsed": 0,
+      "events_emitted": 56596,
+      "events_inserted": 56596,
+      "ledger_digest": "21a27385e41ab5ec0644af25e3a4560d6b4b53567e3aafd8f9e70787ec9149e7",
+      "observations": 293978,
+      "sessions": 126,
+      "stale": 0,
+      "suppressed": 0,
+      "uncertain": 0
+    },
+    "out_of_order": {
+      "circuit_breaks": 0,
+      "duplicates_collapsed": 0,
+      "events_emitted": 57912,
+      "events_inserted": 57912,
+      "ledger_digest": "f1ffc27a1bcd102a8db14ab68b0b3c2071484313a508c591780fce32d9c1bc72",
+      "observations": 309352,
+      "sessions": 126,
+      "stale": 0,
+      "suppressed": 0,
+      "uncertain": 0
+    },
+    "stale": {
+      "circuit_breaks": 0,
+      "duplicates_collapsed": 0,
+      "events_emitted": 6757,
+      "events_inserted": 6757,
+      "ledger_digest": "fd61001dc41c3f70f81b9e0379c6d1c2f5b3eb488a3cd85ccafceb6694f0270f",
+      "observations": 309352,
+      "sessions": 126,
+      "stale": 278948,
+      "suppressed": 0,
+      "uncertain": 0
+    }
+  },
+  "seed": 20260904
+}

@@ -13,7 +13,9 @@ node_modules/
 *.log
 data/raw/
 data/cache/
-results/
+# Benchmark and replay outputs are committed: the before/after comparison is
+# evidence, and a result nobody can inspect is an assertion.
+!results/
 
 # The submission archive is built from HEAD; committing it embeds a stale
 # copy of itself in the next one.

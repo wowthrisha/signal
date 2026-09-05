@@ -1,0 +1,170 @@
+{
+  "ablation": {
+    "A": {
+      "alerts": 3250,
+      "alerts_per_user_day": 3.75766,
+      "event_coverage": 0.209302,
+      "label": "fixed percentage threshold",
+      "market_day_alert_count": 1760,
+      "precision": 0.005538,
+      "recall": 0.185567,
+      "redundant_alert_rate": 0.0,
+      "system": "B0",
+      "unique_isin_session_pairs": 3250
+    },
+    "B": {
+      "alerts": 1042,
+      "alerts_per_user_day": 1.204764,
+      "event_coverage": 0.081395,
+      "label": "+ EWMA volatility standardization",
+      "market_day_alert_count": 559,
+      "precision": 0.006718,
+      "recall": 0.072165,
+      "redundant_alert_rate": 0.0,
+      "system": "B1",
+      "unique_isin_session_pairs": 1042
+    },
+    "C": {
+      "alerts": 341,
+      "alerts_per_user_day": 0.394265,
+      "event_coverage": 0.034884,
+      "label": "+ market/sector residualization",
+      "market_day_alert_count": 184,
+      "precision": 0.008798,
+      "recall": 0.030928,
+      "redundant_alert_rate": 0.0,
+      "system": null,
+      "unique_isin_session_pairs": 341
+    },
+    "D": {
+      "alerts": 473,
+      "alerts_per_user_day": 0.546884,
+      "event_coverage": 0.046512,
+      "label": "+ D2 CUSUM drift detector",
+      "market_day_alert_count": 256,
+      "precision": 0.010256,
+      "recall": 0.041237,
+      "redundant_alert_rate": 0.175476,
+      "system": null,
+      "unique_isin_session_pairs": 390
+    },
+    "E": {
+      "alerts": 204,
+      "alerts_per_user_day": 0.235865,
+      "event_coverage": 0.034884,
+      "label": "+ importance gate, tiers B and A",
+      "market_day_alert_count": 113,
+      "precision": 0.02027,
+      "recall": 0.030928,
+      "redundant_alert_rate": 0.27451,
+      "system": null,
+      "unique_isin_session_pairs": 148
+    },
+    "F": {
+      "alerts": 142,
+      "alerts_per_user_day": 0.164181,
+      "event_coverage": 0.034884,
+      "label": "+ slate entity collapse and sector cap",
+      "market_day_alert_count": 77,
+      "precision": 0.021127,
+      "recall": 0.030928,
+      "redundant_alert_rate": 0.0,
+      "system": "B2",
+      "unique_isin_session_pairs": 142
+    }
+  },
+  "alert_reduction_vs_B0": 0.956308,
+  "baselines": {
+    "B0_threshold": 0.03,
+    "B1_z": 2.0,
+    "watchlist_size_for_per_user_rate": 30
+  },
+  "d2": {
+    "drift_alerts_in_window": 132,
+    "h2": 4.0,
+    "k": 0.5,
+    "max_drift_statistic_fired": 15.297893,
+    "max_final_cusum_neg": 3.442111,
+    "max_final_cusum_pos": 8.475125,
+    "note": "final accumulator values at end of history, not the peak reached during the run"
+  },
+  "full_history_sessions": 127,
+  "full_history_window": "2026-02-27..2026-09-03",
+  "generated_at": "2026-09-05T03:42:48+00:00",
+  "git_sha": "9d93aaa69903aabe8f5b7b0be551281a666a54b6",
+  "ground_truth": {
+    "definition": "a corporate action giving I >= 2 for that (isin, session)",
+    "measures": "occurrence of a material event, NOT meaningfulness to a user",
+    "positives": 97,
+    "positives_detectable": 86
+  },
+  "held_out_sessions": 9,
+  "held_out_window": "2026-08-24..2026-09-03",
+  "market_days_scored": [
+    "2026-08-25",
+    "2026-08-26",
+    "2026-08-27",
+    "2026-08-31",
+    "2026-09-02"
+  ],
+  "systems": {
+    "B0": {
+      "alerts": 3250,
+      "alerts_per_user_day": 3.75766,
+      "event_coverage": 0.209302,
+      "label": "fixed percentage threshold",
+      "market_day_alert_count": 1760,
+      "precision": 0.005538,
+      "recall": 0.185567,
+      "redundant_alert_rate": 0.0,
+      "system": "B0",
+      "unique_isin_session_pairs": 3250
+    },
+    "B1": {
+      "alerts": 1042,
+      "alerts_per_user_day": 1.204764,
+      "event_coverage": 0.081395,
+      "label": "+ EWMA volatility standardization",
+      "market_day_alert_count": 559,
+      "precision": 0.006718,
+      "recall": 0.072165,
+      "redundant_alert_rate": 0.0,
+      "system": "B1",
+      "unique_isin_session_pairs": 1042
+    },
+    "B2": {
+      "alerts": 142,
+      "alerts_per_user_day": 0.164181,
+      "event_coverage": 0.034884,
+      "label": "+ slate entity collapse and sector cap",
+      "market_day_alert_count": 77,
+      "precision": 0.021127,
+      "recall": 0.030928,
+      "redundant_alert_rate": 0.0,
+      "system": "B2",
+      "unique_isin_session_pairs": 142
+    }
+  },
+  "thresholds": {
+    "calibrated_on": "2026-07-30..2026-08-21",
+    "cooldown_bars": 3,
+    "d1_only": false,
+    "h1": 3.0,
+    "h2": 4.0,
+    "k": 0.5,
+    "u_unusual": 0.95,
+    "u_unusual_uncorroborated": 0.99
+  },
+  "tier_mix_row_F": {
+    "A": 2,
+    "B": 1,
+    "C": 139
+  },
+  "u_score_saturation": {
+    "fraction_exactly_one": 0.010714,
+    "n_exactly_one": 216,
+    "n_scored": 20161,
+    "note": "U is an empirical percentile against the symbol's own trailing history; saturation at 1.0 is a sample-size artifact, not an extreme-event claim"
+  },
+  "universe_size": 2883
+}
