@@ -549,3 +549,12 @@ looks fine can be averaging over a warm-up pathology.
 **Decision:** Ship the digest. Watchlist editing lives on it; there is no second page.
 **Rejected:** A multi-screen app — every additional surface is another place for the funnel's argument to be diluted, and the product's whole claim is that the right answer fits on one screen.
 **Would revisit if:** users ask "why this card?" often enough that the stored `tier` and `gate` fields need a page of their own rather than a tooltip.
+
+---
+
+## ADR-034: Railway over AWS for the demo deployment
+
+**Context:** A public demo URL was needed inside two hours. The AWS account's IAM user (`aivar-deploy`) is authorised for ECS, Elastic Beanstalk, Lightsail, EC2 and ECR, but **denied `rds:DescribeDBInstances` and every App Runner action** — verified, not assumed. Without RDS there is no managed Postgres, and running the database as an unmanaged container would lose state on every deploy.
+**Decision:** Deploy on Railway — repository connect plus a Postgres plugin, live and externally verified in one session. Seeded with a 26,236-row slice rather than 1.09M bars.
+**Rejected:** ECS Fargate or Lightsail with a self-managed Postgres container. It clears the "runs on AWS" bar while being strictly worse than Railway on durability, and a demo whose data vanishes on redeploy is not a production-appropriate deployment, only a differently-branded one.
+**Would revisit if:** the IAM user is granted RDS and App Runner, at which point the same root `Dockerfile` deploys unchanged — nothing in the image is Railway-specific.

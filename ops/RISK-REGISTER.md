@@ -18,9 +18,12 @@ Review this file at the start of each phase. Update Status when evidence is logg
 | R-06 | LLM credits exhausted mid-demo | L | M | API quota hit | Templates are the MVP default; LLM is behind `--llm` flag; zero impact if flag is off | **MITIGATED** |
 | R-07 | Only the first 1000 submissions evaluated by judge — repo not seen | M | H | Late submission to evaluation queue | Submit v1.0 at Gate 5 (T+35), not T+69; iterate in-place after first submission | **OPEN** |
 | R-08 | System fails on judge's machine — environment drift | M | H | Missing dep, wrong Python version, port conflict | Gate 8 = fresh-clone test on clean machine (T+61); `docker compose up` must produce a working UI with zero manual steps. **Port conflict already observed 2026-09-04** — a native postgres owned loopback 5432 and silently answered instead of the container; published port is now `${PG_PORT:-5433}` | **OPEN** |
-| R-10 | Alert budget measured on a 9-session held-out window | M | M | A tighter budget, or any claim finer than "does not flood" | `U` needs 60 trailing `z`, and `z` needs ~43 sessions of attribution warm-up, so only 26 of 127 ingested sessions are usable and the held-out third is 9. Margin is 67× and the full 9×8 grid spans 0.055–0.079 alerts/user/day, so the Gate 4 verdict is not sensitive to the window. **Fix is a longer ingest**, not a code change: `python -m app.ingest --from 2024-09-01` widens it. Stated in ACTION-LOG [S1.5] rather than smoothed over | **OPEN** |
+| R-10 | Alert budget measured on a 9-session held-out window | M | M | A tighter budget, or any claim finer than "does not flood" | **Backfill done 2026-09-05**: `bar` now holds **497 sessions (2024-09-02..2026-09-03)**, 1,093,808 rows, up from 127. The published benchmark still scores **9** held-out sessions — widening the *ingest* did not widen the *scoring window*, which is a separate change to `--held-out` plus a recalibration. Measured effect of the longer warm-up: `u_score` saturation fell from 216/20,161 (1.07%) to 73/21,643 (0.34%); precision and recall moved by <0.004. Both result sets committed under `results/` | **OPEN** |
 | R-11 | Sector coverage is partial — 750 of 2,883 instruments | L | L | Attribution quality on unmapped symbols | NSE's total-market constituent list carries ~750 names; the rest have no published sector index. §7 already specifies the degradation ("no sector index → market-only attribution; `C ×= 0.8`") and it is implemented and tested, so an unmapped instrument is a supported state rather than a gap | **MITIGATED 2026-09-05** |
-| R-09 | Advice language leaks into templates or UI strings | L | H | `buy`/`sell`/`recommend`/`target price` appears in any rendered string | `tests/test_no_advice_language.py` CI test; fails the build; persistent footer: *"Signal surfaces information about what changed. It does not provide investment advice."* | **OPEN** |
+| R-09 | Advice language leaks into templates or UI strings | L | H | `buy`/`sell`/`recommend`/`target price` appears in any rendered string | **Correction 2026-09-05: `tests/test_no_advice_language.py` does not exist.** This row previously claimed a CI test that was never written; §21 of the spec names the file and it was never created. What is actually in place is the persistent footer — *"Signal surfaces information about what changed. It does not provide investment advice."* — and templates confined to `app/templates/headlines.py`. Nothing enforces the constraint automatically | **OPEN** |
+| R-12 | `app.benchmark` determinism unproven — no test asserts two identical runs agree | M | M | Any published metric changing between two runs with identical arguments | Gate 2 covers `app.evaluate`, not `app.benchmark`. Add a test invoking it twice and diffing `metrics.json` with `generated_at` and `git_sha` excluded. See detail below | **OPEN** |
+| R-13 | Ground truth is dividend-dominated — precision/recall measure announcement co-occurrence | H | M | Any claim that these figures measure usefulness to a reader | Disclosed in README and in the `ground_truth` block of every `metrics.json`. `alert_reduction_vs_B0` is the headline because it needs no label. §14's second (CAR) label not implemented | **OPEN** |
+| R-14 | AWS deployment blocked by IAM scope | M | L | A requirement that the demo run on AWS specifically | `apprunner:*` and `rds:DescribeDBInstances` return AccessDenied for user `aivar-deploy`; ECS/EB/Lightsail/EC2/ECR permitted. Railway is the official demo; the root `Dockerfile` is not Railway-specific and deploys unchanged once RDS is granted. See ADR-034 | **OPEN** |
 
 ---
 
@@ -69,3 +72,36 @@ When a risk is mitigated:
 3. Never delete rows — the register is an audit trail.
 
 _Last updated: 2026-09-04_
+
+---
+
+# Detail
+
+## R-12 — `app.benchmark` determinism is unproven — OPEN
+
+**Observed:** two runs at git_sha `9d93aaa`, 51 seconds apart, disagree. `results/20260905T034248Z_short_history` reports B0 alerts **3250** and `alert_reduction_vs_B0` **0.956308**; `results/20260905T034339Z_full_history` reports **3251** and **0.948939**. Both are committed and both are real.
+
+**Assessment:** these two runs are *not* a fair determinism test — the first passes `--history-from 2026-02-27` and the second does not, so a one-alert difference is expected, not evidence of nondeterminism. What is genuinely open is that **no test asserts two identical invocations produce identical output**. Gate 2 covers `app.evaluate` (the replay harness), not `app.benchmark`.
+
+**Trigger:** any published metric changing between two runs with identical arguments and an unchanged database.
+**Response:** add a determinism test invoking `app.benchmark` twice with identical arguments and diffing `metrics.json` with `generated_at` and `git_sha` excluded.
+**Evidence:** the two committed `metrics.json` files named above.
+**Status:** OPEN. Not closed by inspection, because the honest statement is "untested", not "correct".
+
+## R-13 — Ground truth is dividend-dominated — OPEN
+
+**Observed:** the benchmark labels a `(isin, session)` positive when a corporate action gives `I >= 2`. Of 4,072 corporate actions in the corpus the overwhelming majority are dividends — reproduce with `SELECT ca_type, count(*) FROM corp_action GROUP BY 1 ORDER BY 2 DESC`.
+
+**Assessment:** a dividend ex-date is an announcement, not necessarily a price-material event. Precision and recall in `results/latest` are therefore measuring **co-occurrence with a scheduled announcement**, not relevance to a reader. `alert_reduction_vs_B0` is unaffected because it requires no label, which is why it is the headline number.
+**Trigger:** any claim that these precision/recall figures measure usefulness.
+**Response:** implement §14's second label (market-confirmed `|CAR[-1,+1]| > 2σ`) and report both. Not attempted under deadline; changing the label after seeing results would be worse than stating the limitation.
+**Evidence:** `results/latest/metrics.json` `ground_truth` block, which carries the limitation inline.
+**Status:** OPEN and disclosed in the README.
+
+## R-14 — AWS deployment blocked by IAM scope — OPEN
+
+**Observed:** `aws apprunner list-services` and `aws rds describe-db-instances` both return AccessDenied for `arn:aws:iam::870591755696:user/aivar-deploy`. ECS, Elastic Beanstalk, Lightsail, EC2 and ECR are permitted.
+**Trigger:** a requirement that the demo run on AWS specifically.
+**Response:** grant the IAM user RDS and App Runner, then deploy the existing root `Dockerfile` unchanged. See [ADR-034](../docs/DECISIONS.md).
+**Evidence:** the two AccessDenied responses, quoted in the session log.
+**Status:** OPEN. Railway is the official demo; nothing in the image is Railway-specific.
