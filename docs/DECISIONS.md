@@ -585,3 +585,21 @@ looks fine can be averaging over a warm-up pathology.
 **Decision:** Scope all three out, on the record, with reasons in the README.
 **Rejected:** Building them. RAG solves a retrieval problem this data does not have — the exchange already links every announcement to an ISIN — while adding an index, a chunking strategy and a hallucination surface. Fundamentals answer "is this a good company", a different product, and putting them on a card is an implicit recommendation. A credible regulatory watcher needs circular ingestion, entity resolution and legal review of every emitted string; done badly in a day it produces exactly the confident-wrong output §21 exists to prevent.
 **Would revisit if:** there is an evaluation harness for the addition. The reason this project can defend its detector is that `make evaluate` measures it; adding a component with no way to tell whether it helps would break that pattern.
+
+---
+
+## ADR-038: Keep the 9-session hold-out, and disclose that it is the calmest regime
+
+**Context:** 497 sessions are ingested but only 9 are scored. Widening was investigated before being accepted or rejected. NIFTY annualised realised volatility is 6.00 % over the 9-session window against 11.46 % over 100 and 15.58 % over 150; ground-truth density swings from 6.74 to 16.58 positives per session; warm-up leaks at no candidate width, since estimation is `[t-120, t-1]` and ends the session before the one scored.
+**Decision:** Keep 9 sessions and disclose in the README that every published rate is measured in the quietest stretch of the corpus, so the real-world alert rate is very likely higher.
+**Rejected:** Widening to 100+ and quoting a single pooled precision. A window spanning regimes 2.6x apart in volatility, with a base rate that moves by a factor of 2.5, produces one average that describes neither end. Rejected for the same reason: widening because "100 sounds better than 9", which was the stated temptation and is not a measurement argument.
+**Would revisit if:** metrics are reported per regime rather than pooled. That is the correct treatment of a long window and it is a bigger change than a config edit — the split rule, the calibration, and the ablation table all have to carry the regime split through.
+
+---
+
+## ADR-039: The label stays, because the dividend hypothesis failed its own test
+
+**Context:** The README and R-13 asserted that a dividend-dominated ground truth depresses precision, since dividends are announcements without price materiality. The assertion had never been tested. A prediction was written and committed at `b93299a` before any measurement.
+**Decision:** Keep the original occurrence label. Build neither the dividend-excluding label nor the market-confirmed CAR label.
+**Rejected:** Building L1 and L2 anyway. The measurement falsified the premise — dividend ex-dates carry mean `abs(z)` 1.21x their matched baseline over 2,696 events, not the ~1.0 the hypothesis required. Splits and bonuses run 1.80–2.42, so dividends are a *weaker* signal, but weaker is not inert and only inert would have justified excluding them. Constructing a label after learning its stated justification does not hold is precisely the fitted move this project refuses elsewhere.
+**Would revisit if:** someone states a *different*, testable reason for a second label and it survives its own pre-registered test. The CAR label from spec §14 remains legitimate future work on its own merits — it is partially endogenous, being derived from the price series the detector consumes, so it would supplement the occurrence label rather than replace it.

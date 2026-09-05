@@ -209,6 +209,72 @@ figure here that needs no label at all.
   history, so 1.0 means "the most extreme we have on record", not "a 1-in-infinity
   event".
 
+### The dividend explanation was tested and rejected
+
+The README previously implied that precision is low because the ground-truth
+label is dividend-dominated, and dividends are announcements without price
+materiality. **That was an assumption. It has now been tested, and it is
+wrong.**
+
+Comparing `abs(standardised residual)` on each corporate action's session
+against a matched random session for the same symbol, across the full
+497-session history:
+
+| ca_type | n used | event mean | baseline mean | ratio |
+|---|---|---|---|---|
+| DIVIDEND | 2696 | 0.9246 | 0.7659 | **1.21** |
+| SPLIT | 64 | 1.7691 | 0.7312 | 2.42 |
+| BONUS | 74 | 1.6253 | 0.7391 | 2.20 |
+| RIGHTS | 72 | 1.5267 | 0.7421 | 2.06 |
+| BUYBACK | 34 | 1.5004 | 0.8335 | 1.80 |
+
+The prediction, written and committed at `b93299a` before the test was run, was
+that dividends would be indistinguishable from a random session — a ratio near
+1.0. They are at 1.21 on the mean and 1.16 on the median over 2,696 events.
+**Dividend ex-dates carry roughly 21 % more abnormal stock-specific movement
+than a random session. They are not noise.**
+
+Splits, bonuses, rights and buybacks are more elevated still (1.80–2.42), so a
+dividend is a *weaker* signal than a split. But weaker is not inert, and only
+inert would have justified excluding dividends from the label.
+
+So the label is unchanged. No `L1` excluding dividends, no `L2` market-confirmed
+label — building either now would mean constructing a label after learning that
+the stated reason for it does not hold. Everything except DIVIDEND is a small
+sample (34–74 events) and those rows are descriptive, not significance tests.
+
+Reproduce: the procedure is in `ops/ACTION-LOG.md` [U5.1], seed 20260905.
+
+### The held-out window is the calmest stretch in the corpus
+
+`held_out_sessions` is 9 against 497 ingested, and widening it was investigated
+rather than assumed:
+
+| window | NIFTY ann. vol % | mean abs daily % | positives/session |
+|---|---|---|---|
+| 9 | **6.00** | 0.359 | 10.89 |
+| 40 | 8.74 | 0.414 | 16.58 |
+| 100 | 11.46 | 0.546 | 9.59 |
+| 150 | 15.58 | 0.726 | 8.09 |
+| 200 | 14.10 | 0.648 | 6.74 |
+
+Realised volatility over the 9-session window is **91 % lower** than over 100
+sessions and 160 % lower than over 150. Ground-truth density ranges from 6.74 to
+16.58 positives per session, so precision and recall are **not comparable across
+windows** — the base rate changes by a factor of 2.5.
+
+Warm-up integrity was checked separately and no candidate width leaks:
+estimation windows are `[t-120, t-1]` and end the session before the one being
+scored (hold-out 100 begins 2026-04-13; the last estimation session is
+2026-04-10).
+
+**Decision: keep 9 and disclose the regime.** Pooling a calm 9-session window
+with a 150-session window at 2.6x the volatility yields one average describing
+neither, and reporting per regime is a larger change than was available.
+**The practical consequence for a reader: every alert rate quoted here is
+measured in the quietest stretch of two years of data, so the real-world rate is
+very likely higher.**
+
 ### D2, the CUSUM drift detector
 
 D2 fired **130 times** in the held-out window. It is not a dead component and it
@@ -288,8 +354,12 @@ than asserted.
   1-in-infinity event". The rate is measured and reported in
   [Results](#what-this-measures-and-what-it-does-not); the history backfill cut
   it by about two thirds and did not eliminate it.
-- **The held-out window is 9 sessions.** Every rate in Results should be read as
-  an order of magnitude, not a measurement.
+- **The held-out window is 9 sessions**, and it is the calmest stretch in the
+  corpus. Every rate should be read as an order of magnitude measured in a quiet
+  regime, not as a measurement of typical conditions.
+- **The benchmark is deterministic**, and this is asserted rather than assumed:
+  `tests/test_benchmark_determinism.py` runs `app.benchmark` twice and requires
+  byte-identical metrics with only `generated_at` allowed to move.
 
 ## Edge cases handled
 

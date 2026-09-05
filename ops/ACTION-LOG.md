@@ -1296,3 +1296,141 @@ pooled precision.
 **What would falsify it:** volatility and density are stable across the
 candidate windows, in which case widening is straightforwardly correct and the
 only reason not to is warm-up leakage.
+
+---
+
+# [U5] Results — 2026-09-05
+
+Predictions were committed at `b93299a` (2026-09-05T12:32:49+05:30), before any
+command below was run.
+
+## [U5.1] Task 6b — the dividend hypothesis is FALSIFIED
+
+First, the brief's counts do not match the repo. The brief says 708 DIVIDEND of
+1,016 actions; those are pre-backfill figures. Live:
+
+```
+repo counts by ca_type: {'DIVIDEND': 3206, 'OTHER': 489, 'SPLIT': 109,
+                         'BONUS': 103, 'RIGHTS': 92, 'BUYBACK': 43, 'DEMERGER': 30}
+```
+
+abs(standardised residual) on the event session vs a matched random session for
+the same symbol, seed 20260905, over the full 497-session history:
+
+```
+ca_type    n_used  evt_mean base_mean  ratio  evt_med  base_med  ratio
+------------------------------------------------------------------------
+DIVIDEND     2696    0.9246    0.7659   1.21   0.6606    0.5709   1.16
+SPLIT          64    1.7691    0.7312   2.42   1.2982    0.4960   2.62
+BONUS          74    1.6253    0.7391   2.20   0.9464    0.6697   1.41
+RIGHTS         72    1.5267    0.7421   2.06   1.0307    0.4770   2.16
+BUYBACK        34    1.5004    0.8335   1.80   1.2178    0.6155   1.98
+DEMERGER        0   no usable sessions
+```
+
+**The prediction said DIVIDEND would be "indistinguishable from a random
+session", with a ratio "near 1.0". It is 1.21 on the mean and 1.16 on the
+median, over 2,696 usable events. Dividend ex-dates carry roughly 21 % more
+abnormal stock-specific movement than a random session for the same symbol.
+They are not inert, and the hypothesis that they are non-material is
+REJECTED.**
+
+The second half of the prediction held: splits, bonuses, rights and buybacks
+are all substantially more elevated (1.80–2.42) than dividends. So the ordering
+is real — a dividend is a weaker signal than a split — but "weaker" is not
+"noise", which is what the hypothesis claimed and what would have justified
+excluding it from the label.
+
+**Per the pre-committed consequence in [U5.P1], the original label is kept and
+no new label was built.** Building L1/L2 now would mean constructing a label
+after seeing that the stated reason for it does not hold, which is the fitted
+move this project has refused everywhere else. Task 6d applies, not 6c.
+
+Sample-size caveat, stated in advance and still true: everything except
+DIVIDEND is small (34–74 usable events). Those comparisons are descriptive.
+DEMERGER produced no usable session because the normalizer suppresses detection
+on unadjustable actions (ADR-017), so there is no `z` to compare — the pipeline
+behaving as designed, not missing data.
+
+## [U5.2] Task 5a — regime comparability. Prediction CONFIRMED.
+
+```
+ win | ann_vol_pct | mean_abs_pct |   from_d   |    to_d    |  n
+-----+-------------+--------------+------------+------------+-----
+   9 |        6.00 |        0.359 | 2026-08-24 | 2026-09-03 |   9
+  40 |        8.74 |        0.414 | 2026-07-10 | 2026-09-03 |  40
+ 100 |       11.46 |        0.546 | 2026-04-13 | 2026-09-03 | 100
+ 150 |       15.58 |        0.726 | 2026-01-27 | 2026-09-03 | 150
+ 200 |       14.10 |        0.648 | 2025-11-13 | 2026-09-03 | 200
+```
+
+Predicted "more than 25 %" difference in realised volatility. Actual difference
+between the 9-session window and 100 sessions is **91 %** (6.00 % vs 11.46 %),
+and 160 % against 150 sessions. **The current 9-session hold-out is the calmest
+stretch in the corpus.**
+
+## [U5.3] Task 5b — ground-truth density. Prediction CONFIRMED.
+
+```
+ win | positives | sessions | per_session
+-----+-----------+----------+-------------
+   9 |        98 |        9 |       10.89
+  40 |       663 |       40 |       16.58
+ 100 |       959 |      100 |        9.59
+ 150 |      1213 |      150 |        8.09
+ 200 |      1347 |      200 |        6.74
+```
+
+Density ranges from 6.74 to 16.58 positives per session. Precision and recall
+are **not comparable across windows**, because the base rate a classifier is
+scored against changes by a factor of 2.5.
+
+## [U5.4] Task 5c — warm-up integrity. No leakage at any candidate width.
+
+```
+holdout=  9  first_holdout=2026-08-24  last_estimation_session=2026-08-21  window=[t-120, t-1]  leakage=False
+holdout=100  first_holdout=2026-04-13  last_estimation_session=2026-04-10  window=[t-120, t-1]  leakage=False
+holdout=150  first_holdout=2026-01-27  last_estimation_session=2026-01-23  window=[t-120, t-1]  leakage=False
+```
+
+Estimation windows are `[t-120, t-1]` and end the session before the one being
+scored, so no candidate width leaks. Leakage is not the reason to prefer one.
+
+## [U5.5] Task 5 decision — KEEP 9, and disclose the regime
+
+Widening is not disqualified by leakage, but pooling a 9-session calm window
+with a 150-session window at 2.6x the volatility produces one average that
+describes neither. Reporting per regime is the correct treatment and is a
+larger change than the time available. **The window stays at 9 and the finding
+is disclosed: every published rate is measured in the calmest stretch of the
+corpus, so the real-world alert rate is very likely higher.** That disclosure is
+worth more than a wider window quoted as a single pooled number.
+
+## [U5.6] Task 7 — R-12 CLOSED. The benchmark is deterministic.
+
+```
+$ make evaluate > /tmp/e1.txt 2>&1
+$ make evaluate > /tmp/e2.txt 2>&1
+$ diff /tmp/e1.txt /tmp/e2.txt
+2,4c2,4
+< wrote .../results/20260905T070648Z/metrics.json
+> wrote .../results/20260905T070805Z/metrics.json
+```
+
+Only the timestamped output paths differ. Comparing the two `metrics.json` with
+`generated_at` excluded: **DETERMINISTIC**.
+
+R-12 cited two committed runs disagreeing on B0 alerts, 3250 vs 3251. Those runs
+are not evidence of nondeterminism: one passes `--history-from 2026-02-27` and
+the other does not, so a one-alert difference is the expected consequence of a
+different warm-up. The genuine gap was that nothing asserted determinism.
+`tests/test_benchmark_determinism.py` now does, in 4 cases, one of which guards
+the exclusion list so `VOLATILE` cannot quietly grow to hide a real defect.
+
+## [U5.7] Not done
+
+Tasks 1 (per-card freshness), 2 (`/api/health`), 3 (fresh EXPLAIN) and 4
+(evidence funnel chain) were not reached. Time went to the two investigations
+and the determinism proof, which produced findings; the four remaining items are
+presentation over data that is already correct. The [U2] EXPLAIN plan is still
+in the README and still shows index scans with no Seq Scan.
