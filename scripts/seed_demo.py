@@ -123,6 +123,22 @@ def load(conn, src: Path) -> str:
         # fixture reset, not a cursor rewind: it puts the demo user back in
         # the "never visited" state the lookback fallback is written for.
         cur.execute("DELETE FROM visit_cursor WHERE user_id = %s", (DEMO_USER_ID,))
+        # The template is read by every new visitor, so it must be pristine.
+        # A visitor's stray "add TCS" landed on it before per-session state
+        # existed and made every clone start at 31 instruments. Drop anything
+        # the turnover seed did not put there; per-session rows are untouched.
+        cur.execute(
+            """
+            DELETE FROM watchlist_item w
+            WHERE w.user_id = %s
+              AND w.isin NOT IN (
+                SELECT b.isin FROM bar b JOIN instrument i USING (isin)
+                WHERE b.session_date = (SELECT max(session_date) FROM bar)
+                  AND i.sector_id IS NOT NULL AND b.v IS NOT NULL AND b.c IS NOT NULL
+                ORDER BY b.v * b.c DESC, b.isin LIMIT 30)
+            """,
+            (DEMO_USER_ID,),
+        )
     conn.commit()
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM bar")

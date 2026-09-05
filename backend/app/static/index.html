@@ -18,10 +18,10 @@
 </head>
 <body class="text-neutral-200 antialiased pb-24">
 
-<div class="mx-auto max-w-3xl px-6 py-12">
+<div class="mx-auto max-w-[1100px] px-6 py-10">
 
   <!-- 1. Header -->
-  <header class="border-b border-neutral-800 pb-6">
+  <header class="border-b border-neutral-800 pb-6 mb-8">
     <h1 class="text-xs tracking-[0.35em] text-neutral-500 font-medium">SINCE YOU LAST LOOKED</h1>
     <p class="mt-2 text-neutral-400 text-sm">
       Movements on your watchlist since
@@ -29,8 +29,45 @@
     </p>
   </header>
 
+
+  <!-- Two columns on desktop, stacked on mobile. The watchlist is the only
+       editable state on the page, so it gets its own rail rather than sitting
+       above the cards and pushing them below the fold. -->
+  <div class="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-10 items-start">
+
+  <!-- LEFT RAIL -->
+  <aside class="lg:sticky lg:top-8">
+    <h2 class="text-[10px] uppercase tracking-[0.2em] text-neutral-600 mb-3">Watchlist</h2>
+    <div class="flex items-center gap-2">
+      <input id="add-input" type="text" placeholder="Add a symbol — e.g. TCS"
+             autocomplete="off" spellcheck="false"
+             class="num flex-1 bg-neutral-900 border border-neutral-800 rounded
+                    px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600
+                    focus:outline-none focus:border-neutral-600 uppercase">
+      <button id="add-btn"
+              class="text-sm px-4 py-2 rounded border border-neutral-700
+                     text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100
+                     transition-colors">Add</button>
+    </div>
+    <p id="add-error" class="hidden mt-2 text-xs text-rose-400"></p>
+    <div class="mt-4 flex items-center justify-between">
+      <span id="wl-count" class="num text-[10px] text-neutral-700"></span>
+      <button id="mute-toggle"
+              class="text-[10px] uppercase tracking-wider text-neutral-700
+                     hover:text-neutral-400 transition-colors">show muted</button>
+    </div>
+    <!-- Capped and scrollable: 30-plus chips must never out-run the card
+         column, which is what left the dead space on the right. -->
+    <div id="watchlist"
+         class="mt-2 flex flex-wrap gap-1.5 overflow-y-auto pr-1"
+         style="max-height:40vh"></div>
+  </aside>
+
+  <!-- RIGHT COLUMN -->
+  <main class="min-w-0">
+
   <!-- 2. THE FUNNEL LINE -->
-  <section class="py-12 border-b border-neutral-800">
+  <section class="pb-10 border-b border-neutral-800">
     <div id="funnel" class="num text-2xl sm:text-3xl leading-snug tracking-tight">
       <span class="text-neutral-600">loading…</span>
     </div>
@@ -50,29 +87,11 @@
     </p>
   </section>
 
-  <!-- Watchlist. The only state the user owns, so it is the only thing on
-       this page that is editable. -->
-  <section class="py-6 border-b border-neutral-800">
-    <div class="flex items-center gap-2">
-      <input id="add-input" type="text" placeholder="Add a symbol — e.g. TCS"
-             autocomplete="off" spellcheck="false"
-             class="num flex-1 bg-neutral-900 border border-neutral-800 rounded
-                    px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600
-                    focus:outline-none focus:border-neutral-600 uppercase">
-      <button id="add-btn"
-              class="text-sm px-4 py-2 rounded border border-neutral-700
-                     text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100
-                     transition-colors">Add</button>
-    </div>
-    <p id="add-error" class="hidden mt-2 text-xs text-rose-400"></p>
-    <div id="watchlist" class="mt-4 flex flex-wrap gap-1.5"></div>
-  </section>
-
   <!-- 3. Cards -->
   <section id="cards" class="divide-y divide-neutral-800"></section>
 
   <!-- 4. Filtered, collapsed -->
-  <section class="mt-8">
+  <section id="filtered-section" class="mt-8" hidden>
     <button id="filtered-toggle"
             class="w-full text-left text-sm text-neutral-500 hover:text-neutral-300
                    transition-colors py-3 border-t border-neutral-800 flex items-center gap-2">
@@ -82,6 +101,8 @@
     <div id="filtered-body" class="hidden pb-5 pl-5 pt-1"></div>
   </section>
 
+  </main>
+  </div>
 </div>
 
 <!-- 5. Persistent footer -->
@@ -364,8 +385,20 @@ function chipHTML(w) {
   </span>`;
 }
 
+// Muted symbols stay on the list and are hidden behind a toggle rather than
+// dropped: "not mine" and "mine, quiet this week" are different states, and
+// the mute control exists precisely to keep them apart.
+let showMuted = false;
+
 function renderWatchlist(items) {
-  el('watchlist').innerHTML = items.map(chipHTML).join('');
+  const muted = items.filter((w) => w.muted).length;
+  const shown = showMuted ? items : items.filter((w) => !w.muted);
+  el('watchlist').innerHTML = shown.map(chipHTML).join('');
+  el('wl-count').textContent =
+    `${shown.length} shown${muted ? ` · ${muted} muted` : ''}`;
+  const btn = el('mute-toggle');
+  btn.textContent = showMuted ? 'hide muted' : 'show muted';
+  btn.hidden = muted === 0;
 }
 
 // The head the next ack will advance to. Held from the last render so the
@@ -400,8 +433,14 @@ function render(d) {
        </div>`
     : `<p class="py-10 text-sm text-neutral-600">Nothing cleared the gate in
          this window.</p>`);
-  el('filtered-count').textContent = d.filtered_count;
-  el('filtered-body').innerHTML = filteredHTML(d.filtered_reasons, d.filtered_count);
+  // A drawer reading "We filtered 0 other movements" reads as a bug rather
+  // than as good news, so the whole section goes when there is nothing in it.
+  const hasFiltered = (d.filtered_count || 0) > 0;
+  el('filtered-section').hidden = !hasFiltered;
+  if (hasFiltered) {
+    el('filtered-count').textContent = d.filtered_count;
+    el('filtered-body').innerHTML = filteredHTML(d.filtered_reasons, d.filtered_count);
+  }
 
   el('ack-btn').disabled = d.cards.length === 0;
   el('cursor-state').textContent =
@@ -480,6 +519,11 @@ el('cards').addEventListener('click', (e) => {
   if (!body) return;
   body.hidden = !body.hidden;
   if (chev) chev.style.transform = body.hidden ? 'rotate(0deg)' : 'rotate(90deg)';
+});
+
+el('mute-toggle').addEventListener('click', () => {
+  showMuted = !showMuted;
+  load();
 });
 
 el('ack-btn').addEventListener('click', ackAll);
