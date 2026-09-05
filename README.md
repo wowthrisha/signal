@@ -558,6 +558,41 @@ found. This movement was detected from price alone."*
   row carries `published_at_basis: EX_DATE` so it states what its own timestamp
   means.
 
+### Did the evidence exist before the move? We cannot say.
+
+The useful question about a document attached to a price movement is whether it
+existed *before* the move. That is a different question from whether the
+**ex-date** preceded the move, and the second cannot answer the first: an
+ex-date is when a corporate action takes effect, while the announcement that
+moved the price typically precedes it by weeks.
+
+Every evidence row is therefore classified against the movement session:
+
+| relation | meaning | rows |
+|---|---|---|
+| PRECEDES | a real filing timestamp on an earlier session | 0 |
+| SAME_SESSION_UNORDERED | same session, intra-session order unknowable from EOD bars | 0 |
+| FOLLOWS | a real filing timestamp on a later session | 0 |
+| **UNKNOWN** | **no publication timestamp exists** | **4,072** |
+
+**All 4,072 rows are UNKNOWN, and 0 of the 1,052 evidence-bearing events can be
+ordered against their price move.** The reason is a property of the source, not
+of the code: the NSE corporate-actions feed supplies an **ex-date, never a
+filing timestamp** — `SELECT count(*) FROM evidence WHERE published_at_basis =
+'FILED_AT'` returns 0, and no row carries a time of day. Using the ex-date as a
+stand-in would manufacture an ordering the data cannot support, so the
+classifier refuses to, and the card says "Timing unknown".
+
+That limitation is the finding. The classifier itself is complete — it produces
+all four states from a genuine filing timestamp, and same-session filings
+resolve to SAME_SESSION_UNORDERED rather than PRECEDES, because end-of-day bars
+cannot establish which came first within a session.
+
+**Association is not causation, and the UI never implies otherwise.** A document
+sharing a symbol and a session with a movement is corroboration; nothing here
+establishes cause. The card states ordering only, and a FOLLOWS row reads
+"Recorded after the movement, so it cannot be what the movement reflected".
+
 Ingesting NSE's announcements endpoint, which does carry attachment URLs, would
 raise coverage without weakening either constraint. See
 [ADR-042](docs/DECISIONS.md).

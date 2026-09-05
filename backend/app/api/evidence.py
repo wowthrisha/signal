@@ -40,6 +40,68 @@ BASIS_FILED_AT = "FILED_AT"
 
 VALID_BASES = (BASIS_EX_DATE, BASIS_FILED_AT)
 
+# Which bases actually assert *when the document was published*. Only
+# FILED_AT does. An ex-date says when a corporate action takes effect, which is
+# routinely weeks after the announcement that caused the price to move — so it
+# carries no information about document ordering and must never be used as a
+# proxy for one.
+PUBLICATION_BASES = (BASIS_FILED_AT,)
+
+# --- temporal relation between the document and the price move --------------
+#
+# The question is "did the documentary evidence exist before the market move?",
+# not "was the ex-date before the market move". Those are different questions
+# and the second one cannot answer the first.
+PRECEDES = "PRECEDES"
+SAME_SESSION_UNORDERED = "SAME_SESSION_UNORDERED"
+FOLLOWS = "FOLLOWS"
+UNKNOWN = "UNKNOWN"
+
+# Wording rendered on a card. Every one of these is an ordering statement.
+# **None of them is a causal claim.** Evidence sharing a symbol and a session
+# with a movement is association; establishing cause needs an argument this
+# system does not make, so no phrasing here may imply one.
+TEMPORAL_LABEL = {
+    PRECEDES: "Published before the move",
+    SAME_SESSION_UNORDERED: "Same session; ordering unknown",
+    FOLLOWS: "Published after the move",
+    UNKNOWN: "Timing unknown",
+}
+
+
+def temporal_relation(
+    published_at: datetime | None,
+    published_at_basis: str | None,
+    session_date: date | None,
+) -> str:
+    """Order a document against a price-movement session, or admit we cannot.
+
+    Deterministic, and deliberately unhelpful when the data is unhelpful:
+
+      * A basis that is not a publication basis — `EX_DATE` is the only other
+        one we hold — yields `UNKNOWN`, always. This is the rule the whole
+        function exists to enforce: an effective date is not a filing date, and
+        treating it as one would manufacture an ordering the data cannot
+        support.
+      * A genuine filing timestamp on an earlier session yields `PRECEDES`; on
+        a later session, `FOLLOWS`.
+      * A genuine filing timestamp on the *same* session yields
+        `SAME_SESSION_UNORDERED` rather than `PRECEDES`, because the bars are
+        end-of-day: we know the document and the move share a session and we
+        cannot see which came first inside it. Claiming `PRECEDES` there would
+        be asserting intra-session ordering we have no data for.
+    """
+    if published_at is None or session_date is None:
+        return UNKNOWN
+    if published_at_basis not in PUBLICATION_BASES:
+        return UNKNOWN
+    published_session = published_at.date()
+    if published_session < session_date:
+        return PRECEDES
+    if published_session > session_date:
+        return FOLLOWS
+    return SAME_SESSION_UNORDERED
+
 
 class EvidenceValidationError(ValueError):
     """A row that would misrepresent its own provenance."""
@@ -80,8 +142,22 @@ class Evidence:
         if not self.title.strip():
             raise EvidenceValidationError("title is required")
 
+    @property
+    def temporal_relation(self) -> str:
+        """Derived at read time from stored fields rather than denormalised.
+
+        A stored column would be a second copy of a pure function of three
+        columns already present, and the two could drift — which for a
+        provenance claim is the one failure that matters.
+        """
+        return temporal_relation(
+            self.published_at, self.published_at_basis, self.session_date)
+
     def as_dict(self) -> dict:
+        relation = self.temporal_relation
         return {
+            "temporal_relation": relation,
+            "temporal_label": TEMPORAL_LABEL[relation],
             "source_tier": self.source_tier,
             "source_name": self.source_name,
             "document_type": self.document_type,

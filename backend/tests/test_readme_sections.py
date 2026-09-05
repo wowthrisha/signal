@@ -24,6 +24,39 @@ from pathlib import Path
 import pytest
 
 README = Path(__file__).resolve().parents[2] / "README.md"
+DECISIONS = Path(__file__).resolve().parents[2] / "docs" / "DECISIONS.md"
+
+# Claim language this repository has committed to not making. A research
+# document in circulation contains several of these plus a factual error — it
+# calls this an "SEC filing" system when it is NSE/SEBI — and the guard exists
+# so that document cannot leak back into the repo through an edit.
+#
+# `SEC` is matched as a standalone token: "sector" and "section" appear
+# constantly and are not the regulator.
+OVERCLAIM = [
+    r"\bSEC\b",
+    r"\bfirst[- ]ever\b",
+    r"\bonly product\b",
+    r"\bno competitor",
+    r"\bnobody does\b",
+    r"\bnobody has done\b",
+    r"\bundeniabl",
+    r"\bunique\b",
+    r"\brevolutionary\b",
+    r"\bworld[- ]first\b",
+]
+
+# A line that *forbids* or *disclaims* a term necessarily contains it. The spec
+# lists prohibited phrasing; the README says uniqueness cannot be proven. Both
+# are the constraint being stated, not violated.
+CLAIM_ALLOWED_CONTEXT = [
+    "is not something this repository can prove",
+    "what you must not claim",
+    "must not claim",
+    "❌",
+    "overclaim",
+    "prior art",
+]
 
 # Top-level sections. Each is load-bearing: it is either something a reader
 # needs to judge the work, or something the project has committed to disclosing.
@@ -111,3 +144,53 @@ def test_headings_are_unique():
         seen = _headings(level)
         dupes = {h for h in seen if seen.count(h) > 1}
         assert not dupes, f"duplicate level-{level} headings: {sorted(dupes)}"
+
+
+# --- claim language --------------------------------------------------------
+
+CLAIM_GUARDED = [README, DECISIONS]
+
+
+# Inline code spans are stripped before matching, for the same reason the
+# advice-language guard parses Python instead of grepping it: `UNIQUE` as a SQL
+# constraint keyword is code, not a claim about the product, and a checker that
+# cannot tell the difference gets switched off.
+_CODE_SPAN = re.compile(r"`[^`]*`")
+
+
+def _offending_lines(path: Path) -> list[str]:
+    out = []
+    for lineno, raw in enumerate(path.read_text().splitlines(), 1):
+        line = _CODE_SPAN.sub(" ", raw)
+        low = line.lower()
+        if any(ok in low for ok in CLAIM_ALLOWED_CONTEXT):
+            continue
+        for pattern in OVERCLAIM:
+            m = re.search(pattern, line, re.IGNORECASE if pattern != r"\bSEC\b" else 0)
+            if m:
+                out.append(f"{path.name}:{lineno}: {m.group(0)!r} in {raw.strip()[:90]}")
+    return out
+
+
+@pytest.mark.parametrize("path", CLAIM_GUARDED, ids=lambda p: p.name)
+def test_no_overclaim_or_wrong_regulator(path):
+    """The narrowed claim stands: separated detection, attribution and
+    attention allocation, with measurable suppression, deterministic replay and
+    provenance — GR-1 cited as prior art, novelty stated as unverified. Nothing
+    stronger, and the regulator is NSE/SEBI, never the SEC."""
+    offenders = _offending_lines(path)
+    assert not offenders, "claim language or wrong regulator:\n" + "\n".join(offenders)
+
+
+def test_the_claim_guard_would_actually_catch_something():
+    """A guard that cannot fail is decoration."""
+    assert re.search(OVERCLAIM[0], "filed with the SEC")
+    assert not re.search(OVERCLAIM[0], "the sector index")
+    assert not re.search(OVERCLAIM[0], "this section")
+    assert re.search(OVERCLAIM[3], "no competitors ship this", re.I)
+
+
+def test_gr1_is_still_cited_as_prior_art():
+    """The narrowing is load-bearing: if the GR-1 citation disappears, the
+    novelty claim silently widens again."""
+    assert "GR-1" in README.read_text()

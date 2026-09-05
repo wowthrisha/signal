@@ -1946,3 +1946,136 @@ Full suite: `284 passed, 1 skipped, 1 xfailed in 291.92s`.
 `ops/GATE-STATUS.md` deliberately untouched: no G-numbered gate exists in this
 run's evidence, and inventing one would violate the "from ACTION-LOG evidence
 only" rule.
+
+---
+
+# [U9] Temporal integrity of evidence, claim guard — 2026-09-05
+
+## [U9.1] Task 1 — investigation before any code change
+
+Every timestamp in the event -> evidence -> source chain, and what each one
+semantically is:
+
+```
+ table_name  | column_name  |        data_type
+ bar         | session_date | date                      the trading session
+ bar         | ingested_at  | timestamptz               when WE fetched the bar
+ corp_action | ex_date      | date                      when the action TAKES EFFECT
+ corp_action | ingested_at  | timestamptz               when WE fetched the feed
+ event       | session_date | date                      the session scored
+ event       | occurred_at  | timestamptz               SYNTHETIC: session date + clock time
+ event       | detected_at  | timestamptz               when the PIPELINE ran
+ evidence    | session_date | date                      the session the row attaches to
+ evidence    | published_at | timestamptz               currently the ex-date at 00:00
+ evidence    | retrieved_at | timestamptz               when WE fetched it
+```
+
+**Not one of these is a document publication or filing timestamp.**
+`event.occurred_at` is `datetime.combine(session, detected_at.timetz())` — a
+constructed value, not an observed event time. `ingested_at` and `retrieved_at`
+are our own database timestamps.
+
+Representative rows traced end to end:
+
+```
+     isin     | ev_session |      published_at      | basis   |         retrieved_at          | url |  ex_date
+ INE001E01012 | 2026-08-14 | 2026-08-14 00:00:00+00 | EX_DATE | 2026-09-05 03:37:22.467842+00 |     | 2026-08-14
+ INE002A01018 | 2026-06-05 | 2026-06-05 00:00:00+00 | EX_DATE | 2026-09-05 03:37:22.467842+00 |     | 2026-06-05
+```
+
+```
+ evidence_rows | filed_at_rows | rows_with_time_of_day | distinct_bases
+          4072 |             0 |                     0 |              1
+
+ evidence_bearing_events | with_real_publication_ts | ex_date_only
+                    1052 |                        0 |         1052
+```
+
+**Answer to 1.4: 0 of the 1,052 evidence-bearing events have a documentary
+publication timestamp.** All 1,052 carry an ex-date only.
+
+## [U9.2] Task 1a — classification, live counts — PASS
+
+```
+evidence rows classified: 4072
+  PRECEDES                 0
+  SAME_SESSION_UNORDERED   0
+  FOLLOWS                  0
+  UNKNOWN                  4072
+```
+
+An ex-date yields `UNKNOWN` unconditionally, including when it falls *before*
+the movement session — an effective date is not a filing date and the rule
+holds regardless of how convenient the alternative would be.
+
+A same-session filing timestamp resolves to `SAME_SESSION_UNORDERED`, never
+`PRECEDES`, because the bars are end-of-day and intra-session ordering is not
+observable — not even for a 09:15 filing.
+
+## [U9.3] Task 1b/1c/1d — derivation, wording, tests — PASS
+
+`temporal_relation` is derived at read time, not stored: it is a pure function
+of three columns already present, and a stored copy could drift from them —
+which for a provenance claim is the one failure that matters.
+
+Rendered wording, verified in node:
+
+```
+PRECEDES                "Published before the move | Ordering only. Signal does not claim this document caused the move."
+SAME_SESSION_UNORDERED  "Same session; ordering unknown | Ordering only. Signal does not claim this document caused the move."
+FOLLOWS                 "Published after the move | Recorded after the movement, so it cannot be what the movement reflected."
+UNKNOWN                 "Timing unknown | The feed supplies an effective date, not a filing time, so this document cannot be ordered against the move."
+```
+
+```
+$ python -m pytest tests/test_evidence_temporal.py -q
+19 passed, 1 skipped in 16.23s
+```
+
+## [U9.4] Task 3 — claim language — PASS, nothing to correct
+
+```
+$ grep -rnE '\bSEC\b' README.md docs/ ops/ backend/app/templates/ backend/app/static/
+  (no output)
+
+$ grep -rnoE '\b(SEBI|NSE|BSE|SEC)\b' README.md docs/DECISIONS.md | awk -F: '{print $3}' | sort | uniq -c
+  14 NSE
+   1 SEBI
+```
+
+**No standalone `SEC` exists anywhere in the repository.** The research
+document's "SEC filing" error is not present here. Every earlier hit was
+`sector` / `section` under a case-insensitive substring match.
+
+"First ever" appears once, at `docs/signal-spec-v1.0.md:908`, inside the spec's
+own **prohibited-language list** (`❌ "First ever", "nobody has done this"...`).
+"unique" appears once in the README, inside the disclaimer *"Whether that
+combination is unique is not something this repository can prove"*. Both are
+the constraint being stated, not violated. **No correction was required.**
+
+**Two defects found in the guard itself while writing it**, both by its own
+meta-test:
+
+1. `\b` inside a non-raw heredoc string became a literal backspace byte, so
+   every pattern matched nothing and the guard passed trivially — the exact
+   "guard that cannot fail is decoration" failure. Caught by
+   `test_the_claim_guard_would_actually_catch_something`; 18 backspaces
+   repaired.
+2. Once working, it flagged `DECISIONS.md:486` — `UNIQUE` as a SQL constraint
+   keyword in ADR-026. Inline code spans are now stripped before matching, on
+   the same principle the advice-language guard parses Python rather than
+   grepping it.
+
+## [U9.5] Task 2 — already complete
+
+Both console defects were fixed in the previous run (`d2662ea`) and verified
+here rather than redone:
+
+```
+$ curl -s -o /dev/null -w "%{http_code}" localhost:8000/favicon.ico
+204
+$ grep -n "build step for the UI" README.md
+603:| A build step for the UI | The page loads Tailwind from its CDN ... ADR-033, one surface. |
+```
+
+Full suite: `308 passed, 1 skipped, 1 xfailed in 290.43s`.

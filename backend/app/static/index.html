@@ -227,6 +227,31 @@ const TIER_MEANING = {
 
 const TIER_SOURCE = { 1: 'Exchange', 2: 'Company IR', 3: 'Regulator' };
 
+// Ordering, never causation. A document sharing a symbol and a session with a
+// movement is association; establishing cause takes an argument this system
+// does not make. Every string here states when the document was published
+// relative to the move, or admits the ordering is unknown — none says the
+// document explains the move, and FOLLOWS in particular must read as a
+// disclaimer rather than as a cause.
+const TEMPORAL = {
+  PRECEDES:               { text: 'text-neutral-400',   label: 'Published before the move' },
+  SAME_SESSION_UNORDERED: { text: 'text-neutral-500',   label: 'Same session; ordering unknown' },
+  FOLLOWS:                { text: 'text-amber-500/80',  label: 'Published after the move' },
+  UNKNOWN:                { text: 'text-neutral-600',   label: 'Timing unknown' },
+};
+
+function temporalHTML(e) {
+  const t = TEMPORAL[e.temporal_relation] || TEMPORAL.UNKNOWN;
+  const note = e.temporal_relation === 'UNKNOWN'
+    ? 'The feed supplies an effective date, not a filing time, so this document cannot be ordered against the move.'
+    : e.temporal_relation === 'FOLLOWS'
+      ? 'Recorded after the movement, so it cannot be what the movement reflected.'
+      : 'Ordering only. Signal does not claim this document caused the move.';
+  return `
+    <p class="mt-1 text-[11px] ${t.text}">${t.label}</p>
+    <p class="text-[11px] text-neutral-700 leading-snug">${note}</p>`;
+}
+
 function evidenceHTML(c) {
   // Provenance, rendered from stored fields. No link is ever synthesised: if
   // the source has no per-record permalink the block says so, because a link
@@ -258,6 +283,7 @@ function evidenceHTML(c) {
             <span class="text-neutral-800">(${e.published_at_basis.toLowerCase().replace('_', ' ')})</span>
             · retrieved ${e.retrieved_at.slice(0, 10)}
           </p>
+          ${temporalHTML(e)}
           ${e.linkable
             ? `<a href="${e.url}" target="_blank" rel="noopener noreferrer"
                   class="inline-block mt-1.5 text-[10px] uppercase tracking-widest
