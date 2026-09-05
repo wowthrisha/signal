@@ -388,7 +388,8 @@ than asserted.
 
 ## How this scales
 
-The query the digest runs, planned and executed against the live database:
+The query the digest runs, planned and executed against the live database
+(regenerated 2026-09-05, 497 sessions / 1,093,808 bars):
 
 ```sql
 EXPLAIN (ANALYZE, BUFFERS)
@@ -402,103 +403,92 @@ ORDER BY e.event_id LIMIT 500;
 ```
 
 ```
- Limit  (cost=42.95..42.96 rows=5 width=959) (actual time=0.993..1.005 rows=89 loops=1)
-   Buffers: shared hit=60 read=87
-   ->  Sort  (cost=42.95..42.96 rows=5 width=959) (actual time=0.992..0.997 rows=89 loops=1)
+ Limit  (cost=191.50..191.59 rows=36 width=959) (actual time=1.084..1.096 rows=89 loops=1)
+   Buffers: shared hit=48 read=99
+   ->  Sort  (cost=191.50..191.59 rows=36 width=959) (actual time=1.083..1.089 rows=89 loops=1)
          Sort Key: e.event_id
          Sort Method: quicksort  Memory: 115kB
-         Buffers: shared hit=60 read=87
-         ->  Nested Loop  (cost=8.49..42.89 rows=5 width=959) (actual time=0.065..0.915 rows=89 loops=1)
-               Buffers: shared hit=57 read=87
-               ->  Bitmap Heap Scan on watchlist_item w  (cost=4.17..11.28 rows=2 width=32) (actual time=0.027..0.031 rows=30 loops=1)
-                     Recheck Cond: (user_id = '00000000-0000-4000-8000-000000000001'::uuid)
-                     Filter: (NOT COALESCE(muted, false))
-                     Heap Blocks: exact=1
+         Buffers: shared hit=48 read=99
+         ->  Nested Loop  (cost=3.79..190.57 rows=36 width=959) (actual time=0.051..0.996 rows=89 loops=1)
+               Buffers: shared hit=45 read=99
+               ->  Seq Scan on watchlist_item w  (cost=0.00..3.89 rows=15 width=13) (actual time=0.010..0.027 rows=30 loops=1)
+                     Filter: ((NOT COALESCE(muted, false)) AND (user_id = '00000000-0000-4000-8000-000000000001'::uuid))
+                     Rows Removed by Filter: 121
                      Buffers: shared read=2
-                     ->  Bitmap Index Scan on watchlist_item_pkey  (cost=0.00..4.17 rows=3 width=0) (actual time=0.016..0.016 rows=30 loops=1)
-                           Index Cond: (user_id = '00000000-0000-4000-8000-000000000001'::uuid)
-                           Buffers: shared read=1
-               ->  Bitmap Heap Scan on event e  (cost=4.31..15.77 rows=3 width=959) (actual time=0.016..0.026 rows=3 loops=30)
-                     Recheck Cond: ((isin = w.isin) AND (event_id > 0))
-                     Filter: (confidence >= 0.3)
-                     Heap Blocks: exact=79
-                     Buffers: shared hit=57 read=85
-                     ->  Bitmap Index Scan on event_isin_id  (cost=0.00..4.31 rows=3 width=0) (actual time=0.010..0.010 rows=3 loops=30)
-                           Index Cond: ((isin = w.isin) AND (event_id > 0))
-                           Buffers: shared hit=49 read=14
+               ->  Memoize  (cost=3.79..15.25 rows=3 width=959) (actual time=0.020..0.031 rows=3 loops=30)
+                     Cache Key: w.isin
+                     Cache Mode: logical
+                     Hits: 0  Misses: 30  Evictions: 0  Overflows: 0  Memory Usage: 82kB
+                     Buffers: shared hit=45 read=97
+                     ->  Bitmap Heap Scan on event e  (cost=3.78..15.24 rows=3 width=959) (actual time=0.016..0.026 rows=3 loops=30)
+                           Recheck Cond: ((isin = w.isin) AND (event_id > 0))
+                           Filter: (confidence >= 0.3)
+                           Heap Blocks: exact=79
+                           Buffers: shared hit=45 read=97
+                           ->  Bitmap Index Scan on event_isin_id  (cost=0.00..3.78 rows=3 width=0) (actual time=0.011..0.011 rows=3 loops=30)
+                                 Index Cond: ((isin = w.isin) AND (event_id > 0))
+                                 Buffers: shared hit=41 read=22
  Planning:
-   Buffers: shared hit=363 read=5
- Planning Time: 1.579 ms
- Execution Time: 1.098 ms
+   Buffers: shared hit=319 read=45
+ Planning Time: 1.800 ms
+ Execution Time: 1.196 ms
 ```
 
-**No sequential scan.** Both sides are index-driven: `watchlist_item_pkey` on
-`(user_id, isin)` resolves the watchlist, and `event_isin_id` on `(isin, event_id)`
-resolves each symbol's events. The nested loop runs 30 times — once per watchlist
-row — and each inner probe touches three rows. Execution time 1.098 ms against
-1,093,808 bars and 5,962 events. Nothing was indexed specially to produce this plan;
-both indexes are in `schema.sql` as shipped.
+### Finding: there is a Seq Scan now, and it is the right plan
+
+An earlier run of this same query used a Bitmap Index Scan on both sides. This
+one seq-scans `watchlist_item`. Reporting it rather than quietly adding an index
+to make the output look better:
+
+`watchlist_item` holds **151 rows across 5 users in 2 heap pages, 16 kB total** —
+it grew from 30 rows when per-visitor demo state started cloning the template
+list. Below roughly one page of tuples per lookup, reading the whole table beats
+descending an index and then visiting the heap anyway, so the planner is right
+and an index here would be slower as well as dishonest. `Rows Removed by Filter:
+121` is the cost of that choice and it is 121 rows.
+
+The side that matters is unchanged: `event` — 5,962 rows and the table that
+actually grows — is still reached through `event_isin_id` on `(isin, event_id)`,
+one bitmap index scan per watched ISIN, with a `Memoize` node caching the inner
+result per `isin`. Execution time **1.196 ms**.
+
+If `watchlist_item` reaches a size where the seq scan stops being free, the
+planner will switch to `watchlist_item_pkey` on its own, because the index
+already exists. Nothing needs adding; this is a plan that changes shape with the
+data, which is what it should do.
 
 ### The arithmetic
 
-The corpus, from live counts:
+Corpus, from live counts:
 
 | | |
 |---|---|
 | instruments | 3,044 |
 | bars | 1,093,808 |
 | sessions | 497 |
-| index bars | 69,992 |
-| corporate actions | 4,072 |
+| events | 5,962 |
 
-**Detection is per-symbol and independent of user count.** The pipeline runs once per
-session over the universe — about 3,000 symbol-computations — and writes one ledger.
-It does not know how many users exist. One user or a million, that cost is the same
-number of floating-point operations, which is the whole reason CLAUDE.md's hard rule 3
+**Detection is per-symbol and independent of user count.** The pipeline runs once
+per session over the universe — about 3,000 symbol-computations — and writes one
+ledger. It does not know how many users exist. One user or a million, that is the
+same number of floating-point operations, which is why CLAUDE.md's hard rule 3
 says detection runs per-symbol, never per-user.
 
-**The per-user step is an index-covered join, `O(watchlist size)`.** The plan above is
-that join: one bitmap index scan per watched ISIN, bounded by `event_id > cursor` so
-it reads only what is new. It does not grow with the size of the ledger or with the
+**The per-user step is `O(watchlist size)`.** The plan above is that join: one
+index probe per watched ISIN into `event`, bounded by `event_id > cursor` so it
+reads only what is new. It does not grow with the size of the ledger or with the
 number of other users.
 
-**At 1M users x 50 symbols:** detection is unchanged — still ~3,000 computations per
-session, because the universe did not grow. Only the join fans out, and it fans out
-per *request*, not per user in storage: 50 index probes for whoever happens to open
-the page. At 1.098 ms for 30 symbols the 50-symbol case is under twice that, and one
-commodity Postgres reader saturates long after the CDN does. Storage grows by one
-`watchlist_item` row per user-symbol — 50M narrow rows, which is a single table, not
-an architecture.
+**At 1M users x 50 symbols:** detection is unchanged — still ~3,000 computations
+per session, because the universe did not grow. Only the join fans out, and it
+fans out per *request*, not per user in storage. Storage grows by one
+`watchlist_item` row per user-symbol: 50M narrow rows, which is a single table,
+not an architecture — and at that size the planner uses the index rather than the
+seq scan above.
 
-What this does *not* claim: we have not run a million users. This is arithmetic over a
-measured single-user plan, and the thing it is designed to make obvious is which term
-has the user count in it. Only one does, and it is the cheap one.
-
-## What is actually new here
-
-Not "AI applied to a watchlist". That space has incumbents: **Groww shipped GR-1,
-an AI investing assistant, in August 2026**, and Robinhood ships an AI digest. Any
-claim that nobody combines a model with market context would be false, so this
-project does not make one.
-
-The narrower claim it does make is about *structure*:
-
-1. **Detection, attribution and attention allocation are separate stages with
-   separate failure modes**, rather than one scoring function. Most watchlist
-   alerting collapses them into a threshold.
-2. **The suppression is measured and shown.** `make evaluate` generates the
-   comparison against two baselines and a six-row ablation; the drawer shows the
-   reader what was discarded and why. The headline figure —
-   `alert_reduction_vs_B0` — needs no ground-truth label at all.
-3. **Replay is deterministic.** Eight fault scenarios, a byte-stable ledger digest,
-   and a `BIGSERIAL` cursor that advances under `GREATEST`.
-4. **Every displayed number has provenance.** The tier, the gate string, `U`, `I`,
-   `C` and the attribution split are read from the stored event, not recomputed for
-   display, so "Why this?" is answered from fields. A missing field renders "not
-   available"; nothing is generated.
-
-Whether that combination is unique is not something this repository can prove, and
-it does not try to.
+What this does *not* claim: we have not run a million users. This is arithmetic
+over a measured single-user plan, and its purpose is to make obvious which term
+carries the user count. Only one does, and it is the cheap one.
 
 ## What we deliberately did NOT build
 

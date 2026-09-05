@@ -1569,3 +1569,37 @@ deliberately not echoed for the same reason.
 Empty history returns 200 `"empty"` (a fresh deploy is up and truthfully holds
 nothing); database-unreachable returns 503 with a fixed `database_unreachable`
 token and no traceback.
+
+## [U6.3] Task 3 — fresh EXPLAIN — PASS, with a finding
+
+Regenerated against current data (497 sessions, 1,093,808 bars). Full plan is
+pasted verbatim in the README under "How this scales". Scan types:
+
+```
+$ grep -oE "Seq Scan|Index Scan|Bitmap Index Scan|Bitmap Heap Scan|Nested Loop" | sort | uniq -c
+   1 Bitmap Heap Scan
+   1 Bitmap Index Scan
+   1 Nested Loop
+   1 Seq Scan
+```
+
+**FINDING: a Seq Scan appeared that was not in the [U2] plan.** It is on
+`watchlist_item`, and it is the correct plan rather than a regression:
+
+```
+$ psql -c "select count(*) total_rows, count(distinct user_id) users from watchlist_item;"
+151|5
+$ psql -c "select pg_size_pretty(pg_relation_size('watchlist_item')), relpages ..."
+16 kB|2
+```
+
+The table grew from 30 rows to 151 across 5 users when per-visitor demo state
+started cloning the template list. At 2 heap pages, reading the whole table
+beats descending an index and visiting the heap anyway. `Rows Removed by
+Filter: 121` is the entire cost. **No index was added** — `watchlist_item_pkey`
+already exists and the planner will switch to it unprompted once the table is
+large enough for that to win.
+
+The side that grows is unchanged: `event` is still reached via `event_isin_id`
+on `(isin, event_id)`, one bitmap index scan per watched ISIN, now with a
+`Memoize` node caching per `isin`. `Execution Time: 1.196 ms`.
