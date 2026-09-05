@@ -527,7 +527,7 @@ source name, document type, the exchange's own title verbatim, `published_at`
 and `retrieved_at` as **separate** fields, and a checksum over the fields it was
 derived from.
 
-**Coverage, measured:**
+**Coverage, measured** (regenerate with the query in `ops/ACTION-LOG.md` [U7.1]):
 
 | event type | events | with a primary source |
 |---|---|---|
@@ -535,6 +535,10 @@ derived from.
 | JUMP | 3,806 | 44 |
 | DRIFT | 1,169 | 21 |
 | **total** | **5,962** | **1,052 (17.6 %)** |
+
+`evidence` holds 4,072 rows. **0 carry a URL** and all 4,072
+carry `published_at_basis = EX_DATE`, which is the two limitations below stated
+as numbers rather than as prose.
 
 Most of that shortfall is the system working rather than a gap. Tier C means
 "unusual movement, no known cause", so a JUMP with no filing behind it is
@@ -558,19 +562,33 @@ Ingesting NSE's announcements endpoint, which does carry attachment URLs, would
 raise coverage without weakening either constraint. See
 [ADR-042](docs/DECISIONS.md).
 
-## Market-wide regime suppression has never fired
+## Calibration
 
-Breadth suppression (§8) emits one regime card instead of fifty individual ones
-when more than half the universe moves together. Measured across all 497
-ingested sessions, **zero reach the `breadth > 0.5` gate**. The maximum is
-**0.3473 on 2026-04-01** — 838 of 2,413 symbols beyond `|z| > 2`, a severe day
-and still two thirds of the way there.
+### The market-regime gate has never fired, and that is the point
 
-The threshold was not lowered to produce a demonstrable session, and no demo
-control renders a manufactured one. The logic is implemented and unit-tested in
-`tests/test_breadth.py`; what is missing is a real session to show it on. Two
-years without one is arguably evidence the gate is set sensibly — one that fired
-on an ordinary Tuesday would be the defect.
+Breadth suppression (§8) emits **one** regime card in place of fifty individual
+ones when more than half the universe moves together. It is implemented and
+unit-tested in `tests/test_breadth.py`. It has also never triggered on real
+data:
+
+| | |
+|---|---|
+| sessions scored | 497 (`2024-09-02..2026-09-03`) |
+| gate | `breadth > 0.5`, counting symbols with `abs(z) > 2.0` |
+| sessions reaching the gate | **0** |
+| maximum breadth observed | **0.3473** on 2026-04-01 — 838 of 2,413 symbols |
+| second highest | 0.288 on 2025-04-01 — 599 of 2,080 |
+
+**We did not lower the gate to produce a demo.** The only way to render a regime
+session from this data is to move the threshold, and a market-regime gate that
+fires on an ordinary Tuesday is miscalibrated — it would be manufacturing the
+very "one notification, not fifty" event it exists to detect. Two years without
+a trigger is evidence the cut point is set sensibly, not evidence the feature is
+broken.
+
+Regenerate: the figures above come from replaying the pipeline over the full
+history and reading `SessionResult.breadth`. See `ops/ACTION-LOG.md` [U7.2] and
+[ADR-043](docs/DECISIONS.md).
 
 ## What we deliberately did NOT build
 

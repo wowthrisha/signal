@@ -1860,3 +1860,89 @@ Sections now present:
 ```
 
 Suite: `264 passed, 1 skipped, 1 xfailed in 288.51s`.
+
+---
+
+# [U8] README disclosures and a guard for the deletion class — 2026-09-05
+
+## [U8.1] Task 1 — both findings moved into the README — PASS
+
+Figures regenerated from live queries rather than copied from the brief.
+
+Evidence coverage:
+
+```
+$ psql -tAc "SELECT e.event_type, count(*), count(*) FILTER (WHERE ev.hit IS NOT NULL) ..."
+TOTAL|5962|1052
+JUMP|3806|44
+DRIFT|1169|21
+CORP_ACTION|987|987
+
+$ psql -tAc "select count(*), count(url), count(*) filter (where published_at_basis='EX_DATE') from evidence;"
+4072|0|4072
+```
+
+Breadth, by replaying the pipeline over the full history and reading
+`SessionResult.breadth`:
+
+```
+{
+  "sessions_scored": 497,
+  "window": "2024-09-02..2026-09-03",
+  "gate": 0.5,
+  "breadth_z": 2.0,
+  "regime_sessions": 0,
+  "max_fraction": 0.3473,
+  "max_session": "2026-04-01",
+  "max_extreme": 838,
+  "max_universe": 2413,
+  "second": {"session": "2025-04-01", "fraction": 0.288, "extreme": 599, "universe": 2080}
+}
+```
+
+Independently reproduced; identical to [U7.2]. Written into a new `## Calibration`
+section and into the existing `## Evidence` section. The `0 carry a URL` and
+`4,072 carry published_at_basis = EX_DATE` line states the two schema
+limitations as numbers rather than as prose.
+
+**Editing method changed because of R-25.** The regime block was replaced only
+after asserting its contents (`"0.3473" in old_block`), and the coverage table
+was replaced by matching the table itself, not the span between two headings.
+
+One rendering bug caught before commit: the gate row read
+`` `|z| > 2.0` `` inside a markdown table cell, where the pipes break the
+column count. Changed to `` `abs(z) > 2.0` `` and verified every row now has
+the same pipe count.
+
+## [U8.2] Task 2 — regression guard — PASS
+
+`tests/test_readme_sections.py`: 12 required `##` sections, 5 required `###`
+disclosure subsections, plus checks that no required section is effectively
+empty and that no heading is duplicated.
+
+```
+$ python -m pytest tests/test_readme_sections.py -q
+20 passed in 0.04s
+```
+
+**Proved the guard fails on the actual regression** rather than assuming it
+would — deleted the `## Evidence` section, ran the suite, restored it:
+
+```
+FAILED tests/test_readme_sections.py::test_required_top_level_section_is_present[Evidence]
+1 failed, 19 passed in 0.06s
+restored
+20 passed in 0.04s
+```
+
+The empty-section check exists because a heading with nothing under it is the
+same loss with the marker left behind, and arguably worse: the table of
+contents still looks correct.
+
+Full suite: `284 passed, 1 skipped, 1 xfailed in 291.92s`.
+
+## [U8.3] Task 3 — ship
+
+`ops/GATE-STATUS.md` deliberately untouched: no G-numbered gate exists in this
+run's evidence, and inventing one would violate the "from ACTION-LOG evidence
+only" rule.
