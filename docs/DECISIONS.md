@@ -1,31 +1,8 @@
 # Architecture Decision Records
 
-Required ADRs (write when decided, not retroactively):
-
-- [ ] Daily bars over intraday
-- [ ] CUSUM over BOCPD / e-detectors
-- [ ] No conformal guarantee
-- [ ] No bandit
-- [ ] Postgres over Kafka
-- [ ] Polling over WebSocket
-- [ ] Lexical over dense retrieval
-- [ ] ISIN as canonical identity
-- [ ] Gates over weighted sum
-- [ ] Templates over LLM generation
-- [ ] Fan-out on read
-- [ ] One surface only
-
----
-
-## ADR-001: [Title]
-
-**Date:** <!-- fill -->  **Status:** Proposed
-
-### Context
-
-### Decision
-
-### Consequences
+Written when the decision was taken, not reconstructed afterwards (CLAUDE.md hard
+rule 9). ADR-022 onward are the short form: context, decision, what was rejected,
+and the observation that would reopen it.
 
 ---
 
@@ -464,3 +441,111 @@ job: it guards against tick-size artefacts in *seeded* illiquid symbols.
 Gate 3 passes on the corrected figures. It would have passed on the pooled mean
 before the fix too, which is the point worth recording: a summary statistic that
 looks fine can be averaging over a warm-up pathology.
+
+---
+
+## ADR-022: Daily bars, not intraday
+
+**Context:** NSE publishes a free EOD bhavcopy; intraday ticks are a paid feed with a different failure surface.
+**Decision:** Detect on daily adjusted closes only.
+**Rejected:** Intraday bars — they would multiply the multiple-comparisons problem by ~375 without a labelled outcome to justify the extra alerts.
+**Would revisit if:** users report that same-day intraday reversals are making the digest describe moves that had already unwound by the close.
+
+---
+
+## ADR-023: CUSUM for drift, not BOCPD or e-detectors
+
+**Context:** D2 must catch sustained one-directional drift that no single session flags.
+**Decision:** A two-sided CUSUM with a reference value `k=0.5` and a decision interval `h2=4.0`, plus a 3-bar cooldown.
+**Rejected:** Bayesian online changepoint detection and e-value detectors — both need a run-length prior or a betting martingale we cannot calibrate at 127 sessions, and neither is more interpretable to a user asking "why now?".
+**Would revisit if:** history reaches a few years, at which point a run-length posterior becomes estimable and BOCPD's variable-horizon behaviour would beat a fixed `k`.
+
+---
+
+## ADR-024: No conformal prediction guarantee
+
+**Context:** A distribution-free coverage claim would be the strongest thing we could say about `U`.
+**Decision:** Do not make one. `U` is reported as an empirical percentile against the instrument's own history and nothing more.
+**Rejected:** Split conformal over the residual stream — exchangeability is violated, since CUSUM statistics are serially dependent by construction and residuals are heteroskedastic across regimes. The coverage claim would be false in exactly the volatile periods that matter.
+**Would revisit if:** we adopt a detector whose statistics are exchangeable under the null, or move to weekly aggregates where serial dependence is negligible.
+
+---
+
+## ADR-025: No bandit for card selection
+
+**Context:** Which cards to show is superficially an explore/exploit problem.
+**Decision:** Rank by the §7 gate, then cap. No learning in the loop.
+**Rejected:** Thompson sampling on click-through — the posterior is meaningless at this sample size, and exposure bias makes the reward circular: we would learn what we chose to show, then show it more.
+**Would revisit if:** we have tens of thousands of user-sessions *and* a reward that is not the click we caused, such as an explicit dismiss-as-irrelevant.
+
+---
+
+## ADR-026: Postgres, not Kafka or CQRS
+
+**Context:** The ledger must be append-only, idempotent, ordered and replayable.
+**Decision:** One `event` table with a `BIGSERIAL` primary key, a `UNIQUE` dedup key, and cursors that advance with `GREATEST`.
+**Rejected:** Kafka with a read-model projection — it buys partitioned throughput we do not need at ~50 events per session, and costs a second consistency model plus a rebuild path.
+**Would revisit if:** event volume exceeds what a single Postgres writer can absorb in the nightly window, or a second consumer needs the stream independently.
+
+---
+
+## ADR-027: Polling, not WebSockets
+
+**Context:** The page should reflect new detections without a manual refresh.
+**Decision:** `setInterval` at 5 s against `GET /api/digest`.
+**Rejected:** A WebSocket or SSE channel — nothing here is bidirectional or latency-critical; detections land once per session, so a push channel would idle for 23 hours a day and add a reconnect state machine to a static page.
+**Would revisit if:** detection moves intraday and the digest must update within seconds of a move.
+
+---
+
+## ADR-028: Lexical symbol resolution, not dense retrieval
+
+**Context:** A user types `TCS` and we must find the right instrument.
+**Decision:** Case-folded exact match against `symbol_alias`, then `instrument.symbol`, resolved to an ISIN at the boundary.
+**Rejected:** Embedding the instrument names into a vector index — tickers are identifiers, not prose; a nearest-neighbour match on 2,900 short strings would introduce a class of confident wrong answers that `upper()` and a B-tree cannot produce.
+**Would revisit if:** we accept free-text company names ("that Adani port company") rather than tickers.
+
+---
+
+## ADR-029: ISIN is the canonical identity
+
+**Context:** Tickers are reassigned; NSE renames symbols on mergers and face-value changes.
+**Decision:** Every table keys on `isin`. Symbols are resolved at the API boundary and never stored on a watchlist row.
+**Rejected:** Symbol as the primary key — it would silently repoint a user's watchlist at a different company after a rename, and corrupt every historical series joined through it.
+**Would revisit if:** never for storage. See [ADR-018](#adr-018-instrument-identity-across-a-face-value-change-via-the-isin-issuer-prefix) for the harder case where the ISIN itself changes.
+
+---
+
+## ADR-030: Gates, not a weighted sum
+
+**Context:** Four salience quantities must combine into one ranking.
+**Decision:** A lexicographic decision table (§7). `U`, `I`, `C` gate; `R` breaks ties. Nothing is summed.
+**Rejected:** `S = w₁U + w₂I + w₃R + w₄C` — the quantities have incomparable units, with zero labels the weights are unfalsifiable, and a large `U` on untrusted data would outrank a trusted material event.
+**Would revisit if:** we obtain labelled relevance judgements at a scale that makes the weights estimable rather than asserted. Enforced meanwhile by an AST check in `tests/test_salience.py`.
+
+---
+
+## ADR-031: Templates, not LLM generation
+
+**Context:** Each card needs a sentence explaining what happened.
+**Decision:** A fixed template per event type in `app/templates/headlines.py`, with values substituted from fields the pipeline already computed. Corporate actions pass the exchange's own `purpose` line through verbatim.
+**Rejected:** Generating headlines with a model — it would put unverifiable numbers next to verified ones on the same card, and the failure mode (a plausible wrong figure) is exactly the one a financial product cannot absorb.
+**Would revisit if:** generation is confined to rephrasing a template whose numbers are already rendered, with the template retained as the fallback.
+
+---
+
+## ADR-032: Fan-out on read
+
+**Context:** Detection produces events; users have watchlists; someone must join them.
+**Decision:** Detection runs per-symbol (~2,900 times per session) and writes one ledger. The digest joins that ledger to a watchlist at request time.
+**Rejected:** Fan-out on write, materialising a per-user feed — it multiplies storage by the user count, and every watchlist edit would require a backfill of rows that the read-time join produces for free.
+**Would revisit if:** the read-time join stops meeting its latency budget at a watchlist size we actually see, which a covering index on `(isin, event_id)` should postpone for a long time.
+
+---
+
+## ADR-033: One surface
+
+**Context:** The obvious roadmap has a digest, a per-symbol detail page, a settings screen and an alert inbox.
+**Decision:** Ship the digest. Watchlist editing lives on it; there is no second page.
+**Rejected:** A multi-screen app — every additional surface is another place for the funnel's argument to be diluted, and the product's whole claim is that the right answer fits on one screen.
+**Would revisit if:** users ask "why this card?" often enough that the stored `tier` and `gate` fields need a page of their own rather than a tooltip.
