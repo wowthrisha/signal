@@ -159,8 +159,23 @@ body {
 /* --- the watchlist table ------------------------------------------------ */
 /* A table because a table is scannable. Thirty chips in a cloud have no
    column to run an eye down; thirty rows do. */
+.wl-head { font-family: var(--mono); font-size: 9px; text-transform: uppercase;
+            letter-spacing: 0.12em; color: var(--text-3);
+            margin: 12px 0 3px; padding-top: 6px;
+            border-top: 1px solid var(--border); }
+.wl-head:first-child { margin-top: 4px; border-top: 0; padding-top: 0; }
+/* The heading is a control, so it must not inherit the 44px thumb target that
+   would make three headings taller than the rows they label. */
+.wl-headbtn { display: block; width: 100%; text-align: left; min-height: 0;
+              background: none; }
+.wl-headbtn:hover { color: var(--text-2); }
+.wl-headbtn[aria-pressed="true"] { color: var(--accent); }
+/* The magnitude column. Narrow on purpose: it is a scanning aid beside the
+   number, not a replacement for it. */
+.wl-mag { display: block; height: 4px; border-radius: 2px;
+          background: var(--surface-2); overflow: hidden; }
 .wl-row {
-  display: grid; grid-template-columns: 1fr auto 10px 18px;
+  display: grid; grid-template-columns: 1fr 46px auto 10px 18px;
   align-items: center; gap: 8px; width: 100%;
   padding: 5px 4px; border-radius: 4px; text-align: left;
   min-height: 0; background: none; border: 0;
@@ -193,6 +208,11 @@ body {
    card's argument rather than a decoration beside one. */
 .attr-bar { height: 34px; border-radius: 4px; overflow: hidden;
             background: var(--surface-2); }
+/* The demoted form: a rule, not an object. Full size survives in the filtered
+   drawer, which is the only place the proportion still discriminates. */
+.attr-slim { height: 6px; border-radius: 3px; overflow: hidden;
+             background: var(--surface-2); }
+.attr-slim > span { display: block; }
 .attr-bar .seg { position: relative; display: flex; flex-direction: column;
                  justify-content: center; padding: 0 6px; overflow: hidden;
                  min-width: 2px; }
@@ -339,7 +359,6 @@ input::placeholder { color: var(--text-3); }
 
   <!-- CENTRE — the cards. -->
   <main class="min-w-0">
-    <p id="funnel-lede" class="mb-3 text-sm t2"></p>
     <div id="api-banner" hidden
          class="mb-4 rounded border bd surface-2 px-3 py-2 text-xs accent"></div>
     <p id="shared-state" hidden class="mb-3 text-xs t2"></p>
@@ -350,11 +369,7 @@ input::placeholder { color: var(--text-3); }
   <aside class="rail min-w-0">
     <section class="surface rounded-lg border bd" style="padding:var(--card-pad)">
       <h2 class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">What was filtered</h2>
-      <div id="funnel" class="num figure-lg tracking-tight">
-        <span class="t2 text-sm">loading…</span>
-      </div>
-      <p id="funnel-sub" class="mt-3 text-xs t2"></p>
-      <div id="chain" class="mt-4"></div>
+      <div id="chain"></div>
       <div id="filtered-body" class="mt-4"></div>
       <p class="mt-4 text-[11px] t2 leading-relaxed">
         Movement is measured from one close to the next. A movement gets your
@@ -367,7 +382,6 @@ input::placeholder { color: var(--text-3); }
                        hover:surface-2 hover:t1 transition-colors
                        disabled:opacity-30">Mark all as seen</button>
         <span id="cursor-state" class="num text-[11px] t3"></span>
-        <span id="cadence" class="num text-[11px] t3"></span>
       </div>
     </section>
   </aside>
@@ -454,24 +468,11 @@ function sinceLabel(iso) {
     { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function funnelHTML(f) {
-  // Three stacked rows, not one wrapping sentence. At the 300px rail width
-  // the headline broke across three lines mid-phrase ("4 deserve your /
-  // attention"), which reads as a layout accident rather than as a figure.
-  // The header's centre zone carries the same three numbers on one line for
-  // the always-visible case; this is the version that has room to be read.
-  const rows = [
-    { n: f.watched, label: 'watched', accent: false },
-    { n: f.moved, label: 'moved', accent: false },
-    { n: f.surfaced, label: 'need attention', accent: true },
-  ];
-  return rows.map((r) => `
-    <div class="flex items-baseline gap-2">
-      <span class="num ${r.accent ? 'accent' : 't1'}"
-            style="font-size:1.5rem;font-weight:600;min-width:2.2ch;text-align:right">${r.n}</span>
-      <span class="text-xs ${r.accent ? 'accent' : 't2'}">${r.label}</span>
-    </div>`).join('');
-}
+// `funnelHTML` is gone. It rendered "30 watched · 22 moved · 4 need attention"
+// as three stacked figures in the right rail, which the fixed header now
+// carries at any scroll depth — the same three numbers, in one place. No count
+// was lost: the header has all three, the evidence chain's first row still
+// reads "22 moved more than 1%", and the Pareto still totals 18.
 
 function confidenceDots(c) {
   // Five dots, filled to the nearest fifth. C is a display state, never an
@@ -822,8 +823,9 @@ function outcomesRow(c) {
     <div class="flex gap-3 py-1.5 bdb last:border-0">
       <span class="label w-28 shrink-0 pt-0.5">After the move</span>
       <span class="text-xs t2 flex-1">${cells}${word}${pendingWhy}
-        <span class="block t3 mt-0.5" style="font-size:11px">Stock-specific,
-        measured after the fact. Not a forecast.</span>
+        <span class="block t3 mt-0.5" style="font-size:11px">Measured on the
+        part of the move the market and sector did not explain, after the
+        fact. Not a forecast.</span>
       </span>
     </div>`;
 }
@@ -869,6 +871,13 @@ function whyHTML(c, i, ctx = {}) {
       : `<span class="num">I=${c.i_score}</span>${c.i_score >= 2
           ? ' — a material event is on file for this session' : ' — no material event on file'}`]);
   }
+  // Data quality left the meta row when the card collapsed to six lines: it
+  // is identical on every card that can surface, because a card below the
+  // gate never appears, so it cannot help a reader choose between these four.
+  // It is a number, so it moved rather than went — dots, the word, and the
+  // value against the gate in the title, exactly as before.
+  const dq = confidenceGate(c, ctx);
+  if (dq) rows.push(['Data quality', dq]);
   rows.push(['Detector', c.event_type
     ? `${c.event_type.replace('_', ' ').toLowerCase()} on session <span class="num">${c.session_date || '—'}</span>`
       + (c.z === null || c.z === undefined ? '' : `, standardised residual <span class="num">${c.z.toFixed(2)}</span>`)
@@ -887,25 +896,24 @@ function whyHTML(c, i, ctx = {}) {
     </div>`;
 
   const extra = outcomesRow(c);
-  // The band and the detector's headline left the card face when it was cut
-  // to six rows. They are the first thing inside the drawer, above the plain
-  // reasons — moved, not removed.
-  const moved = `${extremityBand(c, ctx)}${
-    c.headline ? `<p class="mt-1 text-xs t2">${c.headline}</p>` : ''}`;
+  // Content only. `cardHTML` owns the disclosure now — one Investigate button
+  // per card rather than a "Why this?" toggle nested inside an evidence
+  // toggle, which is how the drawer ended up with two chevrons and two ids.
+  //
+  // The detector's headline and the verdict sentence live here. The band does
+  // NOT: it is the card's hero, drawn once on the face. Drawing it again three
+  // inches lower is the duplication this section exists to remove.
+  const verdict = verdictText(c);
   return `
-    <button data-why="${i}" aria-expanded="false" aria-controls="why-${i}"
-            class="mt-3 text-[11px] t3 hover:t2 transition-colors">
-      <span aria-hidden="true" class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
-    </button>
-    <div data-whybody="${i}" id="why-${i}" hidden class="mt-2 pl-3 bdl">
-      ${moved}
-      ${reasons.length ? `<ol class="text-xs t2 space-y-1 mb-2">${reasons.map((r, n) => `
-        <li><span class="num t3">${n + 1}.</span> ${r}</li>`).join('')}</ol>` : ''}
-      <details class="tech">
-        <summary class="text-[11px] t3 hover:t2 cursor-pointer">Technical details</summary>
-        <div class="mt-1">${rows.map(row).join('')}</div>
-      </details>${extra}
-    </div>`;
+    ${c.headline ? `<p class="text-xs t2 mb-2">${c.headline}</p>` : ''}
+    ${verdict ? `<p class="text-xs accent mb-2">${verdict.plain}
+      <span class="t3" style="font-size:11px">&mdash; ${verdict.term}</span></p>` : ''}
+    ${reasons.length ? `<ol class="text-xs t2 space-y-1 mb-2">${reasons.map((r, n) => `
+      <li><span class="num t3">${n + 1}.</span> ${r}</li>`).join('')}</ol>` : ''}
+    <details class="tech">
+      <summary class="text-[11px] t3 hover:t2 cursor-pointer">Technical details</summary>
+      <div class="mt-1">${rows.map(row).join('')}</div>
+    </details>${extra}`;
 }
 
 function decompositionHTML(c) {
@@ -1068,7 +1076,12 @@ function extremityBand(c, ctx) {
   // bound is a normal exceedance, not an unplottable one. 2.5 keeps real
   // detections on the axis and reserves the clamp for values that genuinely
   // run off it.
-  const W = 220, H = 26, mid = W / 2, span = h1 * 2.5;
+  // Promoted to the card's hero. It is the object that actually varies across
+  // the slate — 3.11, 4.33, 4.83, 3.36 sigma today — where the attribution
+  // share sits inside a 5.4-point band for every tier C card ever detected
+  // (measured, see ACTION-LOG 1a). Width and height are the change; the axis,
+  // the bound and the marker rules are untouched.
+  const W = 420, H = 36, mid = W / 2, span = h1 * 2.5;
   const x = (v) => mid + (v / span) * mid;
   const outside = Math.abs(z) >= h1;
   const clamped = Math.abs(z) > span;
@@ -1088,7 +1101,7 @@ function extremityBand(c, ctx) {
   // aria-label, which is where a screen reader reads it. Drawing both would
   // keep the duplication and add a graphic on top of it.
   return `
-    <div class="mt-3 flex items-center gap-3">
+    <div class="mt-2 flex items-center gap-3">
       <svg width="${W}" height="${H + 10}" viewBox="0 0 ${W} ${H + 10}" role="img"
            aria-label="${words}. ${sentence}. Standardised residual ${z.toFixed(2)} sigma against a normal range of plus or minus ${h1} sigma."
            class="shrink-0">
@@ -1100,23 +1113,41 @@ function extremityBand(c, ctx) {
               stroke="var(--text-3)" stroke-width="1"></line>
         <line x1="${x(h1)}" y1="${H / 2 - 6}" x2="${x(h1)}" y2="${H / 2 + 6}"
               stroke="var(--text-3)" stroke-width="1"></line>
+        <!-- The threshold, marked. The band had two unlabelled ticks; at this
+             size there is room to say what they are, and h1 comes from the
+             detector rather than from a number typed here. -->
+        <text x="${x(h1)}" y="${H / 2 - 9}" text-anchor="middle" fill="var(--text-3)"
+              style="font-size:9px;font-family:var(--mono)" aria-hidden="true">${h1}&#963;</text>
+        <text x="${x(-h1)}" y="${H / 2 - 9}" text-anchor="middle" fill="var(--text-3)"
+              style="font-size:9px;font-family:var(--mono)" aria-hidden="true">-${h1}&#963;</text>
         ${marker}
-        <text x="6" y="${H - 1}" fill="var(--text-3)"
-              style="font-size:9px" aria-hidden="true">normal</text>
-        <text x="${W - 6}" y="${H - 1}" text-anchor="end" fill="var(--text-3)"
+        <text x="6" y="${H - 2}" fill="var(--text-3)"
+              style="font-size:9px" aria-hidden="true">normal for this stock</text>
+        <text x="${W - 6}" y="${H - 2}" text-anchor="end" fill="var(--text-3)"
               style="font-size:9px" aria-hidden="true">unusual</text>
       </svg>
-      <span class="text-xs ${outside ? 'accent' : 't2'}">${words || ''}</span>
+      <!-- The plain verdict, beside the band rather than under it. -->
+      <span class="text-sm ${outside ? 'accent' : 't2'} leading-tight">${words || ''}</span>
     </div>`;
 }
 
+// The share the bar draws its widths from, as one number. Same arithmetic,
+// stated instead of drawn — because drawn, it was the same picture on every
+// card: tier C's stock-specific share sits in a 5.4-point IQR across all 932
+// tier C events in the database, so the segments cannot vary enough to be
+// read. Measured before changing anything; see ACTION-LOG 1a.
+function stockSpecificShare(c) {
+  const vals = [c.market_pct, c.sector_only_pct, c.residual_pct];
+  if (vals.some((v) => v === null || v === undefined)) return null;
+  const total = vals.reduce((a, v) => a + Math.abs(v), 0);
+  return total === 0 ? null : Math.abs(c.residual_pct) / total * 100;
+}
+
 function attributionRow(c) {
-  // ONE bar, three labelled segments, and it is the largest thing on the card.
-  // This is the product's core claim — that a move splits into the market, the
-  // sector, and what is left — so it is shown, not described. The three inline
-  // number pairs that used to sit above it said the same thing in text and
-  // cost a whole row of card height; the values now live on the segments, in
-  // the hover title, and in the aria-label.
+  // Demoted to a 6px inline rule with no in-bar labels. It was the card's
+  // largest object and its least informative one; the proportion now reads as
+  // a sentence, and the three components stay on hover and in the aria-label
+  // so no number left the card.
   const parts = [
     { key: 'market',         v: c.market_pct,      accent: false },
     { key: 'sector',         v: c.sector_only_pct, accent: false },
@@ -1127,25 +1158,22 @@ function attributionRow(c) {
   // Widths are proportional to ABSOLUTE contribution, so a large negative
   // component reads as large. Sign is carried by the number, never by width.
   const total = known.reduce((a, p) => a + Math.abs(p.v), 0) || 1;
-
   const label = known.map((p) => `${p.key} ${fmtPct(p.v)}`).join(', ');
-  const segs = known.map((p, i) => {
-    const w = Math.abs(p.v) / total * 100;
-    // Below about 14% a segment cannot hold its own label without the text
-    // overflowing into its neighbour, so the label drops out and the hover
-    // title and aria-label carry it. Nothing is lost, and nothing overlaps.
-    const roomy = w >= 14;
-    return `<span class="${p.accent ? 'bar-accent' : 'bar-quiet'} seg ${
-      i ? 'seg-div' : ''}" style="width:${w.toFixed(2)}%"
-      title="${p.key} ${fmtPct(p.v)}">${roomy ? `
-      <span class="seg-l">${p.key}</span>
-      <span class="seg-v num">${fmtPct(p.v)}</span>` : ''}</span>`;
-  }).join('');
+  const segs = known.map((p, i) =>
+    `<span class="${p.accent ? 'bar-accent' : 'bar-quiet'} ${i ? 'seg-div' : ''}"
+      style="width:${(Math.abs(p.v) / total * 100).toFixed(2)}%"></span>`).join('');
+
+  const share = stockSpecificShare(c);
+  const sentence = share === null ? '' :
+    `<span class="text-xs t2"><span class="num t1">${share.toFixed(0)}%</span> of this
+     move was the company, not the market.</span>`;
 
   return `
-    <div class="mt-3 attr-bar flex" role="img"
-         aria-label="Attribution of this move: ${label}."
-         title="${label}">${segs}</div>`;
+    <div class="mt-2" title="${label}">
+      <div class="attr-slim flex" role="img"
+           aria-label="Attribution of this move: ${label}.">${segs}</div>
+      ${sentence ? `<p class="mt-1">${sentence}</p>` : ''}
+    </div>`;
 }
 
 function verdictText(c) {
@@ -1171,43 +1199,42 @@ function verdictText(c) {
 
 function cardHTML(c, i, ctx = {}) {
   const t = TIER[c.tier] || { label: c.tier };
-  // Six rows, and everything else nests. The meta line had grown to three
-  // wrapped lines carrying five facts of unequal weight; the tier's meaning
-  // moved to the evidence row, where it belongs, because "no material filing
-  // on record" is a statement about evidence and reads as one there.
+  // Collapsed by default. Four expanded research reports is a wall, and a
+  // reader triaging a watchlist wants to choose which one to read, not read
+  // all four. Six lines, then Investigate.
   //
   // Deliberately no green/red on the return. Colouring a move by direction
   // implies a judgement about whether it is good news, which is one step from
   // a recommendation, and this product does not make them.
+  //
+  // The meta row lost the detector name and the data-quality dots. Neither is
+  // deleted: the detector is in Technical details with the session and the
+  // residual, and data quality is the first row inside Investigate. Both are
+  // constant across every card that can surface — a below-gate card never
+  // appears at all — so neither helps a reader pick between these four.
   const meta = [
-    unusualnessWords(c.z, ctx),
     c.event_type ? (EVENT_PLAIN[c.event_type] || c.event_type.replace('_', ' ')) : null,
     freshnessText(c),
-    confidenceGate(c, ctx),
   ].filter(Boolean).join('<span class="t3" aria-hidden="true"> · </span>');
 
-  const verdict = verdictText(c);
   const ev = c.evidence || [];
-  // Row 5. One line either way: a count that opens the filings, or the tier's
-  // own meaning when there are none. Both are evidence statements.
   const before = ev.filter((e) => e.temporal_relation === 'PRECEDES').length;
-  const evidenceRow = ev.length
-    ? `<button data-ev="${i}" aria-expanded="false" aria-controls="ev-${i}"
-               class="mt-2 text-[11px] evidence-fg hover:t1 transition-colors text-left"
-               style="min-height:0">
-         <span aria-hidden="true" class="inline-block" data-evchev="${i}">&#9656;</span>
-         ${ev.length} filing${ev.length === 1 ? '' : 's'}${
-           before ? ` · ${before} published before the move` : ''}
-       </button>
-       <div data-evbody="${i}" id="ev-${i}" hidden>${evidenceHTML(c)}</div>`
+  // Line 5. A count when filings exist, the tier's own meaning when they do
+  // not. Both are evidence statements; the filings themselves open below.
+  const evidenceLine = ev.length
+    ? `<p class="mt-2 text-[11px] evidence-fg">${ev.length} filing${
+        ev.length === 1 ? '' : 's'}${
+        before ? ` · ${before} published before the move` : ''}</p>`
     : `<p class="mt-2 text-[11px] t3"
           title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">${
        TIER_PLAIN[c.tier] || `Tier ${c.tier}`}</p>`;
 
+  // The first card opens on load, so the page is not four closed boxes.
+  const open = i === 0;
   return `
   <article class="card card-surfaced card-in" data-symbol="${c.symbol}"
            style="animation-delay:${i * 45}ms">
-    <!-- Row 1. The symbol is never allowed to shorten: at ten characters —
+    <!-- Line 1. The symbol is never allowed to shorten: at ten characters —
          BALRAMCHIN, ATHERENERG, the longest tickers in the instrument table —
          it was the element that truncated, and losing a ticker's last two
          letters is losing which company the card is about. -->
@@ -1219,21 +1246,34 @@ function cardHTML(c, i, ctx = {}) {
       <div class="num figure-lg t1 shrink-0">${fmtPct(c.total_return_pct)}</div>
     </div>
 
-    <!-- Row 2. -->
+    <!-- Line 2. -->
     <p class="mt-1 t3" style="font-size:0.75rem">${meta}</p>
 
-    <!-- Row 3. The card's argument, and its largest object. -->
+    <!-- Line 3. The hero: the one object that varies across the slate. -->
+    ${extremityBand(c, ctx)}
+
+    <!-- Line 4. The attribution, demoted to a rule and a sentence. -->
     ${attributionRow(c)}
 
-    <!-- Row 4. -->
-    ${verdict ? `<p class="mt-2 text-xs accent">${verdict.plain}
-      <span class="t3" style="font-size:11px">&mdash; ${verdict.term}</span></p>` : ''}
+    <!-- Line 5. -->
+    ${ctx.suppressEvidence && !ev.length ? '' : evidenceLine}
 
-    <!-- Row 5. -->
-    ${ctx.suppressEvidence && !ev.length ? '' : evidenceRow}
-
-    <!-- Row 6, and everything that used to be on the face, one layer down. -->
-    ${whyHTML(c, i, ctx)}
+    <!-- Line 6. Everything else is behind this, and nothing is behind it
+         twice: the filings, the plain reasons, the technical rows, the base
+         rates and the forward outcomes all live in this one drawer. -->
+    <button data-why="${i}" aria-expanded="${open}" aria-controls="why-${i}"
+            class="mt-3 text-xs t2 hover:t1 transition-colors rounded border bd
+                   px-2.5 py-1 inline-flex items-center gap-1.5"
+            style="min-height:30px">
+      <span data-chev="${i}" aria-hidden="true" class="inline-block transition-transform"
+            style="transform:rotate(${open ? 90 : 0}deg)">&#9656;</span>
+      <span data-whylabel="${i}">${open ? 'Close' : 'Investigate'}</span>
+    </button>
+    <div data-whybody="${i}" id="why-${i}" ${open ? '' : 'hidden'}
+         class="mt-3 pt-3 bdt">
+      ${ctx.suppressEvidence && !ev.length ? '' : evidenceHTML(c)}
+      ${whyHTML(c, i, ctx)}
+    </div>
   </article>`;
 }
 
@@ -1261,7 +1301,41 @@ function chainHTML(chain) {
       </li>`).join('')}</ol>`;
 }
 
-function filteredHTML(reasons, total) {
+// 1d. The attribution bar at full size, in the one place the proportion still
+// discriminates. On a card it does not — every tier C event in this database
+// sits inside a 5.4-point IQR on the stock-specific share, so the segments
+// draw the same picture four times. Here the bucket is *defined* by the market
+// dominating, and today it reads 44% market against 89–93% stock-specific on
+// the cards.
+//
+// The basis line is not decoration. This is a two-component split of raw
+// closes, which is what the funnel screened on; a card's bar is a
+// three-component split of the adjusted series the detector ran on. Showing
+// them at the same size without saying so would invite exactly the conflation
+// the ACTION-LOG entry above was written to avoid.
+function filteredBarHTML(a) {
+  const mkt = Math.abs(a.market_pct || 0), own = Math.abs(a.own_pct || 0);
+  const total = mkt + own;
+  if (!total) return '';
+  const w = (v) => (v / total * 100).toFixed(2);
+  return `
+    <div class="mt-2 attr-bar flex" role="img"
+         aria-label="Across these ${a.n} movements, the market accounted for ${
+           (mkt / total * 100).toFixed(0)} percent of the total move. ${a.basis}."
+         title="${a.basis}">
+      <span class="bar-quiet seg" style="width:${w(mkt)}%">
+        <span class="seg-l">market</span>
+        <span class="seg-v num">${(mkt / total * 100).toFixed(0)}%</span>
+      </span>
+      <span class="bar-accent seg seg-div" style="width:${w(own)}%">
+        <span class="seg-l">its own</span>
+        <span class="seg-v num">${(own / total * 100).toFixed(0)}%</span>
+      </span>
+    </div>
+    <p class="text-[11px] t3 mt-1">${a.basis}.</p>`;
+}
+
+function filteredHTML(reasons, total, attribution) {
   // A Pareto, not a list: the point is that one bar dwarfs the others, and a
   // reader should see that before reading any label. Bars are scaled against
   // the largest reason rather than the total, so the shape stays legible even
@@ -1290,6 +1364,7 @@ function filteredHTML(reasons, total) {
                 style="width:${(n / max * 100).toFixed(1)}%"></span>
         </div>
         <p class="text-[11px] t3 mt-1">${REASON_DETAIL[k] || ''}</p>
+        ${attribution && attribution.reason === k ? filteredBarHTML(attribution) : ''}
       </li>`).join('')}</ul>`;
 }
 
@@ -1303,32 +1378,43 @@ let wlFilter = null;
 // The three states, in the order a reader wants them: what needs attention,
 // what moved and was explained away, what did nothing.
 const WL_STATES = [
-  { key: 'surfaced', label: 'need attention' },
-  { key: 'filtered', label: 'moved' },
-  { key: 'quiet',    label: 'quiet' },
+  { key: 'surfaced', label: 'need attention', heading: 'Need attention' },
+  { key: 'filtered', label: 'moved', heading: 'Moved, not surfaced' },
+  { key: 'quiet',    label: 'quiet', heading: 'Quiet' },
 ];
 
-function wlRowHTML(w) {
+function wlRowHTML(w, maxAbs) {
   // A table, not a chip cloud. Thirty chips have no column to run an eye
   // down; thirty rows do, and the change column is what a watchlist is for.
+  //
+  // The magnitude bar makes the column scannable rather than readable: a
+  // reader picking the biggest mover should not have to compare thirty
+  // decimals. Width is against the largest absolute move on the list, so the
+  // leader fills the track and the rest are legible fractions of it.
   const st = wlState[w.isin] || {};
   const status = st.status || 'quiet';
   const chg = st.change_pct;
   const dim = w.muted ? 'opacity-40' : '';
-  const shown = chg === null || chg === undefined
+  const known = chg !== null && chg !== undefined;
+  const shown = !known
     ? '<span class="t3">&mdash;</span>'
     : `<span class="${status === 'surfaced' ? 'accent' : 't2'}">${
         chg > 0 ? '+' : ''}${chg.toFixed(2)}%</span>`;
   const dotTitle = status === 'surfaced' ? 'On the slate — needs attention'
     : status === 'filtered' ? 'Moved, and did not survive the gates'
     : 'No move past the display threshold in this window';
+  const w2 = known && maxAbs ? Math.abs(chg) / maxAbs * 100 : 0;
   return `
   <button class="wl-row num text-[11px] ${dim}" data-wl="${w.isin}"
           data-status="${status}"
-          aria-label="${w.symbol}${chg === null || chg === undefined ? ''
+          aria-label="${w.symbol}${!known ? ''
             : `, ${chg > 0 ? 'up' : 'down'} ${Math.abs(chg).toFixed(2)} percent`}, ${dotTitle}"
           title="${w.name || w.symbol}">
     <span class="t1 truncate text-left">${w.symbol}</span>
+    <span class="wl-mag" aria-hidden="true">${w2
+      ? `<span class="block h-full rounded-sm ${
+          status === 'surfaced' ? 'bar-accent' : 'bar-quiet'}"
+          style="width:${w2.toFixed(1)}%"></span>` : ''}</span>
     <span class="text-right">${shown}</span>
     <span class="wl-dot ${status}" title="${dotTitle}" aria-hidden="true"></span>
     <span data-remove="${w.isin}" role="button" tabindex="0"
@@ -1367,16 +1453,42 @@ function renderWatchlist(items) {
     const k = (wlState[w.isin] || {}).status || 'quiet';
     counts[k] = (counts[k] || 0) + 1;
   }
-  el('wl-filters').innerHTML = WL_STATES.map(({ key, label }) => `
-    <button class="wl-filter t2 hover:t1 transition-colors" data-wlf="${key}"
-            aria-pressed="${wlFilter === key}">
-      <span class="num t1">${counts[key] || 0}</span> ${label}
-    </button>`).join('');
+  el('wl-filters').innerHTML = '';
 
   const visible = wlFilter
     ? shown.filter((w) => ((wlState[w.isin] || {}).status || 'quiet') === wlFilter)
     : shown;
-  el('watchlist').innerHTML = visible.map(wlRowHTML).join('')
+
+  // Grouped, with a heading per state. Ungrouped, BALRAMCHIN at +5.17% sat
+  // below COALINDIA at +3.97% with nothing on screen explaining why — the sort
+  // is attention-first, and that rule was invisible. The headings make it
+  // legible, and every count comes from the rows beneath it.
+  //
+  // The bar scale is the largest absolute move across the WHOLE list, not per
+  // group, so a bar means the same length in every group and the groups stay
+  // comparable to each other.
+  const maxAbs = Math.max(0, ...shown.map(
+    (w) => Math.abs((wlState[w.isin] || {}).change_pct || 0)));
+  const groups = WL_STATES.map(({ key, heading }) => {
+    const rows = visible.filter(
+      (w) => ((wlState[w.isin] || {}).status || 'quiet') === key);
+    if (!rows.length) return '';
+    // The heading is the filter. It used to be a chip row above the table
+    // saying "4 need attention · 18 moved · 8 quiet" AND a heading over each
+    // group saying the same three counts again — the same duplication this
+    // round removed from the funnel, six inches to the left. The count is the
+    // group's own row count, so a heading can never disagree with what is
+    // under it.
+    return `
+      <button class="wl-head wl-headbtn" data-wlf="${key}"
+              aria-pressed="${wlFilter === key}"
+              title="${wlFilter === key ? 'Show all groups' : 'Show only this group'}">
+        ${heading} <span class="num">(${counts[key] || 0})</span>${
+          wlFilter === key ? ' <span class="t2">— showing only this</span>' : ''}
+      </button>
+      ${rows.map((w) => wlRowHTML(w, maxAbs)).join('')}`;
+  }).join('');
+  el('watchlist').innerHTML = groups
     || '<p class="text-[11px] t3 py-2">No symbols in this state.</p>';
   el('wl-count').textContent =
     `${shown.length} watched${muted ? ` · ${muted} muted` : ''}`;
@@ -1420,7 +1532,6 @@ function render(d) {
   const caughtUp = d.cards.length === 0 && d.cursor !== null && d.cursor !== undefined;
 
   el('since').textContent = sinceLabel(d.since);
-  el('funnel').innerHTML = funnelHTML(d.funnel);
 
   // The state each watchlist row renders with, handed to `renderWatchlist`,
   // which runs immediately after this in `load`.
@@ -1448,15 +1559,7 @@ function render(d) {
   el('context').innerHTML = tiles.join(
     '<span class="t3" aria-hidden="true">·</span>');
 
-  // What the three figures below actually add up to, said once in a sentence,
-  // because a cold visitor reads "31 · 22 · 4" as three unrelated numbers.
-  // Both strings come from the funnel object; neither is typed twice.
   const f = d.funnel || {};
-  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
-  el('funnel-lede').innerHTML = (f.watched === undefined) ? ''
-    : `Signal found <span class="num t1">${f.surfaced}</span> `
-      + `${f.surfaced === 1 ? 'movement' : 'movements'} worth a closer look out of `
-      + `<span class="num t1">${f.watched}</span> you watch.`;
   el('head-summary').innerHTML = (f.watched === undefined) ? ''
     : [[f.watched, 'watched'], [f.moved, 'moved'],
        [f.surfaced, 'need attention']]
@@ -1464,23 +1567,7 @@ function render(d) {
         + `<span class="num ${i === 2 ? 'accent' : 't1'}">${n}</span> ${w}</span>`)
       .join('<span class="t3" aria-hidden="true"> · </span>');
 
-  // One sentence naming where the drop actually happened. It names the
-  // *largest* reason, computed from the response, rather than a reason chosen
-  // in advance: previously it always cited explained_by_market, which is 4 of
-  // 18 here while below_threshold is 14. Citing the smaller bucket is true
-  // sentence by sentence and misleading overall, which is the failure mode
-  // this whole product exists to argue against.
   const movedStage = (d.evidence_chain || []).find((st) => st.stage === 'moved');
-  const reasons = d.filtered_reasons || {};
-  const top = Object.entries(reasons).filter(([, n]) => n > 0)
-    .sort((a, b) => b[1] - a[1])[0];
-  el('funnel-sub').innerHTML = d.funnel.moved
-    ? `<span class="num t2">${d.funnel.moved}</span> `
-      + `${movedStage ? movedStage.label : 'moved'}. ` +
-      `<span class="num t2">${d.filtered_count}</span> were filtered` +
-      (top ? `, most of them because they ${REASON_CLAUSE[top[0]] || top[0]}` +
-             ` <span class="num t2">(${top[1]})</span>.` : '.')
-    : '';
   el('cards').setAttribute('aria-busy', 'false');
   // The legend is built from the payload so its definitions cannot drift from
   // the pipeline. The "moved" line in particular reuses the server's own
@@ -1556,16 +1643,15 @@ function render(d) {
   const hasFiltered = (d.filtered_count || 0) > 0;
   el('chain').innerHTML = hasFiltered ? chainHTML(d.evidence_chain) : '';
   el('filtered-body').innerHTML = hasFiltered
-    ? filteredHTML(d.filtered_reasons, d.filtered_count) : '';
+    ? filteredHTML(d.filtered_reasons, d.filtered_count, d.filtered_attribution)
+    : '';
 
   el('ack-btn').disabled = d.cards.length === 0;
-  // Cadence, derived from the session the database actually holds. This is
-  // end-of-day data: saying anything that implies a live intraday feed would
-  // be false, and hardcoding a date would go stale silently the moment the
-  // next bhavcopy lands.
-  el('cadence').textContent = d.latest_session
-    ? `Latest session ${sinceLabel(d.latest_session)} · next update after market close`
-    : 'No sessions ingested yet';
+  // The cadence line is gone from the rail. It read "Latest session 03 Sept
+  // 2026 · next update after market close", both halves of which the fixed
+  // context strip already carries — from `index_context`, which is derived
+  // from the same `latest_session`. Neither fact was lost; the strip is on
+  // screen at every scroll position and the rail was not.
 
   // The ledger position was shown here as "head 5962". That is a BIGSERIAL
   // event id — meaningful to whoever wrote the cursor, meaningless to a first
@@ -1621,15 +1707,15 @@ async function load(opts = {}) {
         ? `Showing the last successful update — the API did not respond (${e.message}).`
         : `Part of this page failed to render (${e.name}: ${e.message}). The data above loaded normally.`);
     } else if (isNetwork) {
-      banner('');
-      el('funnel').innerHTML =
-        `<span class="accent text-base">Digest unavailable — ${e.message}</span>`;
+      // The failure states moved with the element they used to write into.
+      // The distinction they draw is the point and is unchanged: an outage and
+      // a render bug are different problems, and the page once reported the
+      // first while the API was returning 200.
+      banner(`Digest unavailable — ${e.message}`);
       el('cards').innerHTML =
         `<p class="py-10 text-sm t3">The API is not responding. This page retries when the tab regains focus.</p>`;
     } else {
-      banner('');
-      el('funnel').innerHTML =
-        `<span class="accent text-base">This page failed to render</span>`;
+      banner('This page failed to render');
       el('cards').innerHTML =
         `<p class="py-10 text-sm t3">Display error: <span class="num">${e.name}: ${e.message}</span>.
          The digest API responded normally — this is a bug in the page, not an outage.</p>`;
@@ -1680,12 +1766,12 @@ async function ackAll() {
 
 // Delegated: cards are re-rendered on every 5-second poll, so per-card
 // listeners would be re-attached twelve times a minute.
-// Both of the card's disclosures, one delegated handler. Written as a pair
-// of (button attribute, body attribute, chevron attribute) so a third one
-// cannot be added by copying a branch and forgetting to change an id.
+// The card's disclosure, delegated. Written as a table of (button, body,
+// chevron) attributes so a second one cannot be added by copying a branch and
+// forgetting to change an id — which is how the evidence toggle ended up
+// nested inside the why toggle.
 const CARD_TOGGLES = [
   { btn: 'data-why', body: 'data-whybody', chev: 'data-chev' },
-  { btn: 'data-ev',  body: 'data-evbody',  chev: 'data-evchev' },
 ];
 el('cards').addEventListener('click', (e) => {
   for (const t of CARD_TOGGLES) {
@@ -1698,6 +1784,10 @@ el('cards').addEventListener('click', (e) => {
     body.hidden = !body.hidden;
     btn.setAttribute('aria-expanded', String(!body.hidden));
     if (chev) chev.style.transform = body.hidden ? 'rotate(0deg)' : 'rotate(90deg)';
+    // "Investigate" on a drawer that is already open is a lie about what the
+    // control does next.
+    const lbl = document.querySelector(`[data-whylabel="${id}"]`);
+    if (lbl) lbl.textContent = body.hidden ? 'Investigate' : 'Close';
     return;
   }
 });
@@ -1734,7 +1824,9 @@ document.addEventListener('keydown', (e) => {
 // --- the watchlist table's two behaviours ---------------------------------
 
 // Each count above the table filters it. Clicking the pressed one clears.
-el('wl-filters').addEventListener('click', (e) => {
+// Delegated on the table, because the group headings that carry the counts
+// are inside it now.
+el('watchlist').addEventListener('click', (e) => {
   const b = e.target.closest('[data-wlf]');
   if (!b) return;
   wlFilter = wlFilter === b.dataset.wlf ? null : b.dataset.wlf;

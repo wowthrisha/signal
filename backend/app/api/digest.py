@@ -596,10 +596,26 @@ def build_digest(
         slate_mod.REASON_THRESHOLD: 0,
         slate_mod.REASON_CONFIDENCE: 0,
     }
+    # The market/own split for the movements filed under "explained by market
+    # or sector", aggregated over that bucket.
+    #
+    # This is NOT the card's decomposition and must never be read as one. A
+    # filtered mover has no stored attribution at all — attribution is computed
+    # inside the detector and persisted only on an event, and in this window
+    # every event belongs to a surfaced symbol. What IS available is the split
+    # the funnel actually screened on: the total close-to-close move against
+    # the market's, from `_Move.excess`. Two components, raw closes. The
+    # payload carries `basis` so the UI can say which one it is showing.
+    explained_market = 0.0
+    explained_own = 0.0
     for isin, move in moves.items():
         if isin in surfaced:
             continue
-        reasons[_reason(by_isin.get(isin), move)] += 1
+        why = _reason(by_isin.get(isin), move)
+        reasons[why] += 1
+        if why == slate_mod.REASON_EXPLAINED:
+            explained_market += abs(move.ret - move.excess)
+            explained_own += abs(move.excess)
 
     # A capped card cleared every gate and lost to a screenful; `_reason` has
     # already binned it under below_threshold, which is the closest v1's
@@ -764,6 +780,24 @@ def build_digest(
                         conn if with_outcomes else None) for c in cards],
         "filtered_count": sum(reasons.values()),
         "filtered_reasons": reasons,
+        # Full-size only where the proportion still discriminates. On a card it
+        # does not: across all 932 tier C events in this database the
+        # stock-specific share sits inside a 5.4-point IQR, so the segments
+        # draw the same picture every time (ACTION-LOG 1a). Here the bucket is
+        # defined by the market dominating, so the bar has something to show.
+        "filtered_attribution": (
+            {
+                "reason": slate_mod.REASON_EXPLAINED,
+                "n": reasons[slate_mod.REASON_EXPLAINED],
+                "market_pct": _pct(explained_market),
+                "own_pct": _pct(explained_own),
+                "basis": "total close-to-close move against the market's, "
+                         "summed over the bucket — the screen the funnel ran, "
+                         "not a card's attribution",
+            }
+            if reasons[slate_mod.REASON_EXPLAINED] and (explained_market + explained_own)
+            else None
+        ),
         # What an ack should advance to. Read it here, send it back to
         # /api/digest/ack — the client never invents a cursor value.
         "cursor_head": head,

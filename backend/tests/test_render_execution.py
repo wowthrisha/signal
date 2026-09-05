@@ -86,6 +86,16 @@ PAYLOAD = {
          "change_pct": 2.02, "session_date": "2026-09-02",
          "status": "filtered", "reason": "below_threshold"},
     ],
+    # 1d. The split the funnel actually screened on for the explained bucket:
+    # two components, raw closes. Deliberately NOT a card's attribution — a
+    # filtered mover has none, because attribution is computed inside the
+    # detector and persisted only on an event.
+    "filtered_attribution": {
+        "reason": "explained_by_market", "n": 4,
+        "market_pct": 2.35, "own_pct": 3.05,
+        "basis": "total close-to-close move against the market's, summed over "
+                 "the bucket — the screen the funnel ran, not a card's attribution",
+    },
     "all_cards_lack_evidence": False,
     "cursor_head": 5961,
     "cursor": None,
@@ -421,7 +431,23 @@ def test_confidence_renders_a_value_and_its_gate(tmp_path):
     """The regression this replaced: the gate bar shipped without the number,
     and four cards read `conf` beside an orange stub with no magnitude."""
     html = _cards(tmp_path)
-    assert "data quality" in html
+    # It left the collapsed face — it is identical on every card that can
+    # surface — but it is a number, so it must still be on the page. This is
+    # the assertion that caught it being dropped outright.
+    assert "data quality" in html, "data quality is not rendered anywhere"
+    assert "Technical details" in html
+    # Only for cards that have a confidence value. The null-heavy card
+    # correctly renders no row rather than a zero we did not measure, and
+    # asserting on it would demand the opposite.
+    assert PAYLOAD["cards"], "the fixture carries no cards"
+    with_conf = [c["symbol"] for c in PAYLOAD["cards"]
+                 if c.get("confidence") is not None]
+    assert with_conf, "the fixture must carry at least one scored card"
+    for symbol in with_conf:
+        article = [a for a in html.split("<article") if symbol in a][0]
+        assert "data quality" in article.split("Technical details")[1], (
+            f"{symbol}: data quality is not inside its Technical details"
+        )
     # The numeric and the gate it is measured against, both, in the title.
     assert re.search(r"Data quality \d\.\d\d, against the gate of 0\.3", html), (
         "confidence rendered without its numeric value or without the gate"
@@ -439,8 +465,21 @@ def test_the_card_face_carries_words_not_sigma(tmp_path):
     card = [a for a in html.split("<article") if "IFCI" in a][0]
     face = card.split("Technical details")[0]
     visible = re.sub(r"<[^>]+>", " ", face)
-    assert "&#963;" not in visible and "\u03c3" not in visible, (
-        f"a sigma value is still visible on the card face: {visible[:400]}"
+    # The band is the card's hero and carries its bound as a marked threshold,
+    # which is a sigma on the face on purpose. What must NOT be there is the
+    # card's own standardised residual — the number a reader cannot use.
+    z = PAYLOAD["cards"][1]["z"]
+    assert f"{z:.2f}" not in visible, (
+        f"the card's own z value is still on its face: {visible[:400]}"
+    )
+    # BOTH bounds, not either. The band is two-sided and this accepted a
+    # half-marked axis: deleting the +h1 label left the -h1 label behind and
+    # the guard passed.
+    h1 = PAYLOAD["salience_config"]["d1_threshold"]
+    marked = sorted(float(m) for m in re.findall(r"(-?[\d.]+)&#963;", face))
+    assert marked == [-h1, h1], (
+        f"the band must mark both bounds of the detector's interval "
+        f"(expected {[-h1, h1]}, found {marked})"
     )
     for w in ("normal", "unusual"):
         assert w in visible
@@ -463,17 +502,17 @@ def test_the_tier_letter_left_the_face_but_not_the_page(tmp_path):
     what "everything else nests" means. Both are asserted, separately.
     """
     html = _cards(tmp_path)
-    face = html.split("Why this?")[0]
+    face = html.split("Investigate")[0]
     assert "TIER C" not in face and "TIER B" not in face
 
     # A card with no filings says what the tier means, on its face.
     no_ev = [a for a in html.split("<article") if "IFCI" in a][0]
-    assert "unusual" in no_ev.split("Why this?")[0], (
+    assert "unusual" in no_ev.split("Investigate")[0], (
         "a card with no filings lost the tier's meaning from its face"
     )
     # A card with filings shows the count there, and the tier is still reachable.
     with_ev = [a for a in html.split("<article") if "COALINDIA" in a][0]
-    assert "filing" in with_ev.split("Why this?")[0]
+    assert "filing" in with_ev.split("Investigate")[0]
 
     # Every card, either way, keeps the letter and the gate expression.
     for article in [a for a in html.split("<article") if "Technical details" in a]:
@@ -494,15 +533,19 @@ def test_the_verdict_leads_in_plain_english(tmp_path):
 def test_why_this_opens_on_plain_reasons(tmp_path):
     """3. Tier one is words; tier two is the record, nested beneath it."""
     html = _cards(tmp_path)
-    assert "Why this?" in html
+    assert "Investigate" in html, "the card has no disclosure control"
     # The populated card, not the null one: a reason that cannot be derived
     # is correctly absent, and asserting on the null card would prove nothing.
-    why = html.split("Why this?")[2]
+    why = [x for x in html.split("<article") if "IFCI" in x][0].split("Investigate")[1]
     plain = why.split("Technical details")[0]
     assert "It moved much more than this stock usually does." in plain
     assert "data-quality check" in plain
     # Nested, not adjacent: the technical block sits inside the drawer body.
     assert "<details" in why and why.index("<details") < why.index("Technical details")
+    # One disclosure per card, not a toggle nested inside a toggle.
+    card = [a for a in html.split("<article") if "IFCI" in a][0]
+    assert card.count("data-whybody") == 1
+    assert "data-evbody" not in card, "the evidence toggle is nested again"
 
 
 def test_the_outcome_words_are_defined_from_the_policy(tmp_path):
@@ -519,13 +562,18 @@ def test_the_orientation_line_and_legend_are_derived(tmp_path):
     """5a and 5b. Both come from the payload; neither is a typed constant."""
     r = _run(tmp_path, _script())
     out = json.loads(r.stdout.strip().splitlines()[-1])
-    lede, help_body = out["funnel_lede"], out["help_body"]
+    help_body = out["help_body"]
     f = PAYLOAD["funnel"]
-    assert str(f["surfaced"]) in lede and str(f["watched"]) in lede, (
-        f"the orientation line does not carry the funnel's own numbers: {lede}"
+    # The prose line above the cards is gone: it said the same three numbers
+    # the fixed header carries at every scroll position, and the right rail
+    # said them a third time. The header is now the single home, so THAT is
+    # what has to carry them.
+    assert not out["funnel_lede"], (
+        "the orientation prose line is back; the header already says this"
     )
-    assert "worth a closer look" in lede
-    assert str(f["watched"]) in out["head_summary"]
+    missing = [k for k in ("watched", "moved", "surfaced")
+               if str(f[k]) not in out["head_summary"]]
+    assert not missing, f"the header lost {missing}: {out['head_summary']}"
     missing = [t for t in ("Watchlist", "Moved", "Attention", "Evidence",
                            "After the move") if t not in help_body]
     assert not missing, f"the legend is missing {missing}"
@@ -540,12 +588,12 @@ def test_the_orientation_line_and_legend_are_derived(tmp_path):
 def test_the_plain_language_guards_fire_when_the_helper_is_deleted(tmp_path):
     """R-27. Delete the confidence renderer the way a span-replacement would,
     and the page must fail loudly rather than quietly losing the label."""
-    broken = re.sub(r"function confidenceGate\(c, ctx = \{\}\) \{.*?\n\}\n",
+    broken = re.sub(r"function extremityBand\(c, ctx\) \{.*?\n\}\n",
                     "", _script(), flags=re.S)
-    assert "confidenceGate(" in broken and "function confidenceGate" not in broken
+    assert "extremityBand(" in broken and "function extremityBand" not in broken
     r = _run(tmp_path, broken)
-    assert r.returncode != 0, "deleting the confidence renderer did not fail the guard"
-    assert "confidenceGate is not defined" in r.stderr
+    assert r.returncode != 0, "deleting the band renderer did not fail the guard"
+    assert "extremityBand is not defined" in r.stderr
 
 
 # --- the application shell, executed ---------------------------------------
@@ -607,35 +655,92 @@ def test_the_watchlist_is_a_table_with_a_row_per_symbol(tmp_path):
     assert "+3.97%" in table and "+11.93%" in table
 
 
-def test_the_watchlist_counts_partition_the_list(tmp_path):
-    """The three filter chips must add up to the rows they filter, or a chip
-    is reporting the size of a selection rather than of a state."""
+def test_the_watchlist_groups_head_the_rows_they_count(tmp_path):
+    """The counts moved onto the group headings. They used to be a chip row
+    above the table AND a heading over each group — the same three numbers
+    twice, in a 280px rail. A heading is the filter now, and its count must be
+    the number of rows beneath it or it is reporting something else."""
     r = _run(tmp_path, _script())
     out = json.loads(r.stdout.strip().splitlines()[-1])
-    chips = out["wl_filters"]
-    assert chips
-    counts = {row["status"] for row in PAYLOAD["watchlist_state"]}
-    for status in counts:
-        assert f'data-wlf="{status}"' in chips, f"no filter chip for {status}"
-    for label in ("need attention", "moved", "quiet"):
-        assert label in chips
+    table = out["watchlist_html"]
+    assert not out["wl_filters"], "the duplicate chip row is back"
+
+    # What the fixture says each group should hold, for the rows the table
+    # actually renders (muted rows are hidden by default).
+    shown = {w["isin"] for w in WATCHLIST if not w["muted"]}
+    assert shown
+    expected = {}
+    for row in PAYLOAD["watchlist_state"]:
+        if row["isin"] in shown:
+            expected[row["status"]] = expected.get(row["status"], 0) + 1
+    assert expected, "the fixture produces no grouped rows"
+
+    for status, n in expected.items():
+        assert f'data-wlf="{status}"' in table, f"no heading for {status}"
+        heading = table.split(f'data-wlf="{status}"')[1]
+        head_text = heading[:heading.index("</button>")]
+        assert f"({n})" in head_text, (
+            f"the {status} heading does not count its own rows: "
+            f"expected ({n}) in {head_text.strip()!r}"
+        )
+        # And the rows really are beneath it, before the next heading.
+        body = heading.split("</button>", 1)[1].split("wl-headbtn")[0]
+        assert body.count(f'data-status="{status}"') == n, (
+            f"the {status} group does not contain the {n} rows it claims"
+        )
+    for label in ("Need attention", "Moved, not surfaced", "Quiet"):
+        assert label in table
 
 
-def test_the_attribution_is_one_labelled_bar(tmp_path):
-    """3a. The product's core claim is shown, not described: one bar, three
-    segments, values on the segments and in the aria-label."""
+def test_the_attribution_is_demoted_but_keeps_every_value(tmp_path):
+    """1b. Measured before it was changed: across all 932 tier C events in the
+    database the stock-specific share sits inside a 5.4-point IQR, so the
+    segments drew the same picture on every card. It is a 6px rule and a
+    sentence now — and every number it used to carry is still on it."""
     html = _cards(tmp_path)
-    assert "attr-bar" in html, "the attribution bar is gone"
     card = [a for a in html.split("<article") if "COALINDIA" in a][0]
-    assert card.count("attr-bar") == 1, "more than one attribution bar per card"
+    assert "attr-slim" in card, "the attribution bar is gone entirely"
+    assert "attr-bar" not in card, (
+        "the full-size bar is back on the card; it belongs in the filtered "
+        "drawer, which is the only place the proportion discriminates"
+    )
+    assert "seg-l" not in card and "seg-v" not in card, (
+        "the demoted bar is carrying in-bar labels again"
+    )
+    # The share, stated rather than drawn.
+    c = PAYLOAD["cards"][0]
+    total = sum(abs(c[k]) for k in ("market_pct", "sector_only_pct", "residual_pct"))
+    share = abs(c["residual_pct"]) / total * 100
+    assert f"{share:.0f}%" in card, "the share is not stated as a number"
+    assert "was the company, not the market" in card
+    # Nothing was deleted: the three components survive in the aria-label and
+    # the hover title.
     assert re.search(r'aria-label="Attribution of this move: [^"]*market[^"]*'
                      r'sector[^"]*stock-specific[^"]*"', card), (
         "the attribution bar lost its screen-reader values"
     )
-    # The three inline number pairs that used to duplicate the bar are gone
-    # from the face, but every value is still on the bar itself.
     for v in ("+0.09%", "+0.28%", "+3.67%"):
         assert v in card, f"the bar lost {v}"
+
+
+def test_the_extremity_band_is_the_hero(tmp_path):
+    """1c. It is the object that actually varies across the slate — 3.11,
+    4.33, 4.83, 3.36 sigma today — where the attribution share does not."""
+    html = _cards(tmp_path)
+    card = [a for a in html.split("<article") if "IFCI" in a][0]
+    band = re.search(r'<svg width="(\d+)" height="(\d+)"[^>]*aria-label="[^"]*'
+                     r'normal range[^"]*"', card)
+    assert band, "the extremity band is not on the card face"
+    assert int(band.group(1)) >= 300, (
+        f"the band is {band.group(1)}px wide; it is meant to be the hero"
+    )
+    # Wider than the demoted attribution rule, which is the whole point.
+    assert "attr-slim" in card
+    # And the plain verdict sits beside it, exactly once per card.
+    visible = re.sub(r"<[^>]+>", " ", card)
+    assert visible.count("far outside its normal range") == 1, (
+        "the band's verdict is shown twice on the card face"
+    )
 
 
 def test_the_base_rates_are_bars_and_keep_their_denominator(tmp_path):
@@ -688,3 +793,49 @@ def test_the_shell_guards_fire_when_the_strip_is_faked(tmp_path):
         "a fabricated tile did not change the strip's percentage count, so "
         "the guard could not have caught it"
     )
+
+
+
+def test_the_full_size_bar_lives_where_it_discriminates(tmp_path):
+    """1d. Measured first (ACTION-LOG 1a): the stock-specific share does NOT
+    separate surfaced from filtered — 90.6% of suppressed events exceed an 80%
+    share against 66.7% of surfaceable ones, and tier C's IQR is 5.4 points.
+    So the full-size bar left the card. The one bucket where the proportion is
+    the *definition* is "explained by market or sector", and that is the only
+    place it now appears — with its basis stated, because it is a
+    two-component split of raw closes and a card's is three of an adjusted
+    series."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    pareto, cards = out["pareto"], out["cards_html"]
+    a = PAYLOAD["filtered_attribution"]
+
+    assert "attr-bar" in pareto, "the full-size bar is not in the filtered drawer"
+    assert "attr-bar" not in cards, "the full-size bar is back on the cards"
+    # Both components, labelled, from the payload.
+    total = abs(a["market_pct"]) + abs(a["own_pct"])
+    assert f'{abs(a["market_pct"]) / total * 100:.0f}%' in pareto
+    assert "market" in pareto and "its own" in pareto
+    # The basis, so it can never be read as a card's decomposition.
+    assert "not a card&#39;s attribution" in pareto or "not a card's attribution" in pareto, (
+        "the filtered bar does not state which split it is showing"
+    )
+
+
+def test_the_filtered_bar_is_absent_when_the_payload_omits_it(tmp_path):
+    """R-27 for 1d, and the honesty check: with no bucket there is nothing to
+    draw, and the drawer must render no bar rather than an empty one."""
+    payload = {**PAYLOAD, "filtered_attribution": None}
+    js = tmp_path / "app.js"; js.write_text(_script())
+    harness = tmp_path / "harness.js"; harness.write_text(HARNESS)
+    pj = tmp_path / "p.json"; pj.write_text(json.dumps(payload))
+    wj = tmp_path / "w.json"; wj.write_text(json.dumps(WATCHLIST))
+    r = subprocess.run([NODE, str(harness), str(js), str(pj), str(wj)],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, (r.stderr or "")[-800:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert "attr-bar" not in out["pareto"], (
+        "a bar rendered for a bucket the payload carried no split for"
+    )
+    # The Pareto itself still renders; only the bar is absent.
+    assert "Below threshold" in out["pareto"] or "below" in out["pareto"].lower()

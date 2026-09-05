@@ -3737,3 +3737,167 @@ keys do not line up renders every row in the fallback state and proves only
 that the fallback works.
 
 Full suite: `431 passed, 2 skipped, 1 xfailed in 323.09s`.
+
+## Task 1a — verify first. The hypothesis is REJECTED.
+
+The brief predicted: *"surfaced cards cluster and filtered ones spread, [so]
+the bar belongs where the variation is."* Measured, it does not. The share is
+`|residual| / (|market| + |sector| + |residual|)` — exactly the proportion the
+bar draws its widths from.
+
+**The four surfaced cards**
+
+| symbol | share | market | sector | stock-specific |
+|--------|------:|-------:|-------:|---------------:|
+| ANANTRAJ  | 68.0% | −0.32 | +1.90 | +4.72 |
+| COALINDIA | 90.8% | +0.09 | +0.28 | +3.67 |
+| IFCI      | 93.4% | −0.87 | +0.00 | +12.39 |
+| RBLBANK   | 88.9% | −0.21 | +0.33 | +4.34 |
+
+Spread 25.4 points, but three of the four sit within 4.5 points of each other.
+
+**The filtered ones cannot be compared directly, and that is itself a finding.**
+Only 6 events exist in this window and all 6 belong to the four surfaced
+symbols. The other 18 movers never fired a detector at all, so **no attribution
+is stored for them** — attribution is computed inside the detector and
+persisted only on an event. There is no "stock-specific share" for a filtered
+mover to report.
+
+So the comparison was run where it exists: every event in the database.
+
+| population | n | p10 | median | p90 | IQR |
+|------------|--:|----:|-------:|----:|----:|
+| tier A | 58 | 85.9 | 93.8 | 98.7 | 8.3 |
+| tier B | 846 | 26.4 | 70.7 | 94.1 | **35.9** |
+| tier C | 932 | 86.6 | 96.8 | 99.4 | **5.4** |
+| tier D (suppressed) | 4,022 | 80.5 | 94.5 | 99.4 | 9.8 |
+| surfaceable A/B/C | 1,836 | 43.7 | 91.0 | 99.0 | 25.5 |
+
+**Three things follow, and two of them contradict the brief.**
+
+1. The bar is uninformative on these cards, as claimed — but the reason is
+   sharper than "cards surface because they are stock-specific". All four live
+   cards are **tier C**, and tier C has the tightest share distribution on the
+   page: IQR 5.4 points, median 96.8%. Demoting it (1b) is correct.
+2. **Suppressed events are MORE stock-specific, not less.** 90.6% of tier D
+   events exceed an 80% share, against 66.7% of surfaceable ones, and tier D's
+   IQR (9.8) is tighter than A/B/C's (25.5). The share does not separate
+   surfaced from filtered in either direction.
+3. **1d as specified cannot be built from stored data.** "Show the bar at full
+   size beside explained by market/sector" assumes filtered movements carry an
+   attribution. They do not — see above. Implemented the honest version
+   instead: the drawer shows the split the funnel *actually* screened on for
+   that bucket (total return against the market return, from `_Move.excess`),
+   labelled as the two-component raw-close screen so it is never mistaken for
+   the card's three-component adjusted decomposition.
+
+Where the share genuinely varies is **tier B** (IQR 35.9) — cards admitted
+because a filing exists, whose price move was ordinary. None of the four live
+cards is tier B, so no arrangement of this bar could have made it informative
+today.
+
+## Tasks 1b–1d, 2, 3, 4, 5 — acting on the 1a measurement
+
+**1b — the bar is demoted.** A 6px rule with no in-bar labels, and the share
+stated once: *"91% of this move was the company, not the market."* Same
+arithmetic the segments drew, said instead of pictured, because pictured it was
+the same picture four times. The three components survive on hover and in the
+aria-label; no value left the card.
+
+**1c — the extremity band is the hero.** 220×26 → **420×36**, with both bounds
+of the decision interval marked (`-3σ` / `3σ`, read from `d1_threshold`, not
+typed) and the plain verdict beside it. This is the object that varies: 3.11,
+4.33, 4.83, 3.36 σ across the four, against a stock-specific share that sits in
+a 5.4-point IQR for every tier C event in the database.
+
+**1d — the full-size bar, where the proportion means something.** The brief put
+it beside "explained by market/sector" in the filtered drawer. It is there —
+but built from the only split that exists for those movements. `filtered_
+attribution` sums `|ret − excess|` against `|excess|` over that bucket and
+carries a `basis` string; the card's bar is a three-component split of the
+adjusted series, this is a two-component split of raw closes, and the drawer
+says so under the bar. Today it reads **44% market / 56% its own** against
+68–93% stock-specific on the cards — so unlike on a card, here the bar
+discriminates.
+
+**2 — collapsed by default.** Six lines: symbol and return · detector and age ·
+the band · the share sentence · filings or the tier's meaning · Investigate.
+Everything else — filings list, verdict, plain reasons, technical rows, base
+rates, forward outcomes — is in one drawer behind one button. The first card
+opens on load so the page is not four closed boxes. **Collapsed height: 259px**
+(was 684 open).
+
+  Two things left the collapsed face and both moved rather than went. The
+  detector's name is in Technical details with the session and the residual;
+  **data quality is a row inside Technical details**. Both are identical on
+  every card that can surface — a below-gate card never appears at all — so
+  neither helps a reader choose between these four.
+
+  **The guard caught me deleting data quality outright.** I removed
+  `confidenceGate` from the meta row and did not re-add it anywhere;
+  `test_confidence_renders_a_value_and_its_gate` failed, which is exactly the
+  standing rule ("delete no number — move it") enforced mechanically. It now
+  also asserts the row is inside each scored card's Technical details, so
+  dropping it again fails for the right reason.
+
+**3 — the triplication is gone.** "30 watched · 22 moved · 4 need attention"
+was in the header, in a prose line above the cards, and as three stacked
+figures in the right rail. The header keeps it; `funnelHTML`, `#funnel`,
+`#funnel-lede` and `#funnel-sub` are removed. No count was lost — the chain's
+first row still reads "22 moved more than 1%" and the Pareto still totals 18.
+The rail's cadence line went too: it repeated both halves of the fixed context
+strip.
+
+  Removing `#funnel` exposed a latent bug: the error path wrote failure text
+  into it, so any render failure would have thrown inside the catch block meant
+  to report it. Both failure states moved to the banner, and the distinction
+  they draw — outage versus render bug — is unchanged.
+
+  "stock-specific" went from three per card to one. The verdict's caption keeps
+  it; the outcomes line now says which series it measures without repeating the
+  term.
+
+**4 — watchlist group headers.** `Need attention (4)` · `Moved, not surfaced
+(18)` · `Quiet (8)`, sorted by absolute move within each group, with a slim
+magnitude bar per row scaled against the largest move on the whole list so a
+bar means the same length in every group. BALRAMCHIN at +5.17% sitting below
+COALINDIA at +3.97% now has a heading above it saying why.
+
+  The headings **are** the filter toggles. The chip row that used to carry the
+  same three counts above the table is gone — the same duplication this round
+  removed from the funnel, six inches to the left. Each heading counts its own
+  rows, and the guard fails if it counts anything else.
+
+**5 — measured at 1440×900, in Chromium.**
+
+| check | result |
+|-------|--------|
+| collapsed card height | **259px** (open: 684px) |
+| all four cards visible without scrolling | **no** — four collapsed cards need 1,036px of column plus 16px gaps; last card bottom is 1,234 against a 900px viewport |
+| funnel and Pareto visible without scrolling | **yes** — both, at every scroll position; they are in the sticky rail |
+| page width | 1440, `scrollWidth` 1440 — no horizontal scroll |
+| stock-specific share spread (1a) | surfaced **68.0 – 93.4%**; tier C population IQR **5.4 points**; suppressed tier D more stock-specific than surfaceable (90.6% vs 66.7% above an 80% share) |
+| truncated symbols | none |
+| console errors | none |
+
+The four-cards-plus-funnel target is not met and cannot be at this card size: a
+259px card with a 420px hero band and six lines needs ~1,036px for four, and
+the viewport has 804px below the fixed chrome. Shrinking to fit would undo 1c,
+which the same brief asked for. Reporting the number rather than quietly
+trimming the hero.
+
+**Guards.** Ten in `test_render_execution.py` updated or added, each proved to
+fire by mutation: the full-size bar returned to a card; the share sentence
+dropped; the band shrunk to 220px; **a half-marked band** (deleting the `+h1`
+label left `-h1` behind and the first version of the guard passed — it now
+requires both bounds); the data-quality row deleted again; the orientation
+prose line restored; the evidence toggle re-nested inside the drawer; a group
+heading counting the whole list instead of its group. Two new guards cover 1d,
+including the case where the payload carries no split and the drawer must draw
+no bar rather than an empty one.
+
+  One authoring bug worth recording: a comment I wrote contained the literal
+  `Technical details`, so guards that split the markup on that marker landed
+  inside the comment. A comment must not impersonate a structural marker.
+
+Full suite: `434 passed, 2 skipped, 1 xfailed in 196.09s`.
