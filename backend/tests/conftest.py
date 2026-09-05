@@ -49,7 +49,18 @@ SCHEMA_PATH = Path(__file__).resolve().parents[1] / "app" / "db" / "schema.sql"
 # the foreign keys hold. `bar` is the big one (~312k rows); COPY moves it in
 # about a second, and the alternative — synthetic prices — would make every
 # "on real ingested data" check in CHK-S1 vacuous.
-SEED_TABLES = ("sector", "instrument", "symbol_alias", "index_bar", "corp_action", "bar")
+# `event` is seeded too, and that was not always true. Omitting it meant the
+# fixture digest surfaced no cards, so every test iterating `payload["cards"]`
+# asserted over an empty list and passed while proving nothing — two in
+# `test_evidence.py` were doing exactly that, and a deliberately injected
+# lookahead leak walked straight through the outcome guards for the same
+# reason (R-37). Order matters: `event` references `instrument`.
+#
+# Tests that TRUNCATE the ledger (`LedgerWriter.reset()`) still may — the
+# database is session-scoped, so anything depending on seeded events after such
+# a test seeds its own, which `test_outcome_leakage.py` does.
+SEED_TABLES = ("sector", "instrument", "symbol_alias", "index_bar",
+               "corp_action", "bar", "event")
 
 
 def _with_dbname(url: str, dbname: str) -> str:

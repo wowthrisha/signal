@@ -65,6 +65,7 @@ def test_the_duplicate_symbols_are_successions_not_collisions(conn):
 def test_a_watchlist_payload_has_no_duplicate_symbol(conn):
     digest_api.seed_watchlist(conn)
     rows = wl._rows(conn, DEMO)
+    assert rows, "empty watchlist — a duplicate check over nothing is not a check"
     counts = collections.Counter(r["symbol"] for r in rows)
     dupes = {s: n for s, n in counts.items() if n > 1}
     assert not dupes, f"duplicate symbols in watchlist payload: {dupes}"

@@ -278,6 +278,9 @@ def test_an_unobservable_horizon_is_null_never_padded(conn):
     res = outcomes_mod.for_event(
         conn, isin="INE242C01024", session=last, residual=4.0,
         alpha=0.0, beta_mkt=1.0, beta_sec=0.0, sector_id=None, policy=POLICY)
+    assert len(res["horizons"]) == len(POLICY.horizons), (
+        "`all()` over an empty list is True — the horizons must exist first"
+    )
     assert all(h["residual_pct"] is None for h in res["horizons"])
     assert all(h["outcome"] == outcomes_mod.NOT_OBSERVABLE for h in res["horizons"])
 

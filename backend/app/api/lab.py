@@ -204,6 +204,14 @@ def _calibration(m: dict | None) -> str:
           "by replaying the pipeline and reading <code>SessionResult.breadth</code>.</p>")
 
 
+_BASE_RATE_SCOPE = (
+    "Base-rate percentages on a card are computed over the full ingested "
+    "history. A reduced deployment seed carries events for the demo watchlist "
+    "only, so its cohorts fall below the suppression floor and the cards there "
+    "show counts rather than percentages. Same rule, different amount of data."
+)
+
+
 def _evidence(conn) -> str:
     with conn.cursor() as cur:
         cur.execute(_EVIDENCE_SQL)
@@ -217,6 +225,7 @@ def _evidence(conn) -> str:
     return (_table(["event type", "events", "with evidence", "orderable"], cov_rows)
             + "<h3>Temporal relation</h3>"
             + _table(["relation", "evidence rows"], [list(r) for r in temporal])
+            + f"<p class='note'>{_BASE_RATE_SCOPE}</p>"
             + "<p class='note'>An ex-date is when a corporate action takes effect, "
               "not when anything was published, so those rows stay UNKNOWN. "
               "FOLLOWS is unreachable from the announcements path by construction: "

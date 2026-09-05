@@ -154,4 +154,4 @@ def test_live_evidence_now_contains_orderable_rows(conn):
         filed = cur.fetchone()[0]
     if not filed:
         pytest.skip("announcements not ingested into this database")
-    assert filed > 0
+    assert filed > 0, "no orderable rows — the point of the ingest is unmet"

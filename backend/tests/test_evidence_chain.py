@@ -34,10 +34,12 @@ def chain(test_database_url):
 
 
 def _by_stage(d):
+    assert d["evidence_chain"], "no evidence chain — assertions would be vacuous"
     return {s["stage"]: s["count"] for s in d["evidence_chain"]}
 
 
 def test_the_chain_has_every_stage_in_order(chain):
+    assert chain["evidence_chain"], "no stages — the comparison below is vacuous"
     assert [s["stage"] for s in chain["evidence_chain"]] == ORDER
 
 
@@ -59,6 +61,7 @@ def test_each_stage_is_a_subtraction_of_a_named_reason(chain):
 
 
 def test_no_stage_is_negative(chain):
+    assert chain["evidence_chain"], "no stages — the loop below would not execute"
     for stage in chain["evidence_chain"]:
         assert stage["count"] >= 0, f"{stage['stage']} is negative"
 

@@ -3141,3 +3141,121 @@ with a test asserting the two shapes match.
 ```
 full suite : 406 passed, 3 skipped, 1 xfailed
 ```
+
+---
+
+# [U19] Closing R-37: vacuous card assertions — 2026-09-05
+
+## [U19.1] Task 1a — the audit, before changing anything
+
+Tests whose assertions iterate cards, events or evidence from the fixture
+database, classified by whether they first establish the collection is
+non-empty:
+
+```
+test_announcements.py       [db] UNGUARDED  test_live_evidence_now_contains_orderable_rows
+test_evidence.py            [db] UNGUARDED  test_backfill_is_idempotent
+                            [db] UNGUARDED  test_a_card_with_a_corporate_action_renders_evidence
+                            [db] UNGUARDED  test_a_card_without_evidence_returns_an_empty_list_not_null
+test_evidence_chain.py           UNGUARDED  test_the_chain_has_every_stage_in_order
+                                 UNGUARDED  test_no_stage_is_negative
+                                 UNGUARDED  test_the_final_stage_counts_only_cards_inside_the_chain_population
+                                 UNGUARDED  test_the_label_states_the_threshold_from_config_not_a_literal
+test_outcome_leakage.py     [db] UNGUARDED  test_an_unobservable_horizon_is_null_never_padded
+                            [db] GUARDED    (three others, from [U18])
+test_watchlist_identity.py  [db] UNGUARDED  test_a_watchlist_payload_has_no_duplicate_symbol
+test_ledger.py              [db] GUARDED    test_event_id_is_monotonic
+```
+
+## [U19.2] Tasks 1b/1c — which were actually vacuous
+
+Non-emptiness assertions added first, then run against the unchanged fixture:
+
+```
+FAILED tests/test_evidence.py::test_a_card_with_a_corporate_action_renders_evidence
+FAILED tests/test_evidence.py::test_a_card_without_evidence_returns_an_empty_list_not_null
+2 failed, 405 passed
+```
+
+**Exactly two tests were vacuous.** The others survived because their
+collections do not depend on `event`: the evidence chain is derived from
+`moves` (bars), and watchlist rows come from `watchlist_item` joined to
+`instrument`, all of which were already seeded.
+
+`event` added to `SEED_TABLES`, after `instrument` so the foreign key holds:
+
+```
+408 passed, 1 skipped, 1 xfailed
+```
+
+Both now pass against real cards, and one skip resolved
+(`test_a_card_with_a_corporate_action_renders_evidence` had been skipping for
+want of a corporate-action card).
+
+## [U19.3] Task 1d — the guard, and two more it caught
+
+`tests/test_no_vacuous_assertions.py` walks every test function and flags any
+that iterates or `all()`s over cards, horizons or the evidence chain without
+first asserting the collection exists. On first run it found **two more**
+beyond the audit's manual read:
+
+```
+test_evidence_chain.py::test_the_chain_has_every_stage_in_order
+test_outcome_leakage.py::test_an_unobservable_horizon_is_null_never_padded
+```
+
+Both fixed. The guard also had a defect of its own — markers were matched as
+literals, so `d["cards"]` counted and `d['cards']` did not, and its own
+accept-case test caught that.
+
+**Proved both ways.** Statically, against synthetic vacuous and guarded probes.
+Empirically, by removing `event` from `SEED_TABLES` again:
+
+```
+FAILED tests/test_evidence.py::test_a_card_with_a_corporate_action_renders_evidence
+FAILED tests/test_evidence.py::test_a_card_without_evidence_returns_an_empty_list_not_null
+FAILED tests/test_no_vacuous_assertions.py::test_the_fixture_database_actually_surfaces_cards
+3 failed, 20 passed
+=== event restored ===
+23 passed
+```
+
+## [U19.4] Task 2 — chose (b), disclosure, with (a) costed first
+
+```
+events_all                 5962
+events_watchlist             89
+distinct_isins_with_events 2247
+bars_needed_for_all_events 903293
+current seed               710K
+```
+
+Option (a) needs events for 2,247 instruments plus the 903,293 bars behind them
+to compute forward returns — tens of megabytes and a much slower boot, for a
+demo whose point is the funnel. **Chose (b).** The README carries a block quote
+directly beneath the percentage table, and `/lab` carries the same statement
+beside its evidence figures, so a percentage never appears where a reader could
+compare it against a suppressed count without the reason adjacent. ADR-050.
+
+## [U19.5] A landmine found while writing the guard, and left in place deliberately
+
+The vacuity guard passed alone and failed in the full run. Cause:
+`test_isolation.py::test_ledger_reset_cannot_truncate_the_ingested_ledger`
+calls `LedgerWriter.reset()`, which TRUNCATEs `event` — and the test database
+is **session-scoped**, so every alphabetically later test sees an empty ledger.
+
+I first tried to make that test restore what it truncates: a temp table (which
+does not survive `reset()`), then a re-copy from the dev database (which landed
+in two functions because the pattern matched twice). Both were reverted. The
+truncation is the *point* of that test, and wrapping it in restore logic makes
+a simple assertion complicated to protect tests that should not depend on
+execution order in the first place.
+
+The guard is now order-independent: it asserts `event` is in `SEED_TABLES` and
+ordered after `instrument`, which is the invariant that actually matters and
+holds regardless of when it runs. Tests needing a ledger after the reset seed
+their own, which `test_outcome_leakage.py` already does.
+
+```
+full suite : 412 passed, 2 skipped, 1 xfailed
+```

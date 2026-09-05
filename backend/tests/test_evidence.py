@@ -107,6 +107,7 @@ def test_the_checksum_changes_when_any_source_field_changes():
 
 def test_backfill_is_idempotent(conn):
     first = ev.backfill(conn)
+    assert first["corp_actions_read"] > 0, "no corporate actions to back-fill"
     second = ev.backfill(conn)
     assert first["corp_actions_read"] == second["corp_actions_read"]
     with conn.cursor() as cur:
@@ -122,9 +123,11 @@ def test_a_card_with_a_corporate_action_renders_evidence(conn):
     ev.backfill(conn)
     digest_api.seed_watchlist(conn)
     d = digest_api.build_digest(conn, lookback=5)
+    assert d["cards"], (
+        "no cards surfaced — every assertion below would pass on an empty list"
+    )
     with_ev = [c for c in d["cards"] if c["evidence"]]
-    if not with_ev:
-        pytest.skip("no corporate-action card in this window")
+    assert with_ev, "no card carries evidence, so this test asserts nothing"
     row = with_ev[0]["evidence"][0]
     for field in ("source_tier", "source_name", "document_type", "title",
                   "published_at", "published_at_basis", "retrieved_at", "linkable"):
@@ -138,5 +141,6 @@ def test_a_card_without_evidence_returns_an_empty_list_not_null(conn):
     ev.backfill(conn)
     digest_api.seed_watchlist(conn)
     d = digest_api.build_digest(conn)
+    assert d["cards"], "no cards surfaced — the loop below would not execute"
     for card in d["cards"]:
         assert isinstance(card["evidence"], list)

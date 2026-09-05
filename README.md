@@ -725,6 +725,16 @@ tier, over the **full ingested history** — not the 9-session held-out window.
 30 observations** — the tier A row above shows counts for exactly that reason.
 A bare "48 %" invites a reader to treat 42 observations as a law.
 
+> **The figures above come from the full 497-session history and the hosted
+> demo will not show them.** The deployment carries a reduced seed — events for
+> the 30 watchlist instruments only, 89 rows — so its cohorts are n=9 and n=6
+> and the same suppression rule hides the percentages there. **The live demo
+> shows counts; this table shows percentages; both are the same rule applied to
+> different amounts of data.** Reproducing the percentages on the deployment
+> would need events for 2,247 instruments and the 903,293 bars behind them,
+> which is tens of megabytes of seed and a much slower boot for a demo — the
+> disclosure was judged cheaper than the payload. See ADR-050.
+
 This is a historical frequency, not a forecast, and the card says so. Note what
 it says: **the modal outcome at every tier is that the move faded.** That is a
 fact about the detector's past behaviour, not a prediction about the next one.

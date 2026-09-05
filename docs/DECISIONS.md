@@ -749,3 +749,19 @@ The deeper objection is that a fitted model here cannot be validated. Nine held-
 **Rejected: percentages without an `n`.** Base rates report `n` beside every figure and suppress percentages entirely below 30 observations. "48 %" over 42 events invites a reader to treat a frequency as a law; "48 % (n=42)" does not.
 
 **Would revisit if:** a relevance label with enough sessions to validate against exists. Both conditions, not either.
+
+---
+
+## ADR-050: The deployment keeps a reduced seed, and the difference is disclosed
+
+**Context:** Base-rate cohorts are n=544 and n=263 locally and n=9 and n=6 on the deployment, because the demo seed carries events for the 30 watchlist instruments only. The suppression rule then correctly hides percentages there — so the README quotes percentages a visitor to the hosted demo cannot see.
+
+**Decision:** Leave the seed, and put the explanation adjacent to every percentage — in the README next to the table, and on `/lab` next to the evidence figures. The live demo shows counts, the README shows percentages, and both say plainly that this is one rule applied to different amounts of data.
+
+**Rejected: widening the seed.** Reproducing those cohorts needs events for **2,247 instruments** and the **903,293 bars** behind them to compute forward returns — tens of megabytes of seed and a materially slower boot, for a demo whose point is the funnel rather than the base rates. The disclosure is cheaper than the payload and costs no honesty.
+
+**Not taken, but available:** precomputing the base rates at export time and shipping them as a committed artifact. It would make the live figures match, and `/lab`'s guard already permits a committed artifact as a source. It was not done here because it adds a build step to the seed and a second place for the numbers to go stale.
+
+**The constraint that shaped this:** a percentage must never appear where a reader can compare it against a suppressed count without the reason sitting beside it. That is why the disclosure is a block quote directly under the table rather than a footnote elsewhere.
+
+**Would revisit if:** the hosted demo becomes the primary artifact rather than the repository, at which point the precomputed-artifact route earns its build step.
