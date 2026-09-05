@@ -3009,3 +3009,86 @@ $ python -m pytest tests/ -q
 382 passed, 2 skipped, 1 xfailed, 2 warnings in 190.33s
 leftover databases: none
 ```
+
+---
+
+# [U18] Forward outcomes, display-only, with a leakage guard — 2026-09-05
+
+## [U18.1] Tasks 1-3 — outcomes computed and rendered — PASS
+
+Derived at read time from `(isin, session_date)`; no new table. Horizons index
+the exchange calendar in `bar`, so a weekend is not +2 and a holiday is simply
+an absent date. Corporate actions inside the forward window are applied when
+the feed carries a derivable factor and make the horizon `UNAVAILABLE` when it
+does not — a 1:2 split would otherwise read as a −50 % reversal.
+
+Classification is on the **stock-specific residual**, the quantity the detector
+acted on, computed by applying the model stored on the event (`alpha`,
+`beta_mkt`, `beta_sec`) to the forward sessions. **The betas are held at their
+detection-session values and are not refitted**; refitting would answer a
+different question. `OUTCOME_MATERIAL_FRACTION` lives in
+`configs/outcomes.json` as `material_fraction: 0.5`.
+
+```
+ANANTRAJ    resid=  4.72  +1 not yet observable  +3 not yet observable  +5 not yet observable
+COALINDIA   resid=  3.67  +1 +0.62%              +3 not yet observable  +5 not yet observable  — normalized
+IFCI        resid= 12.39  +1 -3.03%              +3 not yet observable  +5 not yet observable  — normalized
+RBLBANK     resid=  4.34  +1 not yet observable  +3 not yet observable  +5 not yet observable
+```
+
+Most horizons are unobservable because the ledger ends on 2026-09-03 and two of
+the cards sit on that session. Null, never padded.
+
+UI: one row inside the "Why this?" drawer, `--text-2`, with the classification
+as a lowercase past-tense word and the line *"Stock-specific, measured after
+the fact. Not a forecast."* Verified it renders nowhere near the return:
+`outcomes inside drawer only: true`, `no accent on the word: true`.
+
+## [U18.2] Task 2c — the guard did not fire twice before it fired
+
+The test was written before the UI, as required. Proving it fires took three
+attempts, and the two failures are the finding.
+
+**Attempt 1 — the injection was a no-op.** I wired a `CONTINUED` outcome into
+the slate's ranking input. No card in the window has a `CONTINUED` outcome, so
+nothing changed and the guard passed. A proof whose stimulus does not perturb
+the system proves nothing.
+
+**Attempt 2 — the guard could not see the leak by construction.** Payload
+equivalence compares `with_outcomes=True` against `False`. My leak ran in the
+`_candidates` path *regardless* of the flag, so both payloads were equally
+corrupted and compared equal. **Equivalence only catches leakage gated on the
+flag.** Confirmed the leak was live while the guard was green:
+
+```
+for_event calls during with_outcomes=False: 6
+```
+
+Added `test_selection_never_calls_the_outcomes_module`, which monkeypatches
+`for_event` to raise and builds the digest with outcomes disabled. Unreachable
+beats equal.
+
+**Attempt 3 — every card-dependent guard was vacuous.** `conftest.SEED_TABLES`
+copies bars but deliberately **not `event`**, so the fixture database has no
+ledger, the digest surfaces no cards, and every assertion iterated an empty
+list. The `1 skipped` in earlier runs was the tell. The module now seeds the
+watchlist's events into the test database and `_require_cards()` fails loudly
+rather than passing on nothing.
+
+**Then it fired:**
+
+```
+=== leak STILL injected ===
+E  AssertionError: selection called outcomes.for_event — an outcome is the
+   future relative to the session being scored, so this is lookahead
+FAILED tests/test_outcome_leakage.py::test_selection_never_calls_the_outcomes_module
+1 failed, 16 passed
+
+=== leak reverted ===
+17 passed
+```
+
+Import direction is guarded separately with an `ast` walk over
+`app/engine/**`, because a string mentioning the module is not an import.
+
+Full suite: `399 passed, 2 skipped, 1 xfailed`.

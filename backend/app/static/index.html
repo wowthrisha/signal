@@ -488,6 +488,39 @@ function evidenceHTML(c) {
     </div>`;
 }
 
+function outcomesRow(c) {
+  // A fact, not a headline. It lives inside the drawer, in --text-2, and never
+  // beside the return — putting "what happened next" next to "what happened"
+  // reads as a forecast, and this system does not forecast. The word classifies
+  // an observed move, past tense throughout.
+  const o = c.outcomes;
+  if (!o || !o.horizons || !o.horizons.length) return '';
+  const cells = o.horizons.map((h) => {
+    const v = h.residual_pct;
+    const shown = (v === null || v === undefined)
+      ? `<span class="t3">${h.outcome === 'NOT_YET_OBSERVABLE'
+          ? 'not yet observable' : 'not available'}</span>`
+      : `<span class="num">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+    return `<span class="t2"><span class="t3">+${h.h}</span> ${shown}</span>`;
+  }).join('<span class="t3" aria-hidden="true"> · </span>');
+
+  // One word, from the longest horizon that was actually observable.
+  const settled = [...o.horizons].reverse()
+    .find((h) => h.outcome && h.outcome !== 'NOT_YET_OBSERVABLE'
+                 && h.outcome !== 'UNAVAILABLE');
+  const word = settled
+    ? `<span class="t2"> — ${settled.outcome.toLowerCase()}</span>` : '';
+
+  return `
+    <div class="flex gap-3 py-1.5 bdb last:border-0">
+      <span class="label w-28 shrink-0 pt-0.5">After the move</span>
+      <span class="text-xs t2 flex-1">${cells}${word}
+        <span class="block t3 mt-0.5" style="font-size:11px">Stock-specific,
+        measured after the fact. Not a forecast.</span>
+      </span>
+    </div>`;
+}
+
 function whyHTML(c, i, ctx = {}) {
   // Only what is neither on the card face nor already stated once above the
   // list. All four drawers were byte-identical: same gate, same importance,
@@ -516,13 +549,14 @@ function whyHTML(c, i, ctx = {}) {
       <span class="text-xs t2 flex-1">${v}</span>
     </div>`;
 
+  const extra = outcomesRow(c);
   return `
     <button data-why="${i}" aria-expanded="false" aria-controls="why-${i}"
             class="mt-3 text-[11px] t3 hover:t2 transition-colors">
       <span aria-hidden="true" class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
     </button>
     <div data-whybody="${i}" id="why-${i}" hidden class="mt-2 pl-3 bdl">
-      ${rows.map(row).join('')}
+      ${rows.map(row).join('')}${extra}
     </div>`;
 }
 

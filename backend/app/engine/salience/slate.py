@@ -75,6 +75,9 @@ class Candidate:
     # The standardised residual the detector acted on, carried so the card can
     # plot the position D1 tested rather than a JS re-derivation of it.
     z: float | None = None
+    # The fitted model, carried through so a *display-only* forward outcome can
+    # apply the same coefficients the detector used. The slate never reads it.
+    attribution: dict | None = None
     headline: str = ""
 
     @property

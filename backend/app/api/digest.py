@@ -38,6 +38,7 @@ from pydantic import BaseModel
 
 from app.api import evidence as evidence_mod
 from app.api import freshness as fresh_mod
+from app.api import outcomes as outcomes_mod
 from app.core.clock import WallClock
 from app.engine.pipeline import Thresholds
 from app.engine.salience import scores as scores_mod
@@ -400,6 +401,7 @@ def _candidates(event_rows, meta) -> list[slate_mod.Candidate]:
             gate=payload.get("gate"),
             status=payload.get("status"),
             z=payload.get("z"),
+            attribution=(payload.get("attribution") or {}),
             headline=headlines.headline(etype, payload, purpose=purpose),
         ))
     return out
@@ -443,7 +445,13 @@ def build_digest(
     conn,
     user_id: str = DEMO_USER_ID,
     lookback: int = DEMO_DEFAULT_LOOKBACK_SESSIONS,
+    *,
+    with_outcomes: bool = True,
 ) -> dict:
+    """`with_outcomes=False` omits the forward-outcome fields and changes
+    nothing else. That is not a feature flag — it is what makes the leakage
+    guard checkable: the two payloads must be byte-identical apart from those
+    fields, and a test asserts it."""
     """The digest for one user.
 
     Two modes, and which one runs is decided by whether a `visit_cursor` row
@@ -615,7 +623,11 @@ def build_digest(
             "moved": len(moves),
             "surfaced": len(cards),
         },
-        "cards": [_card(c, all_sessions, policy, evidence_by_key) for c in cards],
+        # Outcomes are attached AFTER the slate has selected. Nothing above
+        # this line has seen them, which is the property the leakage guard
+        # asserts mechanically.
+        "cards": [_card(c, all_sessions, policy, evidence_by_key,
+                        conn if with_outcomes else None) for c in cards],
         "filtered_count": sum(reasons.values()),
         "filtered_reasons": reasons,
         # What an ack should advance to. Read it here, send it back to
@@ -657,7 +669,8 @@ def build_digest(
     }
 
 
-def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None) -> dict:
+def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None,
+          outcome_conn=None) -> dict:
     state, behind = fresh_mod.classify(
         c.session_date, calendar, status=c.status, policy=policy)
     # An empty list is a truthful answer, not a failure: most price-detected
@@ -665,8 +678,18 @@ def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None) -> di
     # ("unusual movement, no known cause") means. The card says so rather than
     # hiding the block.
     ev = (evidence or {}).get((c.isin, c.session_date), [])
+    outcome = None
+    if outcome_conn is not None:
+        att = c.attribution or {}
+        outcome = outcomes_mod.for_event(
+            outcome_conn, isin=c.isin, session=c.session_date,
+            residual=c.residual, alpha=att.get("alpha"),
+            beta_mkt=att.get("beta_mkt"), beta_sec=att.get("beta_sec"),
+            sector_id=c.sector_id, policy=outcomes_mod.Policy.load(),
+        )
     return {
         "evidence": ev,
+        "outcomes": outcome,
         "freshness": state,
         "sessions_behind": behind,
         "symbol": c.symbol,

@@ -1,0 +1,6 @@
+{
+  "_note": "Forward-outcome display policy. Read by app.api.outcomes.Policy.load(). These values classify an already-detected event after the fact; nothing here reaches detection, attribution, salience or the slate.",
+  "_material_fraction": "An outcome counts as continuation or reversal only if the forward stock-specific move is at least this fraction of the original residual. Below it, the move faded and is NORMALIZED.",
+  "material_fraction": 0.5,
+  "horizons": [1, 3, 5]
+}
