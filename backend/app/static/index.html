@@ -26,13 +26,18 @@
   /* Near-black rather than pure black: #000 under high-chroma accents causes
      halation on OLED, where the accent appears to bleed into the ground. */
   --bg:         #0A0B0D;
-  --surface:    #131519;
-  --surface-2:  #1A1D23;
-  --border:     #262A32;
+  /* A card used to sit 1.077:1 above the ground — a difference a projector
+     loses entirely, so the page read as one flat sheet with text on it.
+     Raised one step to 1.130:1. --surface-2 moves with it, or hover would
+     land on the new --surface and vanish; --border likewise, because a 1px
+     rule at 1.211:1 against the lighter ground is not a rule. */
+  --surface:    #171A20;
+  --surface-2:  #22262E;
+  --border:     #2E333C;
 
   --text:       #E8EAED;   /* body and figures */
   --text-2:     #9BA1AC;   /* secondary prose */
-  --text-3:     #6B7280;   /* labels only, never body copy */
+  --text-3:     #808892;   /* labels only, never body copy */
 
   --accent:     #F5A524;   /* stock-specific, tier dot, attention count */
   --accent-dim: #7A5312;   /* the muted track behind an amber bar */
@@ -80,9 +85,11 @@ body {
 
 .t1 { color: var(--text); }
 .t2 { color: var(--text-2); }
-/* 4.07:1 on --bg. Adequate for uppercase label runs, BELOW AA for prose at
-   this size — so `.t3` is reserved for `.label`-style text and section
-   captions, and body copy uses `.t2` at 7.58:1. Audited, not assumed. */
+/* 5.49:1 on --bg, 4.86:1 on --surface, 4.23:1 on --surface-2 — recomputed
+   when Task 4 raised the ground, because the old note said 4.07:1 and no
+   longer described the token beneath it. Still reserved for `.label`-style
+   text and section captions; body copy uses `.t2` at 6.71:1 on a card.
+   Audited, not assumed. */
 .t3 { color: var(--text-3); }
 .accent { color: var(--accent); }
 .evidence-fg { color: var(--evidence); }
@@ -101,6 +108,13 @@ body {
         border-radius: 8px; padding: var(--card-pad);
         margin-bottom: var(--card-gap); transition: background .12s ease; }
 .card:hover { background: var(--surface-2); }
+/* The one thing on the page that says "this card is on the slate". Filtered
+   movements, skeletons and the funnel panel deliberately do not carry it. */
+.card-surfaced { border-left: 2px solid var(--accent); }
+
+/* The header pins so the identity and the count stay on screen through a
+   long scroll. Opaque, because the cards pass underneath it. */
+.sticky-head { position: sticky; top: 0; z-index: 30; background: var(--bg); }
 
 .figure-xl { font-size: 2.75rem; font-weight: 600; line-height: 1.1; }
 .figure-lg { font-size: 1.5rem;  font-weight: 600; line-height: 1.1; }
@@ -142,13 +156,48 @@ input::placeholder { color: var(--text-3); }
 <div class="mx-auto px-6" style="max-width:var(--content);padding-top:32px;padding-bottom:32px">
 
   <!-- 1. Header -->
-  <header class="border-b bd pb-6 mb-8">
-    <h1 class="text-xs tracking-[0.35em] t3 font-medium">SINCE YOU LAST LOOKED</h1>
-    <p class="mt-2 t2 text-sm">
-      Movements on your watchlist since
-      <span id="since" class="num t1">—</span>
-    </p>
+  <header class="sticky-head border-b bd">
+    <div class="flex items-baseline justify-between gap-4 flex-wrap py-4">
+      <div class="flex items-baseline gap-4 min-w-0">
+        <h1 class="text-sm tracking-[0.35em] t1 font-medium">SIGNAL</h1>
+        <span id="head-summary" class="text-xs t3 truncate"></span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <!-- Not a modal and not shown on load: a first-time reader who wants
+             the vocabulary asks for it, and a returning one is never made to
+             dismiss it. -->
+        <button id="help-btn" aria-expanded="false" aria-controls="help-panel"
+                aria-label="What the words on this page mean"
+                class="w-7 h-7 rounded-full border bd t2 hover:surface-2 hover:t1
+                       transition-colors text-xs">?</button>
+        <!-- A labelled link, not a tab. The Lab is a second page, not a second
+             mode of this one. -->
+        <a href="/lab" class="text-xs px-3 py-1.5 rounded border bd t2
+                              hover:surface-2 hover:t1 transition-colors">Signal
+          Lab &mdash; see how it decides</a>
+      </div>
+    </div>
   </header>
+
+  <!-- The legend. Every definition that can be derived is filled from the
+       payload at render time rather than typed here. -->
+  <section id="help-panel" hidden class="mt-4 rounded-lg border bd surface"
+           style="padding:var(--card-pad)">
+    <div class="flex items-start justify-between gap-4">
+      <h2 class="text-[10px] uppercase tracking-[0.2em] t3">What the words mean</h2>
+      <button id="help-close" class="text-xs t3 hover:t2 transition-colors"
+              aria-label="Close the legend">close</button>
+    </div>
+    <dl id="help-body" class="mt-3 space-y-2.5 text-xs"></dl>
+    <p class="mt-4 text-xs t2">
+      Signal shows information about what changed. It never advises.
+    </p>
+  </section>
+
+  <p class="mt-8 mb-6 t2 text-sm">
+    Movements on your watchlist since
+    <span id="since" class="num t1">&mdash;</span>
+  </p>
 
 
   <!-- Two columns on desktop, stacked on mobile. The watchlist is the only
@@ -157,7 +206,7 @@ input::placeholder { color: var(--text-3); }
   <div class="grid grid-cols-1 lg:grid-cols-[var(--rail)_minmax(0,1fr)] gap-10 items-start">
 
   <!-- LEFT RAIL -->
-  <aside class="lg:sticky lg:top-8">
+  <aside class="lg:sticky lg:top-24">
     <h2 class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">Watchlist</h2>
     <div class="flex items-center gap-2">
       <input id="add-input" type="text" aria-label="Add a symbol to your watchlist" placeholder="Add a symbol — e.g. TCS"
@@ -188,7 +237,8 @@ input::placeholder { color: var(--text-3); }
   <main class="min-w-0">
 
   <!-- 2. THE FUNNEL LINE -->
-  <section class="surface rounded-lg mb-6" style="padding:var(--card-pad)">
+  <section class="surface rounded-lg mb-6 border bd" style="padding:var(--card-pad)">
+    <p id="funnel-lede" class="mb-3 text-sm t2"></p>
     <div id="funnel" class="num figure-xl tracking-tight">
       <span class="t2">loading…</span>
     </div>
@@ -203,9 +253,9 @@ input::placeholder { color: var(--text-3); }
     </div>
     <p id="funnel-sub" class="mt-3 text-sm t2"></p>
     <p class="mt-4 text-xs t2 max-w-lg leading-relaxed">
-      Movement is measured close-to-close. Attention is what survives
-      attribution against the market and sector, the instrument's own history,
-      and a confidence gate.
+      Movement is measured from one close to the next. A movement gets your
+      attention only if it survives being compared against the market and its
+      sector, against the stock's own history, and against a data-quality gate.
     </p>
   </section>
 
@@ -343,7 +393,31 @@ const TIER_MEANING = {
   C: 'Tier C: unusual movement, no known cause',
 };
 
+// What the tier means, on the face. "TIER C" reads as a low grade to anyone
+// who does not know the table; C is not worse than A, it is a different
+// reason for showing the card. The letter and the gate expression move to
+// Technical details.
+const TIER_PLAIN = {
+  A: 'unusual, and a filing explains it',
+  B: 'a filing was published; the price move was ordinary',
+  C: 'unusual, with no material filing on record',
+};
+
 const TIER_SOURCE = { 1: 'Exchange', 2: 'Company IR', 3: 'Regulator' };
+
+// The detector's own name, in words. D1 fires on a single session's residual;
+// D2 on a run of them in one direction. "JUMP" and "DRIFT" are the stored
+// event_type values and stay in Technical details; this is the same fact said
+// so a reader who has never met the detectors can tell the two apart.
+const EVENT_PLAIN = { JUMP: 'a one-day move', DRIFT: 'a move over several days' };
+
+// What the stored publication date actually is. A corporate action carries an
+// ex-date and no filing timestamp, and saying so is the whole reason the
+// column exists — but "(ex date)" is not a sentence a reader can use.
+const BASIS_PLAIN = {
+  FILED_AT: 'the date it was filed',
+  EX_DATE: 'the ex-date; this feed carries no filing time',
+};
 
 // Ordering, never causation. A document sharing a symbol and a session with a
 // movement is association; establishing cause takes an argument this system
@@ -450,11 +524,13 @@ function evidenceItemHTML(e, compact) {
     <div>
       <p class="text-xs t1">${e.title}</p>
       <p class="num mt-1 text-[11px] t3">
-        ${e.source_name} · ${e.document_type} · tier ${e.source_tier} ${TIER_SOURCE[e.source_tier] || ''}
+        ${e.source_name} · ${e.document_type} ·
+        <span title="Source tiers run 1 to 3, most authoritative first: 1 the exchange, 2 the company's own investor relations, 3 a regulator's filing.">${TIER_SOURCE[e.source_tier] || ('tier ' + e.source_tier)}</span>
       </p>
       <p class="num mt-0.5 text-[11px] t3">
         published ${e.published_at.slice(0, 10)}
-        <span class="t3">(${e.published_at_basis.toLowerCase().replace('_', ' ')})</span>
+        <span class="t3">(${BASIS_PLAIN[e.published_at_basis]
+          || e.published_at_basis.toLowerCase().replace('_', ' ')})</span>
         · retrieved ${e.retrieved_at.slice(0, 10)}
       </p>
       ${temporalHTML(e)}
@@ -488,6 +564,14 @@ function evidenceHTML(c) {
     </div>`;
 }
 
+// Past tense, and a frequency rather than a tendency: these describe what
+// already happened to past events in the cohort, not what this one will do.
+const MODAL_PHRASE = {
+  CONTINUED: 'kept going',
+  REVERSED: 'went the other way',
+  NORMALIZED: 'faded back toward normal',
+};
+
 function outcomesRow(c) {
   // A fact, not a headline. It lives inside the drawer, in --text-2, and never
   // beside the return — putting "what happened next" next to "what happened"
@@ -501,7 +585,9 @@ function outcomesRow(c) {
       ? `<span class="t3">${h.outcome === 'NOT_YET_OBSERVABLE'
           ? 'not yet observable' : 'not available'}</span>`
       : `<span class="num">${v > 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
-    return `<span class="t2"><span class="t3">+${h.h}</span> ${shown}</span>`;
+    // "+1" alone reads as a score. The unit is trading sessions, and it is
+    // the unit every horizon on this page is measured in.
+    return `<span class="t2"><span class="t3">${h.h} session${h.h === 1 ? '' : 's'} later</span> ${shown}</span>`;
   }).join('<span class="t3" aria-hidden="true"> · </span>');
 
   // Why nothing is observable yet, derived rather than assumed: an event on
@@ -521,6 +607,28 @@ function outcomesRow(c) {
   const word = settled
     ? `<span class="t2"> — ${settled.outcome.toLowerCase()}</span>` : '';
 
+  // The three outcome words are the classifier's own vocabulary and mean
+  // nothing to a reader meeting them for the first time. The boundary between
+  // them is material_fraction: a forward move smaller than this fraction of
+  // the original one did not continue or reverse, it faded. The legend is
+  // written from that stored number, so if the policy changes the sentence
+  // does too.
+  const mf = o.policy && o.policy.material_fraction;
+  const legend = mf === undefined || mf === null ? '' : `
+      <div class="flex gap-3 py-1.5 bdb last:border-0">
+        <span class="label w-28 shrink-0 pt-0.5">In words</span>
+        <span class="text-xs t2 flex-1">
+          continued = kept going<span class="t3" aria-hidden="true"> · </span>
+          reversed = went the other way<span class="t3" aria-hidden="true"> · </span>
+          normalized = faded back toward normal
+          <span class="block t3 mt-0.5" style="font-size:11px">
+            The line between them is size: a later move smaller than
+            <span class="num">${(mf * 100).toFixed(0)}%</span> of the original
+            one counts as faded.
+          </span>
+        </span>
+      </div>`;
+
   const br = o.base_rates;
   let history = '';
   if (br && br.n) {
@@ -536,21 +644,34 @@ function outcomesRow(c) {
         <span class="label w-28 shrink-0 pt-0.5">Historically</span>
         <span class="text-xs t2 flex-1">
           ${parts.join('<span class="t3" aria-hidden="true"> · </span>')}
-          <span class="num t3">(n=${br.n})</span>
+          <span class="num t3">(out of ${br.n} past events)</span>
           <span class="block t3 mt-0.5" style="font-size:11px">
             After past ${br.event_type ? br.event_type.replace('_', ' ').toLowerCase() : 'events'}
-            at tier ${br.tier}, measured at +${br.horizon}, drawn from
+            at tier ${br.tier}, measured ${br.horizon} sessions later, drawn from
             <span class="num">${br.cohort_events ?? '—'}</span> events across
             <span class="num">${br.cohort_sessions ?? '—'}</span> sessions in this
             database, ${br.scope}.
             ${br.percentages ? '' : `Percentages suppressed below n=${br.min_n_for_percentages}. `}This is a
             historical frequency, not a forecast.
           </span>
+          ${(() => {
+            if (!br.percentages) return '';
+            const modal = Object.entries(br.percentages)
+              .reduce((a, b) => (b[1] > a[1] ? b : a));
+            return `<span class="block t2 mt-1" style="font-size:11px">
+              Most often, moves like this one
+              ${MODAL_PHRASE[modal[0]] || modal[0].toLowerCase()} within
+              <span class="num">${br.horizon}</span> sessions
+              <span class="num t3">(${modal[1]}% of ${br.n})</span>.
+            </span>`;
+          })()}
+          <span class="block t3" style="font-size:11px">
+          </span>
         </span>
       </div>`;
   }
 
-  return `${history}
+  return `${legend}${history}
     <div class="flex gap-3 py-1.5 bdb last:border-0">
       <span class="label w-28 shrink-0 pt-0.5">After the move</span>
       <span class="text-xs t2 flex-1">${cells}${word}${pendingWhy}
@@ -561,31 +682,61 @@ function outcomesRow(c) {
 }
 
 function whyHTML(c, i, ctx = {}) {
-  // Only what is neither on the card face nor already stated once above the
-  // list. All four drawers were byte-identical: same gate, same importance,
-  // repeated four times. When the payload says they are shared, the shared
-  // line carries them and the drawer keeps only the detector, which differs.
+  // Two tiers. The first answers the question a reader actually asked, in
+  // words: why is this card in front of me. The second holds every technical
+  // value that used to be the whole drawer — nothing was removed, it moved
+  // one layer down, so a specialist still reaches the detector, the
+  // standardised residual, the tier and the gate expression in two clicks.
+  //
+  // Every plain reason is derived from a stored field and only appears when
+  // that field says it is true. None is a sentence typed to sound good.
   const na = '<span class="t3">not available</span>';
-  const rows = [];
+  const reasons = [];
 
+  const words = unusualnessWords(c.z, ctx);
+  if (words && words !== 'within its normal range') {
+    reasons.push('It moved much more than this stock usually does.');
+  }
+  if (c.i_score !== null && c.i_score !== undefined && c.i_score >= 2) {
+    reasons.push('A material filing was published for this session.');
+  }
+  const v = verdictText(c);
+  if (v && v.term === 'stock-specific move') {
+    reasons.push('The market and its sector barely moved.');
+  }
+  if (c.confidence !== null && c.confidence !== undefined
+      && ctx.cGate !== undefined && c.confidence >= ctx.cGate) {
+    reasons.push("It passed Signal's data-quality check.");
+  }
+
+  // ---- tier 2: the technical record, unchanged in content -----------------
+  const rows = [];
+  // The tier letter and its gate expression left the card face in favour of
+  // what the tier means, so this row is now their only home and is no longer
+  // suppressed by the shared-admission line above the list.
+  rows.push(['Admitted by', TIER_MEANING[c.tier]
+    ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num t3">· ${c.gate}</span>` : ''}`
+    : na]);
   if (!ctx.sharedAdmission) {
-    const admitted = TIER_MEANING[c.tier]
-      ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num t3">· ${c.gate}</span>` : ''}`
-      : na;
-    const importance = (c.i_score === null || c.i_score === undefined) ? na
+    rows.push(['Importance', (c.i_score === null || c.i_score === undefined) ? na
       : `<span class="num">I=${c.i_score}</span>${c.i_score >= 2
-          ? ' — a material event is on file for this session' : ' — no material event on file'}`;
-    rows.push(['Admitted by', admitted], ['Importance', importance]);
+          ? ' — a material event is on file for this session' : ' — no material event on file'}`]);
   }
   rows.push(['Detector', c.event_type
     ? `${c.event_type.replace('_', ' ').toLowerCase()} on session <span class="num">${c.session_date || '—'}</span>`
       + (c.z === null || c.z === undefined ? '' : `, standardised residual <span class="num">${c.z.toFixed(2)}</span>`)
     : na]);
+  const th = [];
+  if (ctx.d1Threshold) th.push(`D1 fires at <span class="num">${ctx.d1Threshold}&#963;</span>`);
+  if (ctx.d2Threshold) th.push(`D2 at <span class="num">${ctx.d2Threshold}&#963;</span>`);
+  if (ctx.cGate !== undefined) th.push(`confidence gate <span class="num">${ctx.cGate}</span>`);
+  if (ctx.ecdfWindow) th.push(`percentile window <span class="num">${ctx.ecdfWindow}</span> sessions`);
+  if (th.length) rows.push(['Thresholds', th.join(', ')]);
 
-  const row = ([k, v]) => `
+  const row = ([k, v2]) => `
     <div class="flex gap-3 py-1.5 bdb last:border-0">
       <span class="label w-28 shrink-0 pt-0.5">${k}</span>
-      <span class="text-xs t2 flex-1">${v}</span>
+      <span class="text-xs t2 flex-1">${v2}</span>
     </div>`;
 
   const extra = outcomesRow(c);
@@ -595,7 +746,12 @@ function whyHTML(c, i, ctx = {}) {
       <span aria-hidden="true" class="inline-block transition-transform" data-chev="${i}">&#9656;</span> Why this?
     </button>
     <div data-whybody="${i}" id="why-${i}" hidden class="mt-2 pl-3 bdl">
-      ${rows.map(row).join('')}${extra}
+      ${reasons.length ? `<ol class="text-xs t2 space-y-1 mb-2">${reasons.map((r, n) => `
+        <li><span class="num t3">${n + 1}.</span> ${r}</li>`).join('')}</ol>` : ''}
+      <details class="tech">
+        <summary class="text-[11px] t3 hover:t2 cursor-pointer">Technical details</summary>
+        <div class="mt-1">${rows.map(row).join('')}</div>
+      </details>${extra}
     </div>`;
 }
 
@@ -690,28 +846,50 @@ function extremityText(c, ecdfWindow) {
   return `more extreme than ${pct.toFixed(1)}% of ${n}`;
 }
 
-function confidenceGate(c) {
-  // "conf 1.00" is a number without a scale — a reader cannot tell whether it
-  // is good. The gate is what matters: §7 admits a corroborated card at
-  // C >= 0.3, so the bar shows where the value sits relative to that line.
-  // The numeric value stays in the tooltip for anyone who wants it.
+function confidenceGate(c, ctx = {}) {
+  // The gate bar replaced the number and left "conf ▬▬▬" — a coloured stub
+  // with no value and no scale. Dots restore a readable magnitude; the word
+  // comes from §7's own two confidence cut points, not from a band invented
+  // for display; and the numeric plus the gate stay in the title.
+  //
+  // A card below the corroborated gate never surfaces, so on every card a
+  // reader can actually see, this is reassurance rather than a score to worry
+  // about. The label says so.
   const v = c.confidence;
   if (v === null || v === undefined) return null;
-  const W = 44, H = 8, GATE = 0.3;
-  const gx = (GATE * W).toFixed(1);
-  const above = v >= GATE;
-  return `<span class="inline-flex items-center gap-1.5"
-       title="Confidence ${v.toFixed(2)} against the §7 gate of ${GATE}. Trust in the bar at the session it was scored on: the minimum of source, freshness, liquidity and history. Not a statement about the card's age.">
-    <span class="t3">conf</span>
-    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
-         aria-label="Confidence ${v.toFixed(2)}, ${above ? 'above' : 'below'} the 0.3 gate">
-      <rect x="0" y="2" width="${W}" height="4" fill="var(--surface-2)" rx="2"></rect>
-      <rect x="0" y="2" width="${(v * W).toFixed(1)}" height="4" rx="2"
-            fill="${above ? 'var(--accent)' : 'var(--warn)'}"></rect>
-      <line x1="${gx}" y1="0" x2="${gx}" y2="${H}"
-            stroke="var(--text-2)" stroke-width="1"></line>
-    </svg>
+  const gate = ctx.cGate, high = ctx.cGateHigh;
+  const word = (gate === undefined) ? ''
+    : (high !== undefined && v >= high) ? 'high'
+    : v >= gate ? 'adequate'
+    : 'below the gate';
+  const filled = Math.max(0, Math.min(5, Math.round(v * 5)));
+  let dots = '';
+  for (let i = 0; i < 5; i++) {
+    dots += `<span class="inline-block w-1.5 h-1.5 rounded-full ${
+      i < filled ? 'bar-accent' : 'bar-track'}"></span>`;
+  }
+  const title = gate === undefined
+    ? `Data quality ${v.toFixed(2)}.`
+    : `Data quality ${v.toFixed(2)}, against the gate of ${gate} below which a card is not shown at all. `
+      + `The minimum of source trust, freshness, liquidity and history, scored at the session the bar belonged to. `
+      + `Not a statement about the card's age.`;
+  return `<span class="inline-flex items-center gap-1.5" title="${title}">
+    <span class="t3">data quality</span>
+    <span class="inline-flex gap-0.5 items-center" role="img"
+          aria-label="Data quality ${v.toFixed(2)} of 1, ${word}">${dots}</span>
+    <span class="t2">${word}</span>
   </span>`;
+}
+
+function unusualnessWords(z, ctx) {
+  // Bands are the detector's own cut points: h1 is where D1 fires, h2 is D2's
+  // decision interval. No band is invented for the sentence.
+  const h1 = ctx.d1Threshold, h2 = ctx.d2Threshold;
+  if (z === null || z === undefined || !h1) return null;
+  const m = Math.abs(z);
+  if (m < h1) return 'within its normal range';
+  if (!h2 || m < h2) return 'unusually large for this stock';
+  return 'far outside its normal range';
 }
 
 function extremityBand(c, ctx) {
@@ -723,6 +901,7 @@ function extremityBand(c, ctx) {
   // the card, which is the whole reason the trace is persisted.
   const z = c.z, h1 = ctx.d1Threshold;
   const sentence = extremityText(c, ctx.ecdfWindow);
+  const words = unusualnessWords(z, ctx);
   if (z === null || z === undefined || !h1) {
     return sentence ? `<p class="mt-3 text-xs t2">${sentence}</p>` : '';
   }
@@ -755,7 +934,7 @@ function extremityBand(c, ctx) {
   return `
     <div class="mt-3 flex items-center gap-3">
       <svg width="${W}" height="${H + 10}" viewBox="0 0 ${W} ${H + 10}" role="img"
-           aria-label="${sentence}. Standardised residual ${z.toFixed(2)} sigma against a normal range of plus or minus ${h1} sigma."
+           aria-label="${words}. ${sentence}. Standardised residual ${z.toFixed(2)} sigma against a normal range of plus or minus ${h1} sigma."
            class="shrink-0">
         <line x1="6" y1="${H / 2}" x2="${W - 6}" y2="${H / 2}"
               stroke="var(--border)" stroke-width="1"></line>
@@ -766,14 +945,12 @@ function extremityBand(c, ctx) {
         <line x1="${x(h1)}" y1="${H / 2 - 6}" x2="${x(h1)}" y2="${H / 2 + 6}"
               stroke="var(--text-3)" stroke-width="1"></line>
         ${marker}
-        <text x="${x(h1).toFixed(1)}" y="${H - 1}" text-anchor="middle"
-              fill="var(--text-3)" style="font-size:9px;font-family:var(--mono)"
-              aria-hidden="true">${h1}&#963;</text>
-        <text x="${x(-h1).toFixed(1)}" y="${H - 1}" text-anchor="middle"
-              fill="var(--text-3)" style="font-size:9px;font-family:var(--mono)"
-              aria-hidden="true">-${h1}&#963;</text>
+        <text x="6" y="${H - 1}" fill="var(--text-3)"
+              style="font-size:9px" aria-hidden="true">normal</text>
+        <text x="${W - 6}" y="${H - 1}" text-anchor="end" fill="var(--text-3)"
+              style="font-size:9px" aria-hidden="true">unusual</text>
       </svg>
-      <span class="num text-xs ${outside ? 'accent' : 't2'}">${z.toFixed(2)}&#963;</span>
+      <span class="text-xs ${outside ? 'accent' : 't2'}">${words || ''}</span>
     </div>`;
 }
 
@@ -810,14 +987,24 @@ function attributionRow(c) {
 }
 
 function verdictText(c) {
+  // The plain sentence leads and the technical term follows as a caption, so
+  // a reader learns the vocabulary rather than being handed it cold.
   const parts = [
     { key: 'Market', v: c.market_pct }, { key: 'Sector', v: c.sector_only_pct },
     { key: 'Stock-specific', v: c.residual_pct },
   ].filter((p) => p.v !== null && p.v !== undefined);
-  if (!parts.length) return '';
+  if (!parts.length) return null;
   const biggest = parts.reduce((a, b) => (Math.abs(b.v) > Math.abs(a.v) ? b : a));
-  return biggest.key === 'Stock-specific' ? 'STOCK-SPECIFIC MOVE'
-       : biggest.key === 'Sector' ? 'EXPLAINED BY SECTOR' : 'EXPLAINED BY THE MARKET';
+  if (biggest.key === 'Stock-specific') {
+    return { plain: 'The market barely moved. This stock did.',
+             term: 'stock-specific move' };
+  }
+  if (biggest.key === 'Sector') {
+    return { plain: 'Most of this was its sector, not the company.',
+             term: 'explained by sector' };
+  }
+  return { plain: 'Most of this was the market, not the company.',
+           term: 'explained by the market' };
 }
 
 function cardHTML(c, i, ctx = {}) {
@@ -826,21 +1013,18 @@ function cardHTML(c, i, ctx = {}) {
   // implies a judgement about whether it is good news, which is one step from
   // a recommendation, and this product does not make them.
   const meta = [
-    `TIER ${c.tier}`,
-    c.event_type ? c.event_type.replace('_', ' ') : null,
+    TIER_PLAIN[c.tier] || `Tier ${c.tier}`,
+    c.event_type ? (EVENT_PLAIN[c.event_type] || c.event_type.replace('_', ' ')) : null,
     freshnessText(c),
     (c.evidence || []).length ? null
-      : '<span class="t3" title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">NO EVIDENCE</span>',
-    confidenceGate(c),
+      : '<span class="t3" style="text-transform:none" title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">no filings at all</span>',
+    confidenceGate(c, ctx),
   ].filter(Boolean).join('<span class="t3" aria-hidden="true"> · </span>');
 
   const verdict = verdictText(c);
-  const extremity = extremityText(c, ctx.ecdfWindow);
-  const tail = [verdict, extremity].filter(Boolean)
-    .join('<span class="t3" aria-hidden="true"> · </span>');
 
   return `
-  <article class="card card-in" style="animation-delay:${i * 45}ms">
+  <article class="card card-surfaced card-in" style="animation-delay:${i * 45}ms">
     <div class="flex items-baseline justify-between gap-3">
       <div class="flex items-baseline gap-2.5 min-w-0">
         <span class="dot shrink-0" title="${t.label}" aria-hidden="true"></span>
@@ -857,7 +1041,8 @@ function cardHTML(c, i, ctx = {}) {
 
     ${attributionRow(c)}
 
-    ${verdict ? `<p class="mt-3 text-xs accent">${verdict}</p>` : ''}
+    ${verdict ? `<p class="mt-3 text-xs accent">${verdict.plain}</p>
+      <p class="label mt-0.5" style="text-transform:none">${verdict.term}</p>` : ''}
     ${extremityBand(c, ctx)}
 
     <p class="mt-2 text-xs t2">${c.headline}</p>
@@ -989,24 +1174,72 @@ function render(d) {
   el('since').textContent = sinceLabel(d.since);
   el('funnel').innerHTML = funnelHTML(d.funnel);
 
+  // What the three figures below actually add up to, said once in a sentence,
+  // because a cold visitor reads "31 · 22 · 4" as three unrelated numbers.
+  // Both strings come from the funnel object; neither is typed twice.
+  const f = d.funnel || {};
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  el('funnel-lede').innerHTML = (f.watched === undefined) ? ''
+    : `Signal found <span class="num t1">${f.surfaced}</span> `
+      + `${f.surfaced === 1 ? 'movement' : 'movements'} worth a closer look out of `
+      + `<span class="num t1">${f.watched}</span> you watch.`;
+  el('head-summary').textContent = (f.watched === undefined) ? ''
+    : `${plural(f.surfaced, 'movement')} worth a closer look · ${f.watched} watched`;
+
   // One sentence naming where the drop actually happened. It names the
   // *largest* reason, computed from the response, rather than a reason chosen
   // in advance: previously it always cited explained_by_market, which is 4 of
   // 18 here while below_threshold is 14. Citing the smaller bucket is true
   // sentence by sentence and misleading overall, which is the failure mode
   // this whole product exists to argue against.
+  const movedStage = (d.evidence_chain || []).find((st) => st.stage === 'moved');
   const reasons = d.filtered_reasons || {};
   const top = Object.entries(reasons).filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1])[0];
   el('funnel-sub').innerHTML = d.funnel.moved
-    ? `<span class="num t2">${d.funnel.moved}</span> moved more than 1%. ` +
+    ? `<span class="num t2">${d.funnel.moved}</span> `
+      + `${movedStage ? movedStage.label : 'moved'}. ` +
       `<span class="num t2">${d.filtered_count}</span> were filtered` +
       (top ? `, most of them because they ${REASON_CLAUSE[top[0]] || top[0]}` +
              ` <span class="num t2">(${top[1]})</span>.` : '.')
     : '';
   el('cards').setAttribute('aria-busy', 'false');
+  // The legend is built from the payload so its definitions cannot drift from
+  // the pipeline. The "moved" line in particular reuses the server's own
+  // evidence-chain label rather than restating the display threshold, which
+  // is exactly the kind of number that goes stale in a template.
+  const scfg = d.salience_config || {};
+  el('help-body').innerHTML = [
+    ['Watchlist', 'The instruments you follow. Signal looks at these and nothing else.'],
+    ['Moved', movedStage
+      ? `Closed far enough from the previous close to be worth checking — `
+        + `Signal counts a symbol as moved when it ${movedStage.label}.`
+      : 'Closed far enough from the previous close to be worth checking.'],
+    ['Attention', 'What was left after Signal subtracted the market and the sector, '
+      + 'compared the move against this stock&#39;s own history'
+      + (scfg.ecdf_window ? ` over its last <span class="num">${scfg.ecdf_window}</span> sessions` : '')
+      + ', and checked the data quality'
+      + (scfg.c_gate !== undefined ? ` against a gate of <span class="num">${scfg.c_gate}</span>` : '')
+      + '.'],
+    ['Evidence', 'Filings the exchange published around the same session. '
+      + 'Signal shows when each was published relative to the move. Ordering only — '
+      + 'it never claims a document caused anything.'],
+    ['After the move', 'What the stock-specific part of the move did in the sessions '
+      + 'that followed. Measured after the fact, never predicted.'],
+  ].map(([k, v]) => `
+    <div class="sm:flex gap-3">
+      <dt class="label w-32 shrink-0 pt-0.5">${k}</dt>
+      <dd class="t2 flex-1">${v}</dd>
+    </div>`).join('');
+
   const sc = d.salience_config || {};
+  // h1 and h2 are the detector's own decision intervals and the two
+  // confidence cut points are §7's own gates. Every plain-language band on a
+  // card is drawn from these four numbers, so the words track the thresholds
+  // the engine actually ran and no band is invented in the template.
   const ctx = { ecdfWindow: sc.ecdf_window, d1Threshold: sc.d1_threshold,
+                d2Threshold: sc.d2_threshold, cGate: sc.c_gate,
+                cGateHigh: sc.c_gate_uncorroborated,
                 suppressEvidence: !!d.all_cards_lack_evidence };
   // When every surfaced card shares a state, say it once above the list
   // instead of N times inside it. The count comes from the payload.
@@ -1196,6 +1429,18 @@ el('add-input').addEventListener('keydown', (e) => {
 el('watchlist').addEventListener('click', (e) => {
   const btn = e.target.closest('[data-remove]');
   if (btn) removeIsin(btn.dataset.remove);
+});
+
+function toggleHelp(open) {
+  const panel = el('help-panel');
+  const show = open === undefined ? panel.hidden : open;
+  panel.hidden = !show;
+  el('help-btn').setAttribute('aria-expanded', show ? 'true' : 'false');
+}
+el('help-btn').addEventListener('click', () => toggleHelp());
+el('help-close').addEventListener('click', () => toggleHelp(false));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') toggleHelp(false);
 });
 
 el('filtered-toggle').addEventListener('click', () => {

@@ -43,6 +43,7 @@ from app.core.clock import WallClock
 from app.engine.pipeline import Thresholds
 from app.engine.salience import scores as scores_mod
 from app.engine.salience import slate as slate_mod
+from app.engine.salience import tiers as tiers_mod
 from app.ledger.writer import LedgerWriter
 from app.templates import headlines
 
@@ -645,6 +646,15 @@ def build_digest(
             # instrument's own normal range, and the card draws the band from
             # it rather than from a number typed into the template.
             "d1_threshold": Thresholds.load().h1,
+            # D2's decision interval. The card uses h1 and h2 as the boundaries
+            # of its three plain-language bands, so the words track the same
+            # cut points the detector uses and no band is invented for display.
+            "d2_threshold": Thresholds.load().h2,
+            # §7's two confidence gates. A card below the corroborated gate
+            # never surfaces, which is why the common case reads as
+            # reassurance rather than as a score.
+            "c_gate": tiers_mod.C_MIN_CORROBORATED,
+            "c_gate_uncorroborated": tiers_mod.C_MIN_UNCORROBORATED,
         },
         # True when every surfaced card shares the no-evidence state. Derived
         # here rather than in JS so the UI cannot disagree with the payload,

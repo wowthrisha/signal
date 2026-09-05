@@ -3407,3 +3407,171 @@ base n : n=9 cohort_sessions=497 cohort_events=89 pct=None
 
 **Blocker 1 PASS.** And [U20.3] validated on the same run: `n=9` now sits beside
 "drawn from 89 events across 497 sessions", not "full ingested history".
+
+## Plain language on the card face — Tasks 1, 2, 3
+
+**T1 — confidence had no value.** `confidenceGate()` drew a 44px gate bar and
+dropped the number with it; four cards read `conf ▬▬▬`, an orange stub with no
+magnitude and no scale. Replaced with `data quality ●●●●● high`. The word comes
+from §7's own two cut points (`C_MIN_CORROBORATED` 0.3, `C_MIN_UNCORROBORATED`
+0.5), newly exposed on `salience_config` — not from a band invented for display.
+The numeric and the gate stay in `title`; live cards read
+`Data quality 1.00, against the gate of 0.3 below which a card is not shown at
+all.` A below-gate card never surfaces, so on every card a reader can see this
+is reassurance, and the label says so.
+
+**T2a — unusualness in words.** `-3σ ── 3σ ── 4.33σ` became
+`within its normal range` / `unusually large for this stock` / `far outside its
+normal range`, banded on h1=3.0 and h2=4.0 — the detectors' own decision
+intervals, fetched from `Thresholds.load()`, not typed into the template. The
+band graphic stays; its axis ends now read `normal` / `unusual`. σ moved to
+Technical details. The aria-label still carries it: *"far outside its normal
+range. most extreme in its last 250 sessions. Standardised residual 4.33 sigma
+against a normal range of plus or minus 3 sigma."*
+
+**T2b — verdict.** `STOCK-SPECIFIC MOVE` → *"The market barely moved. This stock
+did."* with `stock-specific move` as a caption beneath, so the vocabulary is
+taught rather than assumed. Chosen by largest absolute component, unchanged.
+
+**T2c — tier.** `TIER C` reads as a low grade. The face now says what the tier
+means; the letter and `C>=0.5 AND U>=0.99` live in Technical details.
+
+  **Wording changed from the brief, and why.** The specified string for C was
+  "unusual, no filing found". It is false on two of the four live cards:
+  COALINDIA carries 4 filings and RBLBANK 5, listed on the same card three
+  inches below the label. Tier C does not assert that no document exists — it
+  asserts `I<2`, that nothing *material* was filed; the lexicographic table
+  reaches C only after A and B fail, and both require `I>=2`. Shipped
+  "unusual, with no material filing on record", which is what the gate says
+  and what the card shows. The `NO EVIDENCE` chip still marks the genuine
+  absence, now reading `no filings at all`.
+
+**T2d — outcome vocabulary.** Legend written from
+`outcomes.policy.material_fraction` (0.5, `configs/outcomes.json`): *continued =
+kept going · reversed = went the other way · normalized = faded back toward
+normal*, with "the line between them is size: a later move smaller than 50% of
+the original one counts as faded." One modal sentence beneath the base rates —
+*"Most often, moves like this one faded back toward normal within 5 sessions
+(54.6% of 544)"* — rendered only when `percentages` is non-null, i.e. only above
+the n=30 suppression floor. Past tense, frequency not tendency.
+
+**T3 — two-tier drawer.** "Why this?" opens on plain numbered reasons, each
+derived from a stored field and shown only when that field says it is true
+(|z|>=h1; I>=2; residual is the largest component; C>=gate). A nested
+`Technical details` holds the whole previous drawer — detector, session,
+standardised residual, tier, gate expression — plus a Thresholds row. **Nothing
+was deleted.** `Admitted by` is no longer suppressed by the shared-admission
+line, because the face no longer carries the tier letter and this is now its
+only home.
+
+Node execution test after every `index.html` edit, per the standing rule. Live
+payload rendered through the same harness and every string read.
+
+## Task 6 — string audit, recorded before any fix
+
+Every string the page renders, read against the standard "a reader with no
+finance or statistics training". 14 findings. Recorded first, fixed second.
+
+**Fixed in this pass**
+
+| # | String | Why it fails |
+|---|--------|--------------|
+| 1 | `JUMP` / `DRIFT` | Detector names, shouted. A reader cannot know `DRIFT` means a move sustained across sessions rather than a single day's. |
+| 2 | `+1 · +3 · +5` | No unit. These are trading sessions; the numbers read as scores. |
+| 3 | `(n=544)` | Statistical notation on the card face. |
+| 4 | `measured at +5` | Same unit problem, inside the caption that explains the cohort. |
+| 5 | `(filed at)` | The `published_at_basis` enum, rendered raw. |
+| 6 | `tier 1 Exchange` | Source-tier ordinal with no scale and no explanation. |
+| 7 | "Attention is what survives **attribution** against the market and sector" | The one word in the standing prose a reader must already own to parse the sentence. |
+| 8 | `.t3` CSS comment: "4.07:1 on --bg" | Stale. `--text-3` moved to `#808892` in Task 4; the audited figure in the comment no longer describes the token beneath it. Not reader-facing, but it is a hardcoded value that has drifted, which Task 6 asks about explicitly. |
+
+**Left alone, deliberately**
+
+| # | String | Why it stays |
+|---|--------|--------------|
+| 9 | `standardised residual`, `C>=0.5 AND U>=0.99`, `D1 fires at 3σ` | All inside `Technical details`, two clicks down. That layer exists to be technical; flattening it would delete the record. |
+| 10 | `session` (as in "1 session behind") | Exchange vocabulary with no shorter synonym. A "day" is wrong — weekends and holidays are not sessions, and the distinction is load-bearing for every horizon on the page. Defined in the legend instead. |
+| 11 | `Same session; ordering unknown` | Precise, and the shorter version would assert an ordering the data does not support. |
+| 12 | `stock-specific` | Now defined in the legend and taught by the verdict caption on every card. |
+| 13 | `not yet observable` | Always followed by the derived clause saying why. |
+| 14 | `normalized` | Now defined in the outcome legend, in words, from `material_fraction`. |
+
+## Tasks 4, 5, 6 — visual weight, orientation, audit
+
+**T4 — surface separation.** A card sat **1.077:1** above the ground, which a
+projector loses entirely; the page read as one flat sheet. Raised:
+
+| token | was | now | vs `--bg` |
+|-------|-----|-----|-----------|
+| `--surface` | `#131519` | `#171A20` | **1.077:1 → 1.130:1** |
+| `--surface-2` | `#1A1D23` | `#22262E` | 1.149:1 vs the new `--surface` |
+| `--border` | `#262A32` | `#2E333C` | 1.373:1 vs `--surface` (was 1.211:1) |
+| `--text-3` | `#6B7280` | `#808892` | 5.49:1 on bg, 4.86:1 on a card |
+
+`--surface-2` had to move or hover would have landed on the new `--surface` and
+vanished. `--text-3` was the weakest pair on the page at 4.07:1 and raising the
+ground alone would have taken it to **3.60:1** on a card — a regression paid for
+by an improvement elsewhere. Lifted so every surface improves: `.t2` body copy
+is 6.71:1 on a card, `.t1` 14.46:1, accent 8.54:1. No new hue. Cards already
+carried a 1px border; the four surfaced ones now carry a 2px `--accent` left
+rule via `.card-surfaced`, and filtered rows, skeletons and the funnel panel
+deliberately do not. Header is `position: sticky` on an opaque ground, carrying
+`SIGNAL` and the live count; the watchlist rail moved from `top-8` to `top-24`
+so it cannot slide under it.
+
+**T5 — orientation.** (a) Derived line above the funnel: *"Signal found 4
+movements worth a closer look out of 30 you watch."* Both numbers come from
+`d.funnel`; the header summary is built from the same object, not retyped.
+(b) A `?` button opens a dismissible legend — not a modal, not shown on load,
+Escape closes it. Five entries (Watchlist · Moved · Attention · Evidence · After
+the move) plus *"Signal shows information about what changed. It never
+advises."* The Moved definition reuses the server's own evidence-chain label and
+Attention quotes `ecdf_window` and `c_gate` from the payload, so no definition
+can drift from the pipeline. (c) Signal Lab stays a footer link and gains a
+labelled header button, **not a tab**: `Signal Lab — see how it decides`.
+
+**T6 — the audit.** The 14 findings are listed in the table above, recorded
+before any fix. Eight fixed, six left alone with reasons. Two further hardcoded
+values found while checking for staleness and both removed:
+
+- `confidenceGate` carried `high ?? 0.5` — a second copy of
+  `C_MIN_UNCORROBORATED`, free to drift from `tiers.py` silently. Now the card
+  simply does not claim the top band if the payload does not carry the cut point.
+- The funnel sentence said `moved more than 1%` in the template. That is
+  `MOVED_DISPLAY_THRESHOLD_PCT`, and the server already ships its own phrasing
+  on the evidence chain. Same sentence renders; it is no longer a second copy.
+- README's suite line said `412 passed` and was regenerated to `420`.
+
+**Two existing guards failed and both were correct to fail.**
+
+1. `test_the_page_never_prints_a_percentage_without_an_n` pinned the literal
+   `(n=${br.n})`. The invariant is that the denominator travels with the figure,
+   not the string carrying it; the phrasing became "(out of 544 past events)",
+   which serves the same invariant better for a reader without statistics
+   training. Rewritten to assert `${br.n}` is in the block. This is the fourth
+   time a test has pinned a literal I deliberately changed — the guard asserts
+   the property now.
+2. `test_no_test_reasons_about_a_collection_it_never_checked_is_non_empty` (R-37)
+   caught one of my *own* new tests iterating `evidence_chain` without first
+   asserting it non-empty. Fixed in the new test, not in the detector.
+
+**New guards, and proof each fires (R-27).** Seven added to
+`test_render_execution.py` — the only file that executes the page rather than
+inspecting its markup, which is the whole reason a `ReferenceError` once reached
+production behind 375 green tests. The payload was null-heavy and so had never
+once executed the unusualness band, the outcome vocabulary, the forward horizons
+or the derived reasons; a populated card was added beside the sparse one.
+
+| mutation | guard that failed |
+|----------|-------------------|
+| put `TIER C` back on the card face | `test_the_tier_letter_left_the_face_but_not_the_page` |
+| drop the outcome legend | `test_the_outcome_words_are_defined_from_the_policy` |
+| hardcode `7` in the orientation line | `test_the_orientation_line_and_legend_are_derived` |
+| drop the numeric from the confidence title | `test_confidence_renders_a_value_and_its_gate` |
+| delete `confidenceGate` entirely | fails with `confidenceGate is not defined` |
+
+**Ship checks.** Full suite `420 passed, 2 skipped, 1 xfailed in 293.14s`.
+Page 200, `/lab` 200. Live digest: 4 cards (ANANTRAJ, COALINDIA, IFCI, RBLBANK),
+funnel `{watched: 30, moved: 22, surfaced: 4}`, no symbol truncated, confidence
+`[1.0, 1.0, 1.0, 1.0]` rendering as a value on every card, Lab reachable from
+the header.

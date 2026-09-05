@@ -323,11 +323,22 @@ def test_n_is_always_present_alongside_any_percentage(conn):
 
 def test_the_page_never_prints_a_percentage_without_an_n():
     """Static check over the template: every base-rate percentage is rendered
-    in the same block as `n=`."""
+    in the same block as its denominator.
+
+    The invariant is that the denominator travels with the figure, not the
+    string that carries it. This asserted the literal `(n=${br.n})` and so
+    failed when the phrasing became "(out of 544 past events)" — a denominator
+    a reader without statistics training can actually use, which is the same
+    invariant better served. Pinning the wording would have meant reverting a
+    correct change to satisfy a guard about something else.
+    """
     page = STATIC.read_text()
     block = page[page.index("const br = o.base_rates;"):page.index("After the move")]
-    assert "br.percentages[k]" in block
-    assert "(n=${br.n})" in block
+    assert "br.percentages[k]" in block, "percentages are not rendered here any more"
+    assert "${br.n}" in block, (
+        "a base-rate percentage is rendered without its denominator in the "
+        "same block"
+    )
 
 
 def test_base_rates_cover_the_full_history_not_the_held_out_window(conn):

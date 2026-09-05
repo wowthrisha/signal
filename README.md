@@ -105,7 +105,7 @@ Tests:
 
 ```
 $ cd backend && python3 -m pytest tests/ -q
-412 passed, 2 skipped, 1 xfailed in 301.97s (0:05:01)
+420 passed, 2 skipped, 1 xfailed in 295.24s (0:04:55)
 ```
 
 The xfail is the corporate-action cliff regression. It passed on the original
