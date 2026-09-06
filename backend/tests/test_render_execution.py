@@ -227,6 +227,11 @@ HARNESS = textwrap.dedent("""
     const store = {};
     const mk = (id) => ({
       addEventListener: noop, setAttribute: noop, removeAttribute: noop,
+      // The page moves the rail's note node between containers, so the mock
+      // has to model insertion. Noops: what is under test is that the render
+      // path calls them and does not throw, not where the node lands.
+      appendChild: (c) => { store[id + ':appended'] = true },
+      removeChild: noop, after: noop, before: noop, scrollIntoView: noop,
       classList: { toggle: noop, contains: () => true, add: noop, remove: noop },
       style: {}, dataset: {}, value: '', disabled: false,
       closest: () => null, querySelector: () => mk('q'),
@@ -267,6 +272,7 @@ HARNESS = textwrap.dedent("""
       watchlist_html: store['watchlist:html'] || '',
       wl_filters: store['wl-filters:html'] || '',
       funnel: store['funnel:html'] || '',
+      note_rehomed: !!store['wl-note-home:appended'],
       chain: store['chain:html'] || '',
       pareto: store['filtered-body:html'] || '',
     };
@@ -354,6 +360,11 @@ ERROR_HARNESS = textwrap.dedent("""
     const store = {};
     const mk = (id) => ({
       addEventListener: noop, setAttribute: noop, removeAttribute: noop,
+      // The page moves the rail's note node between containers, so the mock
+      // has to model insertion. Noops: what is under test is that the render
+      // path calls them and does not throw, not where the node lands.
+      appendChild: (c) => { store[id + ':appended'] = true },
+      removeChild: noop, after: noop, before: noop, scrollIntoView: noop,
       classList: { toggle: noop, contains: () => true, add: noop, remove: noop },
       style: {}, dataset: {}, value: '', disabled: false,
       closest: () => null, querySelector: () => mk('q'),
@@ -1431,6 +1442,8 @@ SEARCH_HARNESS = textwrap.dedent("""
     const mk = (id) => ({
       addEventListener: (evt, fn) => { (handlers[id + ':' + evt] ||= []).push(fn) },
       setAttribute: noop, removeAttribute: noop,
+      appendChild: (c) => { store[id + ':appended'] = true },
+      removeChild: noop, after: noop, before: noop, scrollIntoView: noop,
       classList: { toggle: noop, contains: () => true, add: noop, remove: noop },
       style: {}, dataset: {}, value: '', disabled: false,
       closest: () => null, querySelector: () => mk('q'),
@@ -1666,4 +1679,54 @@ def test_the_axis_labels_are_html_so_scaling_cannot_shrink_them(tmp_path):
     # And the geometry the labels described is still drawn.
     assert band.group(0).count("<line") >= 3, (
         "the band lost the ticks its labels point at"
+    )
+
+
+# --- FIX 2: the rail answers a click where the reader is looking -----------
+
+
+def test_the_rail_note_is_inserted_beneath_the_row_that_was_clicked():
+    """It rendered at the top of the rail's scroll container. The rail is
+    ~1,740px of scroll in a ~765px window, so clicking a row two-thirds down
+    updated a note 733px above the viewport — for most of the list the click
+    appeared to do nothing.
+
+    Placement is a layout property, so the measured proof is in the ACTION-LOG
+    (last row, middle row, first row: attached, fully visible, 0px cut). What
+    this pins is the three rules that produce it."""
+    script = _script()
+    handler = script.split("// A row points at its card.")[1]
+    assert "row.after(note)" in handler, (
+        "the note is no longer inserted next to the row that was clicked"
+    )
+    assert "wl-note-inline" in handler, "the note has no attached styling"
+    # Only the minimum scroll, and only when the note would otherwise be cut.
+    assert "block: 'nearest'" in handler, (
+        "the note is scrolled with something other than `nearest`, which moves "
+        "the list out from under the cursor"
+    )
+    # A surfaced row has a card to point at, so the note goes home and hides.
+    surfaced = handler.split("if (st.status === 'surfaced')")[1]
+    assert "note.hidden = true" in surfaced and "wl-note-home" in surfaced, (
+        "clicking a surfaced row leaves a stale note stranded in the list"
+    )
+
+
+def test_a_rerender_returns_the_note_home_before_replacing_the_table(tmp_path):
+    """The note is MOVED into the table on a click. `renderWatchlist` replaces
+    that table's markup on every background refresh, so without re-homing the
+    node first it is destroyed and every later click writes into nothing."""
+    r = _run(tmp_path, _script())
+    assert r.returncode == 0, (r.stderr or "")[-1200:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["note_rehomed"], (
+        "renderWatchlist did not return the note to its home container"
+    )
+    script = _script()
+    body = script.split("function renderWatchlist")[1]
+    home = body.index("wl-note-home")
+    table = body.index("el('watchlist').innerHTML")
+    assert home < table, (
+        "the note is re-homed after the table is replaced, which is too late — "
+        "the node is already gone"
     )

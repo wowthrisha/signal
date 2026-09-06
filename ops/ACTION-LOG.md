@@ -4528,3 +4528,42 @@ One authoring bug, and the second of its kind: a CSS comment I wrote quoted the
 old markup literally, and the accessibility guard — which scans this file as
 text — read it as a real unlabelled `<svg>` tag. The comment describes the
 attributes in prose now.
+
+### FIX 2 — the rail's answer to a click was invisible (P0)
+
+The note rendered at the top of the rail's scroll container. The rail is
+~1,740px of scroll in a ~765px window, so clicking a row two-thirds down
+updated a note **733px above the viewport**. For roughly two-thirds of the list
+— every row except the four surfaced ones — the click appeared to do nothing.
+
+It is inserted directly beneath the clicked row now, with a rule down its left
+edge tying it to the row above. Measured against the exact gesture that failed:
+
+| gesture | attached to row | fully visible | px cut | rail scrolled |
+|---------|-----------------|---------------|--------|---------------|
+| last row, rail scrolled to the bottom | yes | **yes** | 0 | 10px |
+| middle row | yes | yes | 0 | **0px** |
+| first filtered row, rail at top | yes | yes | 0 | **0px** |
+
+`scrollIntoView({ block: 'nearest' })` rather than a plain scroll: it moves the
+minimum distance and does nothing when the note is already in view. It fires
+only for the last row, where inserting the note adds content *below* the
+current scroll position and clipped 10px of it. The list does not move out from
+under the cursor anywhere else.
+
+**The node has one home and is moved, not duplicated.** `renderWatchlist`
+replaces the table's markup on every background refresh, so it returns the note
+to `#wl-note-home` *before* the replacement — without that the node is
+destroyed on the next poll and every later click writes into nothing. Clicking
+a surfaced row also sends it home, so a stale note is never stranded mid-list.
+
+**Guards.** Two, both proved to fire: deleting `row.after(note)` and moving the
+re-home *after* the `innerHTML` assignment. The second is the subtle one — the
+page still works until a background refresh lands.
+
+The execution test caught a third thing on the way: the node harness's mock
+element had no `appendChild`, so the render path threw `TypeError:
+el(...).appendChild is not a function` on all 45 tests. That is the harness
+failing to model a DOM call the page now makes; the mock records insertion now,
+which is what `test_a_rerender_returns_the_note_home_before_replacing_the_table`
+reads.

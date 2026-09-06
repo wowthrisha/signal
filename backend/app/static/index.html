@@ -268,6 +268,20 @@ body {
    actually short, so the desktop row is byte-identical. */
 .card-head { flex-wrap: wrap; }
 .card-id { min-width: min-content; }
+
+/* --- the rail's answer to a click --------------------------------------- */
+/* It rendered at the top of the rail's scroll container. The rail is ~1,740px
+   of scroll in a ~765px window, so clicking a row two-thirds down updated a
+   note 733px above the viewport: for roughly two-thirds of the list the click
+   appeared to do nothing at all.
+   It is inserted directly beneath the clicked row now. The rule down its left
+   edge ties it to the row above it, and nothing above it moves — a scroll
+   would have shifted the list under the cursor. */
+.wl-note-inline {
+  margin: 2px 0 6px 4px; padding: 5px 8px;
+  border-left: 2px solid var(--accent);
+  background: var(--surface-2); border-radius: 0 4px 4px 0;
+}
 .wl-row:hover { background: var(--surface-2); }
 .wl-row[aria-current="true"] { background: var(--surface-2); }
 .wl-dot { width: 8px; height: 8px; border-radius: 999px; }
@@ -499,7 +513,10 @@ input::placeholder { color: var(--text-3); }
     <!-- Each count is a filter toggle, and each is derived from
          `watchlist_state` — the same partition the funnel counts. -->
     <div id="wl-filters" class="mt-3 flex flex-wrap gap-1 text-[11px]"></div>
-    <div id="wl-note" class="mt-2 text-[11px] t3" hidden></div>
+    <!-- The note's home. On a click it is MOVED to sit under the row that
+         was clicked; `renderWatchlist` returns it here before replacing the
+         table's markup, so a background refresh can never destroy the node. -->
+    <div id="wl-note-home"><div id="wl-note" class="text-[11px] t3" hidden></div></div>
     <div id="watchlist" class="mt-2"></div>
     <div class="mt-3 flex items-center justify-between">
       <span id="wl-count" class="text-[10px] t3"></span>
@@ -1734,6 +1751,15 @@ function renderWatchlist(items) {
       </button>
       ${rows.map((w) => wlRowHTML(w, maxAbs)).join('')}`;
   }).join('');
+  // The note may be sitting inside the table from a previous click. Move it
+  // back out before the markup under it is replaced, or the node is destroyed
+  // and every later click writes into nothing.
+  const note = el('wl-note');
+  if (note) {
+    note.hidden = true;
+    note.classList.remove('wl-note-inline');
+    el('wl-note-home').appendChild(note);
+  }
   el('watchlist').innerHTML = groups || (wlQuery
     ? `<p class="text-[11px] t3 py-2">Nothing on your watchlist matches
          <span class="t2">${wlQuery}</span>. Press Escape to clear.</p>`
@@ -2144,6 +2170,8 @@ el('watchlist').addEventListener('click', (e) => {
       setTimeout(() => { card.style.outline = ''; }, 1400);
     }
     note.hidden = true;
+    note.classList.remove('wl-note-inline');
+    el('wl-note-home').appendChild(note);
     return;
   }
   note.innerHTML = st.status === 'filtered'
@@ -2154,6 +2182,17 @@ el('watchlist').addEventListener('click', (e) => {
     : `<span class="t1">${st.symbol}</span> did not move past the display `
       + `threshold in this window.`;
   note.hidden = false;
+  // Rendered where the reader is looking. Inserted after the row rather than
+  // scrolling the note into view: scrolling would move the list under the
+  // cursor, and the next row the reader wanted is no longer where they left it.
+  note.classList.add('wl-note-inline');
+  row.after(note);
+  // `nearest` scrolls the minimum distance and does nothing when the note is
+  // already in view. It matters only for the last row, where inserting the
+  // note adds content below the current scroll position and clipped ~10px of
+  // it. A nudge of at most the note's own height — not a jump that would move
+  // the list out from under the cursor.
+  if (note.scrollIntoView) note.scrollIntoView({ block: 'nearest' });
 });
 
 // --- refresh model ---------------------------------------------------------
