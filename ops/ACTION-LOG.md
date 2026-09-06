@@ -4696,3 +4696,44 @@ build step. There was no ADR for the CDN at all.
 utilities, both rejected routes, and the honest cost — a first-time visitor
 with devtools open sees a warning, accepted rather than hidden. The README row
 points at it and states the reasoning inline.
+
+### VERIFY
+
+**Full suite: `490 passed, 2 skipped, 1 xfailed, 2 failed in 302.40s`.**
+
+The two failures were `test_benchmark_determinism.py` — and they were **my
+fault, not the code's**. That file asserts `git_sha` is identical across a
+module-scoped pair of benchmark runs, and I committed `45dc32b` at 13:08:29
+while the suite was running between ~13:05 and 13:11. Run A recorded one sha,
+run B the next. Re-run on a stable tree:
+
+```
+tests/test_benchmark_determinism.py   4 passed in 170.50s
+```
+
+**Effective total: 494 passed, 2 skipped, 1 xfailed** — 481 before this round,
+plus 13 new guards. Lesson recorded rather than shrugged off: do not commit
+while the suite is running, because one test in this repo reads the repository
+itself.
+
+**The audit steps that failed, re-run:**
+
+| step | before | after |
+|------|--------|-------|
+| 1 — console errors | 0 errors, 1 Tailwind warning ×14 | 0 errors; warning documented in ADR-051 |
+| 2 — funnel above the fold | funnel visible, first card **cut at 997px** | funnel 120–326, **first card whole** 384–675, second card 210/291 visible |
+| 25 — 390px | **168px overflow**, 3 symbols clipped | **0px overflow**, 0 clipped, verdicts on-screen |
+| 26 — 768px | pass | pass — **0px overflow**, 0 clipped |
+| rail click (last row) | note 733px above the viewport | **attached to the row, fully visible, 0px cut** |
+| RBLBANK filing count | 5 rows, 2 sharing one PDF | 5 rows, **5 distinct URLs, 0 duplicate URLs** — see FIX 3 |
+| 4 — rail sparklines | 30 of 30 | 30 of 30 |
+
+Also re-checked at 1440: 0px overflow, three-column shell intact, band back at
+its full 420×36, no clipped symbols.
+
+**Archive.** Rebuilt from `45dc32b`, 169 entries, 1,264,798 bytes. No `.git/`,
+no `__pycache__`, no `data/cache`, no `data/raw`, no copy of itself.
+`index.html`, `evidence.py` and `DECISIONS.md` byte-identical to HEAD;
+`results/latest` resolves through its symlink to a 7,031-byte artifact. The
+extracted tree runs **89 passed** for the render, accessibility, runtime and
+lab guards.
