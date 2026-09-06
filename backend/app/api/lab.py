@@ -60,9 +60,17 @@ RESULTS = _artifact_root("results") / "latest"
 RISK_REGISTER = _artifact_root("ops") / "RISK-REGISTER.md"
 REPO_ROOT = _CHECKOUT
 
-# A risk-register row has id, risk, P, I, trigger, response, status. Named
-# rather than inline so it reads as declared structure, not as a figure.
-RISK_ROW_COLUMNS = 7
+# A risk-register row has id, risk, P, I, trigger, response, scope, status.
+# Named rather than inline so it reads as declared structure, not as a figure.
+RISK_ROW_COLUMNS = 8
+
+# The register tracks two kinds of risk. `product` is the system a reader
+# evaluates; `process` is this build's own timeline, submission window, judge
+# or gate numbers. Only the first kind belongs on a page a reader is assessing
+# the product from, so this page renders and counts `product` rows and the
+# register keeps both. Derived from the row's own field — never a list of ids,
+# which would silently stop filtering the moment a row is added.
+RISK_PRODUCT_SCOPE = "product"
 
 # Geometry for the three graphics below. Named rather than typed inline for
 # the same reason as RISK_ROW_COLUMNS: a number with a name is declared
@@ -74,8 +82,8 @@ STEP_PAD = 26
 TILE_MIN_W = 190
 
 # How many OPEN risks the register surfaces before the disclosure. The register
-# is 39 rows; rendering all of them by default is a data dump that hides the
-# handful a reader should actually weigh.
+# is 39 rows, 37 of them product-scoped; rendering all of them by default is a
+# data dump that hides the handful a reader should actually weigh.
 RISK_SURFACED = 5
 
 # Text baseline offsets inside the step chart, and the register column the
@@ -158,6 +166,27 @@ def _risk_rows() -> list[list[str]]:
         if len(cells) >= RISK_ROW_COLUMNS:
             rows.append(cells)
     return rows
+
+
+def _risk_scope(row: list[str]) -> str:
+    """The scope word, from the SECOND-TO-LAST cell.
+
+    Read from the end for the same reason `_risk_status` is: R-23's response
+    contains `|z| > 2`, whose pipes split that row into more fields than every
+    other one, so any index counted from the left reads a fragment of the
+    response there. Scope sits immediately before status, so it is `row[-2]`
+    however ragged the cells to its left are.
+    """
+    return re.sub(r"[*`]", "", row[-2]).strip().lower()
+
+
+def _product_risks() -> list[list[str]]:
+    """The rows this page renders: product scope only.
+
+    `_risk_rows` stays the whole file — the register is the record and nothing
+    is dropped from it. What is filtered is this rendering.
+    """
+    return [r for r in _risk_rows() if _risk_scope(r) == RISK_PRODUCT_SCOPE]
 
 
 def _details(summary: str, body: str) -> str:
@@ -416,10 +445,12 @@ def _risks() -> str:
     and takes away nothing. What a reader wants from a risk register is how
     much is still open and which of it would hurt — so the counts come first,
     then the handful that are both OPEN and high-impact, then everything else
-    behind a disclosure. No row is dropped and none is reworded; the register
-    file is still the only source.
+    behind a disclosure. No row is reworded and the register file is still the
+    only source; what this page leaves out is the `process` scope — the build's
+    own timeline and submission gates, which are not a property of the system a
+    reader is here to evaluate. Every count below is over product rows.
     """
-    rows = _risk_rows()
+    rows = _product_risks()
     if not rows:
         return "<p class='miss'>Register not readable.</p>"
 
@@ -684,8 +715,7 @@ table td:first-child {{ white-space:nowrap; }}
 <h2>Evidence</h2>{evidence}
 <p class="foot">Every figure on this page is read at request time from a
 committed artifact or a live query — nothing is typed into the template, and a
-test parses this module to keep it that way. Implementation documentation
-belongs at the bottom of the page, not in the headline position.</p>
+test parses this module to keep it that way.</p>
 </div></body></html>"""
 
 

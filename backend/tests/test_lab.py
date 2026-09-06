@@ -297,8 +297,12 @@ def test_the_ablation_chart_does_not_pretend_the_decline_is_monotone():
 
 def test_the_risk_register_surfaces_the_open_rows_and_hides_the_rest():
     """6d. Thirty-nine rows rendered by default is a data dump. What a reader
-    wants is how much is still open and which of it would hurt."""
-    rows = lab_mod._risk_rows()
+    wants is how much is still open and which of it would hurt.
+
+    Scoped to product rows: the page renders those and counts over those, so
+    the guard reasons about the same population the page does.
+    """
+    rows = lab_mod._product_risks()
     if not rows:
         pytest.skip("risk register not readable in this checkout")
     body = _lab()
@@ -326,6 +330,38 @@ def test_the_risk_register_surfaces_the_open_rows_and_hides_the_rest():
         assert f">{r[0]}</td>" in body, f"{r[0]} was dropped from the register"
 
 
+def test_the_page_carries_no_process_scoped_risk():
+    """The submission window, the judge and the gate numbers are this build's
+    own timeline, not a property of the system a reader is evaluating. They
+    stay in the register and stay off the page.
+
+    Derived from the scope field on both sides — nothing here names an id, so
+    a process row added later is filtered without editing this test.
+    """
+    everything = lab_mod._risk_rows()
+    assert everything, "register not readable, so this guard proves nothing"
+    process = [r for r in everything
+               if lab_mod._risk_scope(r) != lab_mod.RISK_PRODUCT_SCOPE]
+    assert process, "no process-scoped row exists, so this guard proves nothing"
+    body = _lab()
+    for r in process:
+        assert f">{r[0]}</td>" not in body, f"{r[0]} is process-scoped and rendered"
+    # And the filtering removed only those: the page still carries every
+    # product row, which is what stops this becoming a way to hide a risk.
+    for r in lab_mod._product_risks():
+        assert f">{r[0]}</td>" in body, f"{r[0]} is product-scoped and missing"
+
+
+def test_every_register_row_declares_a_scope():
+    """A row with no scope, or a typo in one, must not silently vanish from
+    the page — it would be indistinguishable from a risk someone hid."""
+    rows = lab_mod._risk_rows()
+    assert rows, "register not readable, so this guard proves nothing"
+    for r in rows:
+        assert lab_mod._risk_scope(r) in {"product", "process"}, (
+            f"{r[0]} has scope {lab_mod._risk_scope(r)!r}")
+
+
 def test_the_register_status_is_read_from_the_last_cell():
     """R-23's response contains `|z| > 2`, whose pipes split that row into more
     fields than every other one. Read at a fixed index its status is a
@@ -338,6 +374,12 @@ def test_the_register_status_is_read_from_the_last_cell():
     for r in odd:
         assert lab_mod._risk_status(r) != "OTHER", (
             f"{r[0]} has {len(r)} cells and its status was not recognised"
+        )
+        # Scope sits immediately before status and is read the same way, so a
+        # ragged row must not lose it either — read from the left it would be
+        # a fragment of the response, and the row would drop off the page.
+        assert lab_mod._risk_scope(r) in {"product", "process"}, (
+            f"{r[0]} has {len(r)} cells and its scope was not recognised"
         )
 
 

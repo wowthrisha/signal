@@ -4960,3 +4960,67 @@ reason counts, each reason has exactly one stage, and the reasons sum to
 **Full suite: `497 passed, 2 skipped, 1 xfailed in 297.63s`** — no failures.
 Execution test renders both panels: chain `22/4/18/18/16/2`, Pareto header
 *"Why 20 of 22 did not surface"*.
+
+---
+
+## Two internal artifacts were rendering on /lab
+
+Both were on the page a judge reads, and neither is about the product.
+
+**1. Process risks in the "open risks" panel.** The register mixes two kinds of
+row. `R-07` ("only the first 1000 submissions evaluated by judge") and `R-08`
+("system fails on judge's machine", response citing Gate 8 at T+61) are about
+this build's submission window and gate schedule. They were sorted into the top
+five by the same impact-then-probability rule as everything else, so the panel
+a reader judges the engineering by led with the hackathon timetable.
+
+Fixed with a `Scope` column in `ops/RISK-REGISTER.md` — `product` or `process`
+— and `/lab` rendering and counting `product` rows only. **No row was deleted;
+the register is still complete and still the only source.** The scope is read
+from the row's own field, never from a list of ids, so a process row added
+later is filtered without touching the code.
+
+`_risk_scope` reads `row[-2]`, counting from the end for the same reason
+`_risk_status` reads `row[-1]`: R-23's response contains `|z| > 2`, whose pipes
+split that row into more cells than any other, and any index counted from the
+left reads a fragment of the response there. A ragged row that lost its scope
+would drop off the page — indistinguishable from a risk someone hid — so a test
+asserts scope resolves on the ragged rows specifically.
+
+**Scope=process (2 of 39):** `R-07`, `R-08`. Nothing else qualified. `R-05`
+cites "Gate 4" as the place a measurement was logged, but its subject is the
+CUSUM detector, so it stays `product`.
+
+| | all rows | product only |
+|---|---|---|
+| OPEN | 14 | **12** |
+| MITIGATED | 22 | **22** |
+| CLOSED | 2 | **2** |
+| ACCEPTED | 1 | **1** |
+| total | 39 | **37** |
+
+The five surfaced rows are now `R-20`, `R-09`, `R-13`, `R-26`, `R-10` — the
+three named as the page's strongest content lead it.
+
+**2. A design instruction rendered as documentation.** The last sentence of
+`/lab` read *"Implementation documentation belongs at the bottom of the page,
+not in the headline position."* That is an instruction to whoever builds the
+page, not a statement about the product. Deleted. The sentence before it —
+*"Every figure on this page is read at request time…"* — is a real claim and
+stands.
+
+**Swept `app/templates/`, `app/static/` and `app/api/` for others.** Parsed
+each module and tested only user-visible string constants, excluding docstrings
+and comments, against imperative openers and prescriptive modals; stripped tags
+and dropped `<script>`/`<style>` for the HTML. **Four hits, all false
+positives, all genuine product claims:** "It never advises" (`index.html`,
+§21's required disclosure), "has never triggered / the threshold was not
+lowered" (`lab.py:530`), "a symbol the detector never fired on has none" and
+"never to admit one" (`lab.py:604`). No other instruction-shaped sentence is
+rendered anywhere.
+
+**Full suite: `499 passed, 2 skipped, 1 xfailed in 311.21s`.** Execution test
+`59 passed`. Three new guards: process rows are absent from the page while
+every product row is present (derived from the field on both sides, so it
+cannot be satisfied by hiding a product risk), every row declares a valid
+scope, and scope resolves on the ragged rows.
