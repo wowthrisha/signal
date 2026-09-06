@@ -218,6 +218,56 @@ body {
 /* Block, not inline: an inline SVG sits on the text baseline and drags a
    descender's worth of space under every row. */
 .spark { display: block; }
+
+/* --- the extremity band ------------------------------------------------- */
+/* It carried a hard width of 420 and a no-shrink flex rule: a fixed element
+   inside a card that can shrink. (Described rather than quoted — a comment
+   containing a literal svg tag is read as markup by the accessibility guard,
+   which scans this file as text. Second time; see the band's own comment about
+   impersonating a structural marker.)
+   At a 390px viewport the card's content box
+   is 279px, so the band forced the page 168px wide, truncated the ticker —
+   the one element that must never shorten — and pushed the axis's right label
+   and the whole verdict phrase off-screen.
+
+   Fluid now, with the viewBox preserved, and the row wraps so the verdict
+   drops beneath the graphic instead of being pushed past the edge. */
+.band-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* `0 1 420px`, not `1 1`: the band takes its full design width wherever there
+   is room and only ever gives width back, so the desktop drawing is unchanged
+   while the mobile one shrinks. Growing it would have let the flex algorithm
+   settle it at 364px on a 1440 screen — narrower than the size it was drawn
+   for, for no reason. */
+.band-wrap { flex: 0 1 420px; min-width: 0; }
+.band-svg { display: block; width: 100%; height: auto; }
+/* The axis ends are HTML, not SVG `<text>`. Scaling an SVG scales the type
+   inside it — at 66% the 9px labels would render near 6px — so the two words
+   live outside the graphic and keep their size at every width. Nothing was
+   deleted; they moved out of the viewBox. */
+.band-axis { display: flex; justify-content: space-between;
+             font-size: 9px; color: var(--text-3); margin-top: 2px;
+             line-height: 1; }
+.band-verdict { flex: 1 1 auto; min-width: 0; }
+
+/* The same rule for the two timelines in the drawer — the evidence timeline
+   and the forward-outcome horizons. Both were fixed-width graphics inside a
+   flex cell that is 155px at a 390px viewport, and both pushed the page wider
+   than the screen. The design size becomes an upper bound rather than the
+   only size; `max-width` is set per graphic because they differ. */
+.fluid-svg { display: block; width: 100%; height: auto; }
+
+/* --- the card's identity row -------------------------------------------- */
+/* The symbol is the one element on a card that may never shorten: losing a
+   ticker's last letters is losing which company the card is about. At 390px
+   the block holding it was `min-w-0`, so the flex row squeezed ANANTRAJ from
+   110px to 83px and ellipsised it.
+   `min-content` makes the ticker the floor. The name above it already
+   truncates by design and absorbs the squeeze instead, and where even that is
+   not enough the row wraps and the price drops to its own line rather than
+   anything being cut. No media query: both rules only bind when the space is
+   actually short, so the desktop row is byte-identical. */
+.card-head { flex-wrap: wrap; }
+.card-id { min-width: min-content; }
 .wl-row:hover { background: var(--surface-2); }
 .wl-row[aria-current="true"] { background: var(--surface-2); }
 .wl-dot { width: 8px; height: 8px; border-radius: 999px; }
@@ -338,7 +388,10 @@ input::placeholder { color: var(--text-3); }
      the right.
      ===================================================================== -->
 <header class="app-header">
-  <div class="mx-auto h-full px-6 flex items-center gap-4"
+  <!-- px-3 below `sm`: at 390px the wordmark and the three controls need
+       more than a 24px gutter leaves, and the controls must not compress —
+       "Mark all as seen" is the page's only state-changing action. -->
+  <div class="mx-auto h-full px-3 sm:px-6 flex items-center gap-3 sm:gap-4"
        style="max-width:var(--content)">
     <div class="flex items-baseline gap-3 min-w-0 shrink-0">
       <span class="text-sm tracking-[0.35em] t1 font-medium">SIGNAL</span>
@@ -743,7 +796,7 @@ function evidenceTimeline(c) {
     .join(', ');
 
   return `
-    <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
+    <svg viewBox="0 0 ${W} ${H}" class="fluid-svg" style="max-width:${W}px" role="img"
          aria-label="Filing timeline for ${c.symbol}: ${label}. The detected move is on ${c.session_date}."
          class="mt-2">
       <line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}"
@@ -862,8 +915,9 @@ function outcomesRow(c) {
         ? (h.outcome === 'NOT_YET_OBSERVABLE' ? 'not yet observable' : 'not available')
         : `${h.residual_pct > 0 ? 'up' : 'down'} ${Math.abs(h.residual_pct).toFixed(2)} percent`}`
   ).join('; ') + '.';
-  const cells = `<span class="inline-block align-middle"><svg width="${W}" height="${H}"
-      viewBox="0 0 ${W} ${H}" role="img" aria-label="${timelineLabel}">
+  const cells = `<span class="block"><svg viewBox="0 0 ${W} ${H}"
+      class="fluid-svg" style="max-width:${W}px"
+      role="img" aria-label="${timelineLabel}">
       <line x1="${x0}" y1="13" x2="${px(maxH).toFixed(1)}" y2="13"
             stroke="var(--border)" stroke-width="1"/>
       ${marks}
@@ -1220,10 +1274,11 @@ function extremityBand(c, ctx) {
   // aria-label, which is where a screen reader reads it. Drawing both would
   // keep the duplication and add a graphic on top of it.
   return `
-    <div class="mt-2 flex items-center gap-3">
-      <svg width="${W}" height="${H + 10}" viewBox="0 0 ${W} ${H + 10}" role="img"
+    <div class="mt-2 band-row">
+      <div class="band-wrap">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
            aria-label="${words}. ${sentence}. Standardised residual ${z.toFixed(2)} sigma against a normal range of plus or minus ${h1} sigma."
-           class="shrink-0">
+           class="band-svg">
         <line x1="6" y1="${H / 2}" x2="${W - 6}" y2="${H / 2}"
               stroke="var(--border)" stroke-width="1"></line>
         <rect x="${x(-h1)}" y="${H / 2 - 4}" width="${x(h1) - x(-h1)}" height="8"
@@ -1243,13 +1298,13 @@ function extremityBand(c, ctx) {
              that impersonates a structural marker breaks every guard that
              splits the rendered markup on one. -->
         ${marker}
-        <text x="6" y="${H - 2}" fill="var(--text-3)"
-              style="font-size:9px" aria-hidden="true">normal</text>
-        <text x="${W - 6}" y="${H - 2}" text-anchor="end" fill="var(--text-3)"
-              style="font-size:9px" aria-hidden="true">unusual</text>
       </svg>
-      <!-- The plain verdict, beside the band rather than under it. -->
-      <span class="text-sm ${outside ? 'accent' : 't2'} leading-tight">${words || ''}</span>
+      <div class="band-axis" aria-hidden="true"><span>normal</span><span>unusual</span></div>
+      </div>
+      <!-- The plain verdict. Beside the band where there is room for it, and
+           wrapped beneath the band where there is not — never pushed past the
+           edge of the card, which is what a fixed-width graphic did to it. -->
+      <span class="band-verdict text-sm ${outside ? 'accent' : 't2'} leading-tight">${words || ''}</span>
     </div>`;
 }
 
@@ -1340,9 +1395,9 @@ function cardHTML(c, i, ctx = {}) {
          it was the element that truncated, and losing a ticker's last two
          letters is losing which company the card is about. -->
     <div class="flex items-baseline justify-between gap-3">
-      <div class="flex items-baseline gap-2.5 min-w-0">
+      <div class="card-head flex items-baseline gap-2.5 min-w-0">
         <span class="dot shrink-0" title="${t.label}" aria-hidden="true"></span>
-        <div class="min-w-0">
+        <div class="card-id min-w-0">
           <h2 class="symbol t1 tracking-wide">${c.symbol}</h2>
           ${c.name ? `<p class="co-name" title="${c.name}">${c.name}</p>` : ''}
         </div>

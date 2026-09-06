@@ -852,14 +852,29 @@ def test_the_attribution_is_demoted_but_keeps_every_value(tmp_path):
 
 def test_the_extremity_band_is_the_hero(tmp_path):
     """1c. It is the object that actually varies across the slate — 3.11,
-    4.33, 4.83, 3.36 sigma today — where the attribution share does not."""
+    4.33, 4.83, 3.36 sigma today — where the attribution share does not.
+
+    It is no longer sized by a `width` attribute. A hard 420px that could not
+    shrink forced 168px of horizontal overflow at a 390px viewport and
+    truncated the ticker; the band is fluid now, so "is it the hero" is a
+    question about its *coordinate space* and the width it is allowed to
+    reach, not about a pixel attribute on the tag."""
     html = _cards(tmp_path)
     card = [a for a in html.split("<article") if "IFCI" in a][0]
-    band = re.search(r'<svg width="(\d+)" height="(\d+)"[^>]*aria-label="[^"]*'
-                     r'normal range[^"]*"', card)
+    band = re.search(r'<svg[^>]*aria-label="[^"]*normal range[^"]*"[^>]*>',
+                     card, re.S)
     assert band, "the extremity band is not on the card face"
-    assert int(band.group(1)) >= 300, (
-        f"the band is {band.group(1)}px wide; it is meant to be the hero"
+    tag = band.group(0)
+    assert "shrink-0" not in tag, (
+        "the band is marked no-shrink again; that is what overflowed 390px"
+    )
+    assert 'width="' not in tag, (
+        f"the band has a fixed width attribute again: {tag[:160]}"
+    )
+    vb = re.search(r'viewBox="0 0 (\d+) (\d+)"', tag)
+    assert vb and int(vb.group(1)) >= 300, (
+        f"the band's coordinate space is {vb.group(1) if vb else None} wide; "
+        "it is meant to be the hero"
     )
     # Wider than the demoted attribution rule, which is the whole point.
     assert "attr-slim" in card
@@ -1565,4 +1580,90 @@ def test_a_key_that_is_not_escape_leaves_the_filter_alone(tmp_path):
     out = _render_with_query(tmp_path, "ifci", escape=False)
     assert _rows(out["after_escape"]) == ["INE003"], (
         "the filter was cleared without an Escape"
+    )
+
+
+# --- the mobile viewport ---------------------------------------------------
+#
+# A layout guard, not a markup guard, so it needs a real layout engine. The
+# node harness has no CSS box model, so this asserts the two structural
+# properties that caused the overflow — a fixed width and a no-shrink rule on
+# an element wider than a phone — against the stylesheet and the rendered tag.
+# The measured check runs in the browser and its numbers are in the ACTION-LOG.
+
+# The narrowest viewport the page claims to support, and the widest fixed
+# element that can sit inside a card at that width.
+MOBILE_VIEWPORT = 390
+
+
+def test_no_card_element_is_wider_than_a_phone_can_show(tmp_path):
+    """FIX 1. At 390px the shell is one column and a card's content box is
+    279px. Any fixed width above that overflows the page, and the page has no
+    horizontal scroll to absorb it — the ticker truncates instead.
+
+    Scanned on the RENDERED markup, not on the source. `width="${W}"` is a
+    template placeholder that no source-level regex for a literal will catch,
+    and that is exactly the form the defect shipped in."""
+    html = _cards(tmp_path)
+    assert len(html) > 0, "no card markup to scan"
+    offenders = []
+    for m in re.finditer(r"<(svg|div|span|img|p)\b([^>]*)>", html, re.S):
+        attrs = m.group(2)
+        if 'aria-hidden="true"' in attrs:
+            continue
+        for w in re.findall(r'\bwidth="(\d+)"', attrs):
+            if int(w) > MOBILE_VIEWPORT:
+                offenders.append(f"<{m.group(1)} width={w}>")
+        for w in re.findall(r"\bwidth:\s*(\d+)px", attrs):
+            if int(w) > MOBILE_VIEWPORT:
+                offenders.append(f"<{m.group(1)} style width:{w}px>")
+    assert not offenders, (
+        f"these rendered elements are wider than a {MOBILE_VIEWPORT}px "
+        f"viewport and will force horizontal scroll: {offenders}"
+    )
+    # And nothing on a card refuses to shrink inside its flex row, which is
+    # the other half of the same failure.
+    band = re.search(r"<svg[^>]*aria-label=\"[^\"]*normal range[^\"]*\"[^>]*>",
+                     html, re.S)
+    assert band and "shrink-0" not in band.group(0)
+
+
+def test_the_band_is_fluid_and_its_row_wraps():
+    """The two rules that make it fit: the graphic scales, and the verdict
+    beside it drops beneath instead of being pushed past the card's edge."""
+    css = STATIC.read_text().split("</style>")[0]
+    band = css.split(".band-svg")[1].split("}")[0]
+    assert "width: 100%" in band, "the band is not fluid"
+    assert "height: auto" in band, "the band will not keep its aspect ratio"
+    row = css.split(".band-row")[1].split("}")[0]
+    assert "flex-wrap: wrap" in row, (
+        "the band's row does not wrap, so the verdict is pushed off-screen"
+    )
+    wrap = css.split(".band-wrap")[1].split("}")[0]
+    assert "min-width: 0" in wrap, "the band cannot shrink inside a flex row"
+    assert "flex: 0 1 420px" in wrap, (
+        "the band grows or has no upper bound; it should take its design width "
+        "where there is room and only ever give width back"
+    )
+
+
+def test_the_axis_labels_are_html_so_scaling_cannot_shrink_them(tmp_path):
+    """Scaling an SVG scales the type inside it. At 66% — a 390px viewport —
+    the 9px axis labels would render near 6px. They live outside the viewBox
+    now, and this asserts they were moved rather than deleted."""
+    html = _cards(tmp_path)
+    card = [a for a in html.split("<article") if "IFCI" in a][0]
+    band = re.search(r"<svg[^>]*aria-label=\"[^\"]*normal range[^\"]*\".*?</svg>",
+                     card, re.S)
+    assert band, "no band on the card"
+    assert "<text" not in band.group(0), (
+        "the axis labels are back inside the viewBox, where scaling shrinks them"
+    )
+    axis = re.search(r'<div class="band-axis"[^>]*>(.*?)</div>', card, re.S)
+    assert axis, "the axis labels were deleted rather than moved out of the SVG"
+    for w in ("normal", "unusual"):
+        assert w in axis.group(1), f"the axis lost its {w!r} end"
+    # And the geometry the labels described is still drawn.
+    assert band.group(0).count("<line") >= 3, (
+        "the band lost the ticks its labels point at"
     )

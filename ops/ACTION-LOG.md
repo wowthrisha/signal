@@ -4451,3 +4451,80 @@ individually rather than left ambiguous: `results/latest` is a **symlink**, so
 there is no file entry at `results/latest/metrics.json` but it resolves to a
 7,031-byte file on extraction; and the `signal-*.zip` "hit" is `unzip -l`'s own
 `Archive:` header line, not an entry.
+
+---
+
+## [UI-8] — Fixes from the live browser audit
+
+| Key | Value |
+|-----|-------|
+| Phase | UI-8 |
+| Date | 2026-09-06 IST |
+| Source | Live judge-perspective audit of the production deployment |
+
+### FIX 1 — 390px horizontal overflow (P0)
+
+The audit measured **168px of horizontal overflow** at a 390px viewport, a
+truncated ticker on three of four cards, and the verdict phrase pushed
+off-screen. The named cause — a hard-width, no-shrink extremity band — was
+correct but was **not the only one**. Three fixed-width graphics and one
+header rule all had to give:
+
+| element | was | now |
+|---------|-----|-----|
+| extremity band | `width="420"`, `shrink-0` | `viewBox` + `.band-svg { width:100%; height:auto }`, wrapper `flex: 0 1 420px` |
+| evidence timeline | `width="260"` | same pattern, `max-width:260px` |
+| forward-outcome horizons | `width="210"` | same pattern, `max-width:210px` |
+| header gutter | `px-6` at every width | `px-3 sm:px-6` — the wordmark plus three controls need more than a 24px gutter leaves at 375px |
+
+**The axis labels moved out of the SVG.** Scaling an SVG scales the type inside
+it; at the 66% the band renders at on a phone, the 9px `normal` / `unusual`
+labels would have landed near 6px. They are HTML now, outside the viewBox, at a
+constant 9px. Nothing was deleted — the geometry they point at (the axis line
+and both bound ticks) is unchanged inside the graphic.
+
+**The ticker truncation had a separate cause** and survived the band fix. The
+block holding the symbol and the company name was `min-w-0`, so the flex row
+squeezed `ANANTRAJ` from 110px to 83px and ellipsised it — the one element the
+card's own rule says may never shorten. `.card-id { min-width: min-content }`
+makes the ticker the floor; the name above it already truncates by design and
+absorbs the squeeze, and `.card-head { flex-wrap: wrap }` drops the price to
+its own line where even that is not enough. No media query: both rules bind
+only when space is short, so the desktop row is unchanged.
+
+**Measured, in a real 390/768/1440 viewport** (same-origin iframes, which give
+the embedded document a true viewport so media queries evaluate correctly —
+this machine's window manager refuses to resize the browser below 1528px):
+
+| | 1440 | 768 | 390 |
+|---|---|---|---|
+| horizontal overflow | **0px** | **0px** | **0px** (was 168px) |
+| band rendered | 420 × 36 | 420 × 36 | 276 × 24 |
+| verdict phrase | beside the band | beside the band | wrapped beneath, on-screen |
+| clipped card symbols | none | none | **none** (was ANANTRAJ, RBLBANK, COALINDIA) |
+| clipped rail symbols | none | none | none |
+| axis label size | 9px | 9px | 9px |
+
+`flex: 0 1 420px` rather than `1 1`: the first attempt let the band grow, and
+the flex algorithm settled it at **364px on a 1440 screen** — narrower than the
+size it was drawn for, for no reason. It now takes its design width wherever
+there is room and only ever gives width back.
+
+**Guards.** Four added or rewritten, each proved to fire by restoring the
+fixed-width no-shrink band:
+
+  * `test_no_card_element_is_wider_than_a_phone_can_show` scans the **rendered**
+    markup, not the source. The defect shipped as `width="${W}"` — a template
+    placeholder no source-level regex for a literal digit would catch, which
+    the first version of this guard proved by passing on the reverted code.
+  * `test_the_band_is_fluid_and_its_row_wraps` checks the three CSS rules.
+  * `test_the_axis_labels_are_html_so_scaling_cannot_shrink_them` asserts they
+    were moved out of the viewBox rather than deleted.
+  * `test_the_extremity_band_is_the_hero` was inverted: it asserted a `width`
+    attribute of ≥300px, which is now the thing that must be absent. It checks
+    the coordinate space and the absence of `shrink-0` instead.
+
+One authoring bug, and the second of its kind: a CSS comment I wrote quoted the
+old markup literally, and the accessibility guard — which scans this file as
+text — read it as a real unlabelled `<svg>` tag. The comment describes the
+attributes in prose now.
