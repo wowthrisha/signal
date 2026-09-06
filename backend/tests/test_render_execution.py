@@ -1240,7 +1240,7 @@ def test_the_ticker_and_the_prose_are_not_set_in_a_digit_face(tmp_path):
     # The figures beside it are untouched — this is a substitution, not a
     # removal, and a page with no mono at all would have lost the alignment
     # the class exists for.
-    assert 'class="num wl-price"' in row, "the price lost its tabular figures"
+    assert 'class="num wl-price' in row, "the price lost its tabular figures"
     # The change column's cell carries the tabular face; the span inside it
     # carries only the colour, so the enclosing cell is what is checked.
     assert 'class="num text-right"' in row, "the change column lost its tabular figures"

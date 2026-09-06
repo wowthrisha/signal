@@ -139,3 +139,72 @@ def test_the_card_region_announces_updates():
     markup = STATIC.read_text()
     assert 'aria-live="polite"' in markup
     assert 'aria-busy' in markup
+
+
+# --- the muted step is for labels, not for content -------------------------
+#
+# `--text-3` is the page's quietest token. It was applied to 61 elements, 53 of
+# them not section labels: sentences, values, error messages, the caught-up
+# explanation. The hierarchy was not wrong, it was applied to almost
+# everything, and the effect is a page that reads as uniformly dim.
+#
+# The rule this enforces:
+#     --text    body copy, verdicts, card content — anything a user reads
+#     --text-2  secondary detail — timestamps, sources, values
+#     --text-3  SECTION LABELS ONLY (uppercase, tracked), and decoration
+
+# More than this many words and it is prose, not a label.
+LABEL_MAX_WORDS = 4
+
+_T3 = re.compile(r'class="([^"]*\bt3\b[^"]*)"([^>]*)>([^<]{0,200})')
+
+
+def _is_label_like(cls: str, attrs: str) -> bool:
+    """A section label is uppercase and tracked; decoration is aria-hidden."""
+    return (
+        "uppercase" in cls
+        or "tracking-" in cls
+        or "label" in cls
+        or "placeholder:" in cls
+        or 'aria-hidden="true"' in attrs
+    )
+
+
+def t3_sentences(markup: str) -> list[str]:
+    out = []
+    body = markup.split("</style>", 1)[-1]
+    for m in _T3.finditer(body):
+        cls, attrs, text = m.group(1), m.group(2), m.group(3)
+        if _is_label_like(cls, attrs):
+            continue
+        # Strip template placeholders; what is left is the literal copy.
+        literal = re.sub(r"\$\{[^}]*\}", " ", text)
+        words = [w for w in re.split(r"\s+", literal.strip()) if w]
+        if len(words) > LABEL_MAX_WORDS and not literal.strip().isupper():
+            out.append(" ".join(words)[:70])
+    return out
+
+
+def test_the_muted_token_never_carries_a_sentence():
+    """A sentence set in the page's quietest colour is content the design is
+    apologising for."""
+    offenders = t3_sentences(STATIC.read_text())
+    assert not offenders, (
+        "these read as prose but are set in --text-3, which is reserved for "
+        f"section labels:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_sentence_guard_fires_on_a_muted_paragraph():
+    """R-27. The guard must reject the shape it exists to catch, and accept
+    the two shapes that are legitimately muted."""
+    bad = '<style></style><p class="text-xs t3">Nothing meaningful has changed since you last looked.</p>'
+    assert t3_sentences(bad), "the guard missed a muted sentence"
+    # A tracked section label may be muted.
+    ok_label = '<style></style><p class="text-[10px] uppercase tracking-[0.2em] t3">What was filtered</p>'
+    assert t3_sentences(ok_label) == []
+    # So may decoration a screen reader never sees.
+    ok_deco = '<style></style><span class="t3" aria-hidden="true"> &middot; </span>'
+    assert t3_sentences(ok_deco) == []
+    # And a short label is not a sentence.
+    assert t3_sentences('<style></style><span class="t3">next update</span>') == []

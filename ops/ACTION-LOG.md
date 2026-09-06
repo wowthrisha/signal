@@ -4754,3 +4754,139 @@ only the new build carries — appeared in the served page.
 
 Archive re-cut from `6aefc53`: 169 entries, 1,265,516 bytes, `index.html`
 byte-identical to HEAD, ADR-051 present.
+
+---
+
+## [UI-9] — Contrast and hierarchy
+
+| Key | Value |
+|-----|-------|
+| Phase | UI-9 |
+| Date | 2026-09-06 IST |
+| Scope | Colour and hierarchy only. No threshold, detection, attribution, confidence, evidence or outcome logic touched. |
+
+Every ratio below is **computed** from the hex beside it with a WCAG 2.x
+relative-luminance implementation, not asserted.
+
+### The palette
+
+| token | old | new | old vs bg | new vs bg | old vs surface | new vs surface | new vs surface-2 |
+|-------|-----|-----|-----------|-----------|----------------|----------------|------------------|
+| `--bg` | `#0A0B0D` | *unchanged* | 1.00 | 1.00 | 1.13 | 1.39 | 1.83 |
+| `--surface` | `#171A20` | **`#262B34`** | 1.13 | **1.39** | 1.00 | 1.00 | 1.32 |
+| `--surface-2` | `#22262E` | **`#373E4B`** | 1.30 | 1.83 | 1.15 | **1.32** | 1.00 |
+| `--border` | `#2E333C` | **`#7F899D`** | 1.55 | 5.59 | 1.37 | **4.04** | **3.06** |
+| `--text` | `#E8EAED` | *unchanged* | 16.34 | 16.34 | 14.46 | 11.79 | 8.92 |
+| `--text-2` | `#9BA1AC` | **`#CED1D6`** | 7.58 | 12.86 | 6.71 | **9.28** | 7.02 |
+| `--text-3` | `#808892` | **`#B5B9BF`** | 5.49 | 9.99 | 4.86 | **7.21** | 5.46 |
+| `--neutral` | `#4B5563` | **`#7C8A9C`** | 2.61 | 5.60 | 2.31 | **4.04** | **3.06** |
+| `--accent` | `#F5A524` | *unchanged* | 9.65 | 9.65 | 8.54 | 6.96 | 5.27 |
+| `--evidence` | `#22D3EE` | *unchanged* | 10.89 | 10.89 | 9.64 | 7.86 | 5.95 |
+| `--warn` | `#F59E0B` | *unchanged* | 9.17 | 9.17 | 8.11 | 6.62 | 5.01 |
+| `--accent-dim` | `#7A5312` | **removed** | 2.88 | — | 2.55 | — | — |
+
+Every target met, with margin:
+
+```
+PASS  --surface   vs --bg          1.39  >= 1.35
+PASS  --surface-2 vs --surface     1.32  >= 1.30
+PASS  --border    vs --surface     4.04  >= 3.00
+PASS  --border    vs --surface-2   3.06  >= 3.00
+PASS  --neutral   vs --surface     4.04  >= 3.00
+PASS  --neutral   vs --surface-2   3.06  >= 3.00
+PASS  --text-2    vs --surface     9.28  >= 9.00
+PASS  --text-3    vs --surface     7.21  >= 7.00
+```
+
+**Two tokens were solved against a stricter ground than the brief named, and
+the reason is adjacency.** SC 1.4.11 measures a graphical object against the
+colour it actually touches. `--neutral` is a bar *fill* and it sits inside a
+`--surface-2` *track* (`.bar-track`, `.wl-mag`) — the track is its adjacent
+colour, not the card. `--border` frames the symbol input, the API banner and
+the help control, all of which sit on `--surface-2`. Solved against
+`--surface`, both would have measured **2.36** and **2.35** against the ground
+they are really on, and the fix would have shipped still failing. Solved
+against `--surface-2`, both clear 3:1 everywhere.
+
+**Regression check after raising the ground.** Raising `--surface` lowers every
+ratio measured against it, so all three text steps were re-solved rather than
+left alone. Worst case anywhere on the page is `--warn` on `--surface-2` at
+**5.01** — every text token clears 4.5:1 on `--bg`, `--surface` and the
+`--surface-2` hover state.
+
+`--accent-dim` and `.bar-dim` are deleted. Dead CSS — `.bar-dim` was applied to
+**zero** elements — and a 2.08:1 fill waiting for someone to revive it.
+
+### The hierarchy
+
+`t3` was on **61** elements, **53** of them not section labels. The brief cited
+83; that count predates the earlier rounds, and the measured figure is 61.
+
+**41 elements moved off `t3`.** Final usage: `t1` **26**, `t2` **77**,
+`t3` **22**.
+
+The 22 that remain are the rule working: 8 uppercase tracked section labels,
+plus decorative separators (`·`, `→`, `✓` — all `aria-hidden`), list numbering,
+the `Technical details` summary, the context strip's tile labels, the input
+placeholder, and the `×` remove control.
+
+What moved, by category:
+
+| moved to | what |
+|----------|------|
+| `t2` | every sentence — the caught-up explanation, the API-outage and render-error messages, the empty-filter copy, the base-rate cohort prose, the outcome-timing qualifiers, the suppression-reason details, the rail's click note |
+| `t2` | every stated value — the watchlist count, base-rate percentages and denominators, gate expressions, `not available`, the freshness words, the publication and retrieval dates |
+| `t1` | the funnel's terminal stage label, the rail's change figure, the rail and card prices |
+| `--evidence` | filing counts, and the temporal-relation labels |
+
+**One deliberate exception inside TASK 4.** `FOLLOWS` keeps `--accent` rather
+than going cyan with the other temporal labels: its own comment says it must
+read as a disclaimer — *"recorded after the movement, so it cannot be what the
+movement reflected"* — and filing it with the provenance it contradicts would
+be the wrong signal. `UNKNOWN` went to `t2` rather than cyan for the same
+reason: it is the *absence* of provenance, and colouring an absence as
+provenance overstates it.
+
+### Guards
+
+`test_the_muted_token_never_carries_a_sentence` — any element carrying `t3`
+whose literal copy runs to more than four words, is not uppercase, and is not
+`aria-hidden`, fails the build. Proved to fire on a muted paragraph and proved
+to accept the three legitimate shapes: a tracked section label, `aria-hidden`
+decoration, and a short label.
+
+### Carry-over questions from the previous round
+
+**Is 390px overflow 0px?** Yes — measured in a real 390px viewport, page
+`scrollWidth − clientWidth = 0`, four cards, **zero** clipped symbols. The
+screenshot shows `ANANTRAJ` rendering in full with its price wrapped to its own
+line and the band scaled to fit.
+
+**Did the RBLBANK filing count change from 5 to 4? No — and it should not
+have.** Two separate things were conflated:
+
+  * The **dedupe landed and is live.** Across the seven duplicate groups the
+    read path now returns **21 rows where the table holds 30** — nine
+    duplicates suppressed. Verified against the running database, not asserted.
+  * **RBLBANK is not one of those groups.** Its five rows carry five distinct
+    URLs. Two of them hold byte-identical PDFs because NSE filed one document
+    under two announcement categories six minutes apart, and the only thing
+    that identifies them as one document is a content hash this system never
+    computes. That was reported as *left as two, deliberately* in FIX 3 — the
+    count is 5 and 5 is correct.
+  * **`/lab`'s table was never going to move.** `_EVIDENCE_SQL` counts
+    **events** — `count(*) FROM event`, with a lateral join that asks only
+    whether *at least one* evidence row exists (`HAVING count(*) > 0`).
+    Deduplicating evidence rows cannot change a count of events. `JUMP
+    48/14/13` is unchanged because it measures something else, not because the
+    fix failed to land.
+
+**Full suite: `494 passed, 2 skipped, 1 xfailed in 305.22s`** — no failures.
+(The previous round's two benchmark-determinism failures were my mid-run
+commit changing `git_sha`; this run was left alone and they pass.)
+
+| verification | result |
+|--------------|--------|
+| live page, 1440 | 4 cards, 30 rail rows, 0px overflow |
+| live page, 390 | 4 cards, **0px overflow**, 0 clipped symbols |
+| dedupe, live | 7 groups, table 30 → rendered 21 |

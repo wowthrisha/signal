@@ -26,23 +26,48 @@
   /* Near-black rather than pure black: #000 under high-chroma accents causes
      halation on OLED, where the accent appears to bleed into the ground. */
   --bg:         #0A0B0D;
-  /* A card used to sit 1.077:1 above the ground — a difference a projector
-     loses entirely, so the page read as one flat sheet with text on it.
-     Raised one step to 1.130:1. --surface-2 moves with it, or hover would
-     land on the new --surface and vanish; --border likewise, because a 1px
-     rule at 1.211:1 against the lighter ground is not a rule. */
-  --surface:    #171A20;
-  --surface-2:  #22262E;
-  --border:     #2E333C;
+  /* Elevation in a dark theme comes from a LIGHTER surface, never a shadow.
+     The card sat 1.13:1 above the ground and hover sat 1.15:1 above the card:
+     differences a projector loses entirely, so the page read as one flat
+     sheet with text on it and nothing responded to the cursor.
 
-  --text:       #E8EAED;   /* body and figures */
-  --text-2:     #9BA1AC;   /* secondary prose */
-  --text-3:     #808892;   /* labels only, never body copy */
+     Measured, not asserted — every ratio in this block is computed from the
+     hex beside it:
+       --surface   vs --bg        1.13 -> 1.39
+       --surface-2 vs --surface   1.15 -> 1.32
+       --border    vs --surface   1.37 -> 4.04
+       --border    vs --surface-2 1.21 -> 3.06
+
+     --border is solved against --surface-2, not --surface: it frames the
+     input, the banner and the help control, which all sit on the lighter
+     ground, and a rule only delineates a component if it clears 3:1 against
+     the lightest thing it touches (SC 1.4.11). */
+  --surface:    #262B34;
+  --surface-2:  #373E4B;
+  --border:     #7F899D;
+
+  /* Three steps, and the rule for each is what it is FOR, not how it looks.
+     Raising --surface lowers everything measured against it, so both muted
+     steps were re-solved against the new ground rather than left where they
+     were:
+       --text    16.34 vs --bg, 11.79 vs --surface   body copy, verdicts, card content
+       --text-2   7.58 -> 12.86 vs --bg, 9.28 vs --surface   secondary detail
+       --text-3   5.49 ->  9.99 vs --bg, 7.21 vs --surface   SECTION LABELS ONLY
+     All three clear 4.5:1 on every ground the page puts them on, including
+     the --surface-2 hover state (8.92 / 7.02 / 5.46). */
+  --text:       #E8EAED;
+  --text-2:     #CED1D6;
+  --text-3:     #B5B9BF;
 
   --accent:     #F5A524;   /* stock-specific, tier dot, attention count */
-  --accent-dim: #7A5312;   /* the muted track behind an amber bar */
   --evidence:   #22D3EE;   /* evidence, provenance, source links */
-  --neutral:    #4B5563;   /* market and sector bars — deliberately quiet */
+  /* A bar segment is a graphical object required to understand the content,
+     so SC 1.4.11's 3:1 applies to it. It was #4B5563 — 2.31:1 against
+     --surface and 2.03:1 against the --surface-2 track it actually sits in,
+     which is the adjacent colour that matters. Now 4.04 and 3.06.
+     `--accent-dim` and `.bar-dim` are gone: dead CSS, applied nowhere, and a
+     2.08:1 fill waiting for someone to revive it. */
+  --neutral:    #7C8A9C;
   --warn:       #F59E0B;   /* stale, unadjusted, low confidence */
   --focus:      #22D3EE;
 
@@ -207,7 +232,9 @@ body {
   color: var(--text-3); white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; min-width: 0;
 }
-.wl-price { color: var(--text-2); text-align: right; }
+/* A meaning-carrying numeral reads at --text, like the change beside it.
+   `t1` on the element sets the colour; this keeps the alignment. */
+.wl-price { text-align: right; }
 /* Explicit placement: these three are last in source order so that the dot and
    the remove control stay adjacent to the row's identity in the accessibility
    tree, but they belong on line 2. Auto-placement would put them in a third
@@ -305,7 +332,7 @@ body {
 .price {
   font-family: var(--mono); font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
-  font-size: 1rem; font-weight: 500; color: var(--text-2); line-height: 1.1;
+  font-size: 1rem; font-weight: 500; color: var(--text); line-height: 1.1;
 }
 /* Capped rather than trusted to the column: BALRAMPUR CHINI MILLS LTD is 25
    characters and the longest name on the seeded list. Capping here means the
@@ -367,7 +394,6 @@ body {
 .attr-bar .bar-quiet  .seg-l, .attr-bar .bar-quiet  .seg-v { color: var(--text); }
 .bar-accent { background: var(--accent); }
 .bar-quiet  { background: var(--neutral); }
-.bar-dim    { background: var(--accent-dim); }
 
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent); }
 
@@ -409,7 +435,7 @@ input::placeholder { color: var(--text-3); }
        style="max-width:var(--content)">
     <div class="flex items-baseline gap-3 min-w-0 shrink-0">
       <span class="text-sm tracking-[0.35em] t1 font-medium">SIGNAL</span>
-      <span class="text-[11px] t3 truncate hidden sm:inline">since you last
+      <span class="text-[11px] t2 truncate hidden sm:inline">since you last
         looked <span class="num" id="since">&mdash;</span></span>
     </div>
     <!-- The centre. One number, not three. All three are now the funnel
@@ -459,7 +485,7 @@ input::placeholder { color: var(--text-3); }
   <div class="rounded-lg border bd surface" style="padding:var(--card-pad)">
     <div class="flex items-start justify-between gap-4">
       <h2 class="text-[10px] uppercase tracking-[0.2em] t3">What the words mean</h2>
-      <button id="help-close" class="text-xs t3 hover:t2 transition-colors"
+      <button id="help-close" class="text-xs t2 hover:t1 transition-colors"
               aria-label="Close the legend">close</button>
     </div>
     <dl id="help-body" class="mt-3 grid sm:grid-cols-2 gap-x-8 gap-y-2.5 text-xs"></dl>
@@ -516,10 +542,10 @@ input::placeholder { color: var(--text-3); }
     <!-- The note's home. On a click it is MOVED to sit under the row that
          was clicked; `renderWatchlist` returns it here before replacing the
          table's markup, so a background refresh can never destroy the node. -->
-    <div id="wl-note-home"><div id="wl-note" class="text-[11px] t3" hidden></div></div>
+    <div id="wl-note-home"><div id="wl-note" class="text-[11px] t2" hidden></div></div>
     <div id="watchlist" class="mt-2"></div>
     <div class="mt-3 flex items-center justify-between">
-      <span id="wl-count" class="text-[10px] t3"></span>
+      <span id="wl-count" class="text-[10px] t2"></span>
       <button id="mute-toggle" style="min-height:0"
               class="text-[10px] uppercase tracking-wider t3
                      hover:t2 transition-colors">show muted</button>
@@ -752,10 +778,10 @@ const BASIS_PLAIN = {
 // document explains the move, and FOLLOWS in particular must read as a
 // disclaimer rather than as a cause.
 const TEMPORAL = {
-  PRECEDES:               { text: 't2',   label: 'Published before the move' },
-  SAME_SESSION_UNORDERED: { text: 't3',   label: 'Same session; ordering unknown' },
-  FOLLOWS:                { text: 'accent',  label: 'Published after the move' },
-  UNKNOWN:                { text: 't3',   label: 'Timing unknown' },
+  PRECEDES:               { text: 'evidence-fg', label: 'Published before the move' },
+  SAME_SESSION_UNORDERED: { text: 'evidence-fg', label: 'Same session; ordering unknown' },
+  FOLLOWS:                { text: 'accent',      label: 'Published after the move' },
+  UNKNOWN:                { text: 't2',          label: 'Timing unknown' },
 };
 
 function temporalHTML(e) {
@@ -833,7 +859,7 @@ function evidenceItemHTML(e, compact) {
     ? `<a href="${e.url}" target="_blank" rel="noopener noreferrer"
           class="tap pill" style="color:var(--evidence);border-color:var(--evidence)"
           >View original <span aria-hidden="true">&nearr;</span></a>`
-    : `<span class="t3 text-[11px]">no per-document link published</span>`;
+    : `<span class="t2 text-[11px]">no per-document link published</span>`;
   if (compact) {
     // One line per additional filing: title, ordering, link. Nothing is
     // dropped — a reader who wants the full provenance opens the original.
@@ -841,7 +867,7 @@ function evidenceItemHTML(e, compact) {
       <li class="py-1.5 bdb last:border-0">
         <p class="text-xs t2">${e.title}</p>
         <p class="mt-0.5 text-[11px] ${rel.text}">${rel.label}
-          <span class="num t3">· ${e.published_at.slice(0, 10)}</span>
+          <span class="num t2">· ${e.published_at.slice(0, 10)}</span>
           ${e.linkable ? `<a href="${e.url}" target="_blank" rel="noopener noreferrer"
              class="evidence-fg" style="margin-left:6px">original</a>` : ''}</p>
       </li>`;
@@ -849,13 +875,13 @@ function evidenceItemHTML(e, compact) {
   return `
     <div>
       <p class="text-xs t1">${e.title}</p>
-      <p class="mt-1 text-[11px] t3">
+      <p class="mt-1 text-[11px] t2">
         ${e.source_name} · ${e.document_type} ·
         <span title="Source tiers run 1 to 3, most authoritative first: 1 the exchange, 2 the company's own investor relations, 3 a regulator's filing.">${TIER_SOURCE[e.source_tier] || ('tier ' + e.source_tier)}</span>
       </p>
-      <p class="mt-0.5 text-[11px] t3">
+      <p class="mt-0.5 text-[11px] t2">
         published <span class="num">${e.published_at.slice(0, 10)}</span>
-        <span class="t3">(${BASIS_PLAIN[e.published_at_basis]
+        <span class="t2">(${BASIS_PLAIN[e.published_at_basis]
           || e.published_at_basis.toLowerCase().replace('_', ' ')})</span>
         · retrieved <span class="num">${e.retrieved_at.slice(0, 10)}</span>
       </p>
@@ -882,7 +908,7 @@ function evidenceHTML(c) {
   return `
     <div class="mt-3 pt-3 bdt">
       <p class="label evidence-fg mb-2">Evidence${
-        ev.length > 1 ? ` <span class="t3"><span class="num">${ev.length}</span> filings</span>` : ''}</p>
+        ev.length > 1 ? ` <span class="evidence-fg"><span class="num">${ev.length}</span> filings</span>` : ''}</p>
       ${evidenceTimeline(c)}
       <div class="mt-2">${evidenceItemHTML(first, false)}</div>
       ${rest.length ? `<ul class="mt-2">${
@@ -949,8 +975,8 @@ function outcomesRow(c) {
   const onLatest = allPending && c.freshness === 'FRESH';
   const pendingWhy = !allPending ? ''
     : onLatest
-      ? ' <span class="t3">— detected on the latest session held; outcomes appear as sessions close.</span>'
-      : ' <span class="t3">— no later session is in this database yet.</span>';
+      ? ' <span class="t2">— detected on the latest session held; outcomes appear as sessions close.</span>'
+      : ' <span class="t2">— no later session is in this database yet.</span>';
 
   // One word, from the longest horizon that was actually observable.
   const settled = [...o.horizons].reverse()
@@ -973,7 +999,7 @@ function outcomesRow(c) {
           continued = kept going<span class="t3" aria-hidden="true"> · </span>
           reversed = went the other way<span class="t3" aria-hidden="true"> · </span>
           normalized = faded back toward normal
-          <span class="block t3 mt-0.5" style="font-size:11px">
+          <span class="block t2 mt-0.5" style="font-size:11px">
             The line between them is size: a later move smaller than
             <span class="num">${(mf * 100).toFixed(0)}%</span> of the original
             one counts as faded.
@@ -1008,7 +1034,7 @@ function outcomesRow(c) {
               : '<span class="t3" style="font-size:11px;line-height:8px">&middot;</span>'}
         </span>
         <span class="num t2 shrink-0 text-right" style="width:64px;font-size:11px">${n}${
-          br.percentages ? ` <span class="t3">${br.percentages[k]}%</span>` : ''}</span>
+          br.percentages ? ` <span class="t2">${br.percentages[k]}%</span>` : ''}</span>
       </div>`;
     }).join('');
     history = `
@@ -1019,8 +1045,8 @@ function outcomesRow(c) {
             rows.map((k) => `${k.toLowerCase()} ${br.counts[k]}${
               br.percentages ? ` (${br.percentages[k]} percent)` : ''}`).join(', ')
             }, out of ${br.n} past events.">${bars}</span>
-          <span class="t3 block mt-1">(out of <span class="num">${br.n}</span> past events)</span>
-          <span class="block t3 mt-0.5" style="font-size:11px">
+          <span class="t2 block mt-1">(out of <span class="num">${br.n}</span> past events)</span>
+          <span class="block t2 mt-0.5" style="font-size:11px">
             After past ${br.event_type ? br.event_type.replace('_', ' ').toLowerCase() : 'events'}
             at tier ${br.tier}, measured ${br.horizon} sessions later, drawn from
             <span class="num">${br.cohort_events ?? '—'}</span> events across
@@ -1037,11 +1063,9 @@ function outcomesRow(c) {
               Most often, moves like this one
               ${MODAL_PHRASE[modal[0]] || modal[0].toLowerCase()} within
               <span class="num">${br.horizon}</span> sessions
-              <span class="num t3">(${modal[1]}% of ${br.n})</span>.
+              <span class="num t2">(${modal[1]}% of ${br.n})</span>.
             </span>`;
           })()}
-          <span class="block t3" style="font-size:11px">
-          </span>
         </span>
       </div>`;
   }
@@ -1050,7 +1074,7 @@ function outcomesRow(c) {
     <div class="flex gap-3 py-1.5 bdb last:border-0">
       <span class="label w-28 shrink-0 pt-0.5">After the move</span>
       <span class="text-xs t2 flex-1">${cells}${word}${pendingWhy}
-        <span class="block t3 mt-0.5" style="font-size:11px">Measured on the
+        <span class="block t2 mt-0.5" style="font-size:11px">Measured on the
         part of the move the market and sector did not explain, after the
         fact. Not a forecast.</span>
       </span>
@@ -1066,7 +1090,7 @@ function whyHTML(c, i, ctx = {}) {
   //
   // Every plain reason is derived from a stored field and only appears when
   // that field says it is true. None is a sentence typed to sound good.
-  const na = '<span class="t3">not available</span>';
+  const na = '<span class="t2">not available</span>';
   const reasons = [];
 
   const words = unusualnessWords(c.z, ctx);
@@ -1095,7 +1119,7 @@ function whyHTML(c, i, ctx = {}) {
   // what the tier means, so this row is now their only home and is no longer
   // suppressed by the shared-admission line above the list.
   rows.push(['Admitted by', TIER_MEANING[c.tier]
-    ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num t3">· ${c.gate}</span>` : ''}`
+    ? `${TIER_MEANING[c.tier]}${c.gate ? ` <span class="num t2">· ${c.gate}</span>` : ''}`
     : na]);
   if (!ctx.sharedAdmission) {
     rows.push(['Importance', (c.i_score === null || c.i_score === undefined) ? na
@@ -1170,10 +1194,10 @@ const FRESHNESS = {
   // Lower case, like every other token on the meta row. These were the only
   // ones still shouting, and at the centre column's width they were what
   // pushed row 2 onto a second line.
-  FRESH:   { cls: 't3',      label: 'fresh' },
-  DELAYED: { cls: 't3',      label: 'behind' },
+  FRESH:   { cls: 't2',      label: 'fresh' },
+  DELAYED: { cls: 't2',      label: 'behind' },
   STALE:   { cls: 'warn-fg', label: 'stale' },
-  UNKNOWN: { cls: 't3',      label: 'age unknown' },
+  UNKNOWN: { cls: 't2',      label: 'age unknown' },
   CORP_ACTION_UNADJUSTED: { cls: 'warn-fg', label: 'UNADJUSTED' },
 };
 
@@ -1228,7 +1252,7 @@ function confidenceGate(c, ctx = {}) {
       + `The minimum of source trust, freshness, liquidity and history, scored at the session the bar belonged to. `
       + `Not a statement about the card's age.`;
   return `<span class="inline-flex items-center gap-1.5" title="${title}">
-    <span class="t3">data quality</span>
+    <span class="t2">data quality</span>
     <span class="inline-flex gap-0.5 items-center" role="img"
           aria-label="Data quality ${v.toFixed(2)} of 1, ${word}">${dots}</span>
     <span class="t2">${word}</span>
@@ -1348,7 +1372,7 @@ function attributionRow(c) {
     { key: 'stock-specific', v: c.residual_pct,    accent: true  },
   ];
   const known = parts.filter((p) => p.v !== null && p.v !== undefined);
-  if (!known.length) return '<p class="text-xs t3 mt-3">Decomposition not available</p>';
+  if (!known.length) return '<p class="text-xs t2 mt-3">Decomposition not available</p>';
   // Widths are proportional to ABSOLUTE contribution, so a large negative
   // component reads as large. Sign is carried by the number, never by width.
   const total = known.reduce((a, p) => a + Math.abs(p.v), 0) || 1;
@@ -1398,7 +1422,7 @@ function cardHTML(c, i, ctx = {}) {
     ? `<p class="mt-2 text-[11px] evidence-fg">${ev.length} filing${
         ev.length === 1 ? '' : 's'}${
         before ? ` · ${before} published before the move` : ''}</p>`
-    : `<p class="mt-2 text-[11px] t3"
+    : `<p class="mt-2 text-[11px] t2"
           title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">${
        TIER_PLAIN[c.tier] || `Tier ${c.tier}`}</p>`;
 
@@ -1441,7 +1465,7 @@ function cardHTML(c, i, ctx = {}) {
          instrument has been over the last twenty sessions, beside how old the
          card's own session is. -->
     <div class="mt-1 flex items-end justify-between gap-3">
-      <p class="t3" style="font-size:0.75rem">${meta}</p>
+      <p class="t2" style="font-size:0.75rem">${meta}</p>
       ${sparkHTML(c.spark, c.symbol, 120, 32)}
     </div>
 
@@ -1500,13 +1524,13 @@ function funnelHTML(f, chain) {
         <div class="funnel-row">
           <span class="funnel-n ${r.accent ? 'accent' : 't1'}">${r.n}</span>
           <span class="min-w-0">
-            <span class="text-xs ${r.accent ? 't2' : 't3'}">${r.label}</span>
+            <span class="text-xs ${r.accent ? 't1' : 't2'}">${r.label}</span>
             <span class="funnel-bar" aria-hidden="true"><span
               class="${r.accent ? 'bar-accent' : 'bar-quiet'}"
               style="width:${((r.n || 0) / top * 100).toFixed(1)}%"></span></span>
           </span>
         </div>`).join('')}
-      <p id="cursor-state" class="mt-3 text-[11px] t3"></p>
+      <p id="cursor-state" class="mt-3 text-[11px] t2"></p>
     </section>`;
 }
 
@@ -1523,7 +1547,7 @@ function chainHTML(chain) {
       <li>
         <div class="flex items-baseline gap-2">
           <span class="num text-xs t1 shrink-0" style="min-width:2ch">${st.count}</span>
-          <span class="text-[11px] t3 flex-1 min-w-0">
+          <span class="text-[11px] t2 flex-1 min-w-0">
             ${i > 0 ? '<span class="t3" aria-hidden="true">&rarr;</span> ' : ''}${st.label}
           </span>
         </div>
@@ -1572,7 +1596,7 @@ function filteredBarHTML(a) {
         <span class="seg-v num">${(own / total * 100).toFixed(0)}%</span>
       </span>
     </div>
-    <p class="text-[11px] t3 mt-1">Measured on closing prices against the
+    <p class="text-[11px] t2 mt-1">Measured on closing prices against the
       index, across these <span class="num">${a.n}</span> movements.
       <a href="/lab#funnel" class="evidence-fg">How this differs from a card's
       split <span aria-hidden="true">&rarr;</span></a></p>`;
@@ -1590,7 +1614,7 @@ function filteredHTML(reasons, total, attribution) {
   const rows = Object.entries(reasons)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1]);
-  if (!rows.length) return '<p class="text-xs t3">Nothing was filtered.</p>';
+  if (!rows.length) return '<p class="text-xs t2">Nothing was filtered.</p>';
   const max = rows[0][1];
   return `
     <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-2">
@@ -1606,7 +1630,7 @@ function filteredHTML(reasons, total, attribution) {
           <span class="block h-full bar-quiet rounded-sm"
                 style="width:${(n / max * 100).toFixed(1)}%"></span>
         </div>
-        <p class="text-[11px] t3 mt-1">${REASON_DETAIL[k] || ''}</p>
+        <p class="text-[11px] t2 mt-1">${REASON_DETAIL[k] || ''}</p>
         ${attribution && attribution.reason === k ? filteredBarHTML(attribution) : ''}
       </li>`).join('')}</ul>`;
 }
@@ -1642,8 +1666,8 @@ function wlRowHTML(w, maxAbs) {
   const dim = w.muted ? 'opacity-40' : '';
   const known = chg !== null && chg !== undefined;
   const shown = !known
-    ? '<span class="t3">&mdash;</span>'
-    : `<span class="${status === 'surfaced' ? 'accent' : 't2'}">${
+    ? '<span class="t2">&mdash;</span>'
+    : `<span class="${status === 'surfaced' ? 'accent' : 't1'}">${
         chg > 0 ? '+' : ''}${chg.toFixed(2)}%</span>`;
   const dotTitle = status === 'surfaced' ? 'On the slate — needs attention'
     : status === 'filtered' ? 'Moved, and did not survive the gates'
@@ -1662,7 +1686,7 @@ function wlRowHTML(w, maxAbs) {
             : `, ${chg > 0 ? 'up' : 'down'} ${Math.abs(chg).toFixed(2)} percent`}, ${dotTitle}"
           title="${name || w.symbol}">
     <span class="t1 truncate text-left">${w.symbol}</span>
-    <span class="num wl-price" title="${price ? `Close on ${
+    <span class="num wl-price t1" title="${price ? `Close on ${
       st.close_session || 'the latest session held'}` : ''}">${price || ''}</span>
     <span class="num text-right">${shown}</span>
     <span class="wl-dot ${status}" title="${dotTitle}" aria-hidden="true"></span>
@@ -1773,9 +1797,9 @@ function renderWatchlist(items) {
     el('wl-note-home').appendChild(note);
   }
   el('watchlist').innerHTML = groups || (wlQuery
-    ? `<p class="text-[11px] t3 py-2">Nothing on your watchlist matches
+    ? `<p class="text-[11px] t2 py-2">Nothing on your watchlist matches
          <span class="t2">${wlQuery}</span>. Press Escape to clear.</p>`
-    : '<p class="text-[11px] t3 py-2">No symbols in this state.</p>');
+    : '<p class="text-[11px] t2 py-2">No symbols in this state.</p>');
   // Counts the whole list, and names the selection separately when one is
   // applied — a count that silently became the size of a filter result would
   // report the filter rather than the watchlist.
@@ -1900,7 +1924,7 @@ function render(d) {
   if (sa) {
     sharedBits.push(`All <span class="num">${d.cards.length}</span> were admitted by `
       + `<span class="t1">${TIER_MEANING[sa.tier] || ('Tier ' + sa.tier)}</span>`
-      + `<span class="num t3"> · ${sa.gate}</span>`
+      + `<span class="num t2"> · ${sa.gate}</span>`
       + (sa.i_score >= 2 ? '' : ', with no material event on file.'));
   }
   if (d.all_cards_lack_evidence) {
@@ -1931,12 +1955,12 @@ function render(d) {
                      flex items-center justify-center t3 text-xs" aria-hidden="true">&check;</div>
          <p class="mt-5 text-base t2">Nothing meaningful has changed
            since you last looked.</p>
-         <p class="mt-3 text-xs t3 max-w-sm mx-auto leading-relaxed">
+         <p class="mt-3 text-xs t2 max-w-sm mx-auto leading-relaxed">
            ${d.funnel.watched} instruments on your watchlist, none of them carrying
            anything you have not already seen. This screen being empty is the
            product working, not the product broken.</p>
        </div>`
-    : `<p class="py-10 text-sm t3">Nothing cleared the gate in
+    : `<p class="py-10 text-sm t2">Nothing cleared the gate in
          this window.</p>`);
   // The chain and the Pareto were at the bottom of a long scroll, behind a
   // collapsed toggle, where nobody reached them. They are the product's
@@ -2026,11 +2050,11 @@ async function load(opts = {}) {
       // first while the API was returning 200.
       banner(`Digest unavailable — ${e.message}`);
       el('cards').innerHTML =
-        `<p class="py-10 text-sm t3">The API is not responding. This page retries when the tab regains focus.</p>`;
+        `<p class="py-10 text-sm t2">The API is not responding. This page retries when the tab regains focus.</p>`;
     } else {
       banner('This page failed to render');
       el('cards').innerHTML =
-        `<p class="py-10 text-sm t3">Display error: <span class="num">${e.name}: ${e.message}</span>.
+        `<p class="py-10 text-sm t2">Display error: <span class="num">${e.name}: ${e.message}</span>.
          The digest API responded normally — this is a bug in the page, not an outage.</p>`;
     }
   }
