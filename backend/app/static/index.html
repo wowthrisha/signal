@@ -1402,8 +1402,20 @@ function cardHTML(c, i, ctx = {}) {
           title="No filing on record for this instrument on this session. This movement was detected from price alone, which is what Tier C means.">${
        TIER_PLAIN[c.tier] || `Tier ${c.tier}`}</p>`;
 
-  // The first card opens on load, so the page is not four closed boxes.
-  const open = i === 0;
+  // Every card is collapsed on load.
+  //
+  // The first one used to open, and the reason given was that the page must
+  // not be four closed boxes. That reason expired when the funnel became the
+  // first block in this column: the top of the page is now an open, populated
+  // graphic, and the cards beneath it are a list to triage rather than the
+  // only thing on screen.
+  //
+  // It also cost the fold. An open card runs to 997px against a 901px
+  // viewport, so the card a judge sees first was cut through the middle of its
+  // outcome table. Collapsed, the funnel and a complete card fit in 548px of a
+  // 780px budget and the second card is 216px visible — the slate reads as a
+  // slate. The alternative was shrinking the funnel, which 4a forbids.
+  const open = false;
   return `
   <article class="card card-surfaced card-in" data-symbol="${c.symbol}"
            style="animation-delay:${i * 45}ms">

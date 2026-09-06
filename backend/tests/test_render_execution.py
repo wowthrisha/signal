@@ -1730,3 +1730,26 @@ def test_a_rerender_returns_the_note_home_before_replacing_the_table(tmp_path):
         "the note is re-homed after the table is replaced, which is too late — "
         "the node is already gone"
     )
+
+
+def test_every_card_is_collapsed_on_load(tmp_path):
+    """FIX 4. The first card used to open on load and ran to 997px against a
+    901px viewport, so the card a judge sees first was cut through the middle
+    of its outcome table. The funnel is the open, populated block at the top of
+    this column now; the cards beneath it are a list to triage."""
+    html = _cards(tmp_path)
+    articles = [a for a in html.split("<article") if "data-symbol" in a]
+    assert len(articles) > 1, "too few cards to check"
+    open_drawers = [a for a in articles if re.search(r"data-whybody=\"\d+\"\s+id=", a)
+                    and 'hidden' not in a.split("data-whybody")[1][:60]]
+    assert not open_drawers, (
+        f"{len(open_drawers)} card(s) render with the drawer already open"
+    )
+    for a in articles:
+        sym = re.search(r'data-symbol="([^"]+)"', a).group(1)
+        btn = a.split("data-why=")[1]
+        assert 'aria-expanded="false"' in btn[:120], (
+            f"{sym}: the disclosure claims to be expanded on load"
+        )
+        assert "Investigate" in a, f"{sym}: the control does not read Investigate"
+        assert ">Close<" not in a, f"{sym}: the control reads Close on load"
