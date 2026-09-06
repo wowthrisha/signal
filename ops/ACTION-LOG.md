@@ -4890,3 +4890,14 @@ commit changing `git_sha`; this run was left alone and they pass.)
 | live page, 1440 | 4 cards, 30 rail rows, 0px overflow |
 | live page, 390 | 4 cards, **0px overflow**, 0 clipped symbols |
 | dedupe, live | 7 groups, table 30 → rendered 21 |
+
+**Shipped.** `714a9b8` pushed; Railway polled until `#262B34` — the new
+`--surface`, which only this build carries — appeared in the served page.
+
+Production, fresh session: 1440 and 390 both **0px overflow**, 4 cards, 30 rail
+rows, **0 clipped symbols**, all six changed tokens serving their new values,
+`--accent-dim` gone.
+
+Archive re-cut from `714a9b8`: 169 entries, 1,269,987 bytes, `index.html`
+byte-identical to HEAD, new palette present, `results/latest` resolves. The
+extracted tree runs **74 passed**.
