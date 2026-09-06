@@ -814,6 +814,7 @@ def build_digest(
     n_moved = len(moves)
     n_explained = reasons[slate_mod.REASON_EXPLAINED]
     n_low_conf = reasons[slate_mod.REASON_CONFIDENCE]
+    n_threshold = reasons[slate_mod.REASON_THRESHOLD]
     stock_specific = n_moved - n_explained
     confidence_passed = stock_specific - n_low_conf
 
@@ -821,14 +822,27 @@ def build_digest(
         {"stage": "moved", "count": n_moved,
          "label": f"moved more than {MOVED_DISPLAY_THRESHOLD_PCT:g}%"},
         {"stage": "explained_by_market", "count": n_explained,
-         "label": "explained by market or sector"},
+         "label": "explained by market or sector", "removed": True},
         {"stage": "stock_specific", "count": stock_specific,
          "label": "stock-specific candidates"},
         {"stage": "confidence_passed", "count": confidence_passed,
          "label": "passed the confidence gate"},
+        # The stage that used to be missing. Without it the chain dropped from
+        # `confidence_passed` to `surfaced` with no named subtraction, and the
+        # reasons panel beside it was left carrying that gap plus the
+        # `explained` count the chain had already shown — the same instruments
+        # counted in both places. Every removal the reason counter knows about
+        # now has exactly one stage here, so the two panels partition one
+        # population instead of overlapping on it.
+        {"stage": "below_threshold", "count": n_threshold,
+         "label": "moved, but inside their own normal range", "removed": True},
         {"stage": "surfaced", "count": surfaced_from_moved,
          "label": "surfaced"},
     ]
+    # By construction, not by inspection: the surviving stages are the moved
+    # population less each named reason, so the chain can only close.
+    assert n_moved - n_explained - n_low_conf - n_threshold == surfaced_from_moved, (
+        "the chain does not close over the reason counts")
 
     # --- the watchlist, as a table ------------------------------------------
     #

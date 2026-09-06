@@ -42,14 +42,22 @@ PAYLOAD = {
     # this as a literal 2; it is the server's number.
     "window_sessions": 2,
     "funnel": {"watched": 30, "moved": 22, "surfaced": 2},
-    "filtered_count": 18,
-    "filtered_reasons": {"explained_by_market": 4, "below_threshold": 14,
+    # The reasons sum to the movers that did not surface, and every one of them
+    # has a stage in the chain below. The fixture used to carry 4 + 14 against
+    # 22 moved and 2 surfaced, which closes on nothing — the render guard never
+    # looked at the arithmetic, and the page it was standing in for shipped the
+    # same gap.
+    "filtered_count": 20,
+    "filtered_reasons": {"explained_by_market": 4, "below_threshold": 16,
                          "low_confidence": 0},
     "evidence_chain": [
         {"stage": "moved", "count": 22, "label": "moved more than 1%"},
-        {"stage": "explained_by_market", "count": 4, "label": "explained by market or sector"},
+        {"stage": "explained_by_market", "count": 4, "removed": True,
+         "label": "explained by market or sector"},
         {"stage": "stock_specific", "count": 18, "label": "stock-specific candidates"},
         {"stage": "confidence_passed", "count": 18, "label": "passed the confidence gate"},
+        {"stage": "below_threshold", "count": 16, "removed": True,
+         "label": "moved, but inside their own normal range"},
         {"stage": "surfaced", "count": 2, "label": "surfaced"},
     ],
     "surfaced_below_display_threshold": 0,

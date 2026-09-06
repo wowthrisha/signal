@@ -1542,13 +1542,17 @@ function chainHTML(chain) {
   if (stages.length < 2) return '';
   const top = stages[0].count;
   return `
-    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-2">Evidence chain</p>
+    <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-1">Evidence chain</p>
+    <p class="text-[11px] t3 mb-2"><span aria-hidden="true">&minus;</span> rows are
+      taken out; <span aria-hidden="true">&rarr;</span> rows are what is left.</p>
     <ol class="space-y-2">${stages.map((st, i) => `
       <li>
         <div class="flex items-baseline gap-2">
           <span class="num text-xs t1 shrink-0" style="min-width:2ch">${st.count}</span>
           <span class="text-[11px] t2 flex-1 min-w-0">
-            ${i > 0 ? '<span class="t3" aria-hidden="true">&rarr;</span> ' : ''}${st.label}
+            ${i === 0 ? '' : st.removed
+              ? '<span class="t3" aria-hidden="true">&minus;</span> '
+              : '<span class="t3" aria-hidden="true">&rarr;</span> '}${st.label}
           </span>
         </div>
         <span class="block mt-1 h-1 surface-2 rounded-sm overflow-hidden">
@@ -1602,7 +1606,7 @@ function filteredBarHTML(a) {
       split <span aria-hidden="true">&rarr;</span></a></p>`;
 }
 
-function filteredHTML(reasons, total, attribution) {
+function filteredHTML(reasons, total, attribution, chain) {
   // A Pareto, not a list: the point is that one bar dwarfs the others, and a
   // reader should see that before reading any label. Bars are scaled against
   // the largest reason rather than the total, so the shape stays legible even
@@ -1616,9 +1620,15 @@ function filteredHTML(reasons, total, attribution) {
     .sort((a, b) => b[1] - a[1]);
   if (!rows.length) return '<p class="text-xs t2">Nothing was filtered.</p>';
   const max = rows[0][1];
+  // Every row here is one of the chain's removal stages, itemised. The header
+  // therefore names the population it is a breakdown of — the movers — because
+  // the bare total equals the chain's stock-specific stage whenever the
+  // explained and surfaced counts coincide, and two different quantities
+  // printed as the same number read as one quantity counted twice.
+  const moved = (chain || []).find((st) => st.stage === 'moved')?.count || 0;
   return `
     <p class="text-[10px] uppercase tracking-[0.2em] t3 mb-2">
-      Why ${total} did not surface
+      Why ${total}${moved ? ` of ${moved}` : ''} did not surface
     </p>
     <ul class="space-y-2.5">${rows.map(([k, n]) => `
       <li>
@@ -1970,7 +1980,8 @@ function render(d) {
   const hasFiltered = (d.filtered_count || 0) > 0;
   el('chain').innerHTML = hasFiltered ? chainHTML(d.evidence_chain) : '';
   el('filtered-body').innerHTML = hasFiltered
-    ? filteredHTML(d.filtered_reasons, d.filtered_count, d.filtered_attribution)
+    ? filteredHTML(d.filtered_reasons, d.filtered_count, d.filtered_attribution,
+                   d.evidence_chain)
     : '';
 
   el('ack-btn').disabled = d.cards.length === 0;

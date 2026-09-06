@@ -1,8 +1,8 @@
 """The evidence chain narrows monotonically, by construction.
 
 The drawer shows a funnel: moved -> explained -> stock-specific -> passed
-confidence -> surfaced. A funnel whose stages can widen is not a funnel, so the
-invariant is asserted rather than assumed:
+confidence -> below threshold -> surfaced. A funnel whose stages can widen is
+not a funnel, so the invariant is asserted rather than assumed:
 
     surfaced <= confidence_passed <= stock_specific <= moved
 
@@ -22,7 +22,12 @@ from app.api import digest as digest_api
 from app.engine.salience import slate as slate_mod
 
 ORDER = ["moved", "explained_by_market", "stock_specific",
-         "confidence_passed", "surfaced"]
+         "confidence_passed", "below_threshold", "surfaced"]
+
+# The stages that are subtractions rather than survivors. Every reason the
+# Pareto can name must appear here exactly once, or the two panels are
+# reporting the same instruments twice.
+REMOVALS = {"explained_by_market", "below_threshold"}
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +51,9 @@ def test_the_chain_has_every_stage_in_order(chain):
 def test_the_chain_is_monotonic(chain):
     c = _by_stage(chain)
     assert c["surfaced"] <= c["confidence_passed"], "surfaced exceeds confidence_passed"
+    # `below_threshold` is a removal, not a survivor stage: it is bounded by
+    # what entered the gate, and monotonicity is asserted on the survivors.
+    assert c["below_threshold"] <= c["confidence_passed"], "removed more than entered"
     assert c["confidence_passed"] <= c["stock_specific"], "confidence_passed exceeds stock_specific"
     assert c["stock_specific"] <= c["moved"], "stock_specific exceeds moved"
 
@@ -57,7 +65,37 @@ def test_each_stage_is_a_subtraction_of_a_named_reason(chain):
     r = chain["filtered_reasons"]
     assert c["moved"] - c["explained_by_market"] == c["stock_specific"]
     assert c["stock_specific"] - r[slate_mod.REASON_CONFIDENCE] == c["confidence_passed"]
-    assert c["confidence_passed"] - r[slate_mod.REASON_THRESHOLD] == c["surfaced"]
+    assert c["confidence_passed"] - c["below_threshold"] == c["surfaced"]
+    assert c["below_threshold"] == r[slate_mod.REASON_THRESHOLD]
+
+
+def test_every_removal_stage_is_marked_as_one(chain):
+    """The renderer draws a survivor row and a removal row differently, and it
+    reads the flag rather than a hardcoded list of stage names."""
+    assert chain["evidence_chain"], "no stages — the comparison below is vacuous"
+    marked = {s["stage"] for s in chain["evidence_chain"] if s.get("removed")}
+    assert marked == REMOVALS
+
+
+def test_the_chain_closes_over_the_reason_counts(chain):
+    """The gap the drawer used to carry with no stage. Every instrument that
+    moved either surfaced or was removed by a stage the chain names, so the
+    Pareto beside it is an itemisation and never an extra subtraction."""
+    c = _by_stage(chain)
+    r = chain["filtered_reasons"]
+    assert sum(r.values()) == c["moved"] - c["surfaced"], (
+        "the reasons do not sum to the movers that did not surface")
+    assert c["moved"] - c["explained_by_market"] - c["below_threshold"] \
+        - r[slate_mod.REASON_CONFIDENCE] == c["surfaced"]
+
+
+def test_each_reason_has_exactly_one_stage(chain):
+    """Nothing is counted in two places: the reason the chain shows as a stage
+    is the same count the Pareto itemises, not a second deduction."""
+    c = _by_stage(chain)
+    r = chain["filtered_reasons"]
+    assert c["explained_by_market"] == r[slate_mod.REASON_EXPLAINED]
+    assert c["below_threshold"] == r[slate_mod.REASON_THRESHOLD]
 
 
 def test_no_stage_is_negative(chain):

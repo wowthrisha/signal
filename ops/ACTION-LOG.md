@@ -4901,3 +4901,62 @@ rows, **0 clipped symbols**, all six changed tokens serving their new values,
 Archive re-cut from `714a9b8`: 169 entries, 1,269,987 bytes, `index.html`
 byte-identical to HEAD, new palette present, `results/latest` resolves. The
 extracted tree runs **74 passed**.
+
+---
+
+## The evidence chain did not close
+
+The drawer showed `21 moved → 4 explained → 17 stock-specific → 17 passed the
+confidence gate → 4 surfaced`. Thirteen instruments left the chain between the
+confidence gate and the slate with **no stage naming them**. The Pareto beside
+it read *"Why 17 did not surface — 13 below threshold + 4 explained"*, and
+those 4 had already been subtracted at stage two, so a reader following the two
+panels counted the same four instruments twice.
+
+Both numbers were already correct in isolation; `test_evidence_chain.py`
+asserted `confidence_passed - r[REASON_THRESHOLD] == surfaced`, so the
+arithmetic was *tested* but never *shown*. That is the whole defect: a
+subtraction the test knew about and the drawer did not render.
+
+**The fix.** `below_threshold` is now a stage, derived from
+`reasons[REASON_THRESHOLD]` — the same dict the Pareto is built from, no
+second count and nothing hardcoded. Removal stages carry `"removed": true`, so
+the renderer draws them with a `−` and survivor stages with a `→`, from the
+flag rather than a list of stage names. The server asserts closure at build
+time:
+
+```
+n_moved - n_explained - n_low_conf - n_threshold == surfaced_from_moved
+```
+
+The Pareto header now names the population it breaks down — *"Why 20 of 22 did
+not surface"* — because the bare total equals the `stock_specific` stage
+whenever the explained and surfaced counts coincide, which is exactly the
+coincidence that made two quantities read as one counted twice.
+
+**Corrected chain, live database:**
+
+```
+22  moved more than 1%
+ 4  − explained by market or sector
+18  → stock-specific candidates
+18  → passed the confidence gate
+14  − moved, but inside their own normal range
+ 4  → surfaced
+```
+
+Reasons: `explained_by_market 4 + below_threshold 14 + low_confidence 0 = 18`,
+and `moved 22 − surfaced 4 = 18`. **The sum matches.** Every reason has exactly
+one stage; `surfaced_below_display_threshold` is 0.
+
+The render fixture in `test_render_execution.py` carried `4 + 14` against 22
+moved and 2 surfaced — it closed on nothing, and the execution guard had never
+looked at the arithmetic. Corrected to `4 + 16`, which closes.
+
+Four new tests: every removal stage is flagged, the chain closes over the
+reason counts, each reason has exactly one stage, and the reasons sum to
+`moved − surfaced`.
+
+**Full suite: `497 passed, 2 skipped, 1 xfailed in 297.63s`** — no failures.
+Execution test renders both panels: chain `22/4/18/18/16/2`, Pareto header
+*"Why 20 of 22 did not surface"*.
