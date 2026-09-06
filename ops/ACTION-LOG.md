@@ -4737,3 +4737,20 @@ no `__pycache__`, no `data/cache`, no `data/raw`, no copy of itself.
 `results/latest` resolves through its symlink to a 7,031-byte artifact. The
 extracted tree runs **89 passed** for the render, accessibility, runtime and
 lab guards.
+
+**Shipped.** `6aefc53` pushed; Railway polled until the `band-svg` class — which
+only the new build carries — appeared in the served page.
+
+| production check, fresh session | result |
+|---------------------------------|--------|
+| 390px | **0px overflow**, 4 cards, 0 clipped symbols, verdicts on-screen |
+| 768px | **0px overflow**, 0 clipped |
+| 1440px | 0px overflow; funnel whole; **IFCI card whole**; 210/291px of the second |
+| rail click, last row, rail at the bottom | **attached, fully visible** |
+| cards open on load | **none** |
+| rail sparklines | 30 of 30 |
+| console errors | **none** (the Tailwind warning remains, ADR-051) |
+| RBLBANK filings | 5 rows, **5 distinct URLs, 0 duplicates** |
+
+Archive re-cut from `6aefc53`: 169 entries, 1,265,516 bytes, `index.html`
+byte-identical to HEAD, ADR-051 present.
