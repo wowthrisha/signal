@@ -4436,3 +4436,18 @@ and it caught two of my guards in this round.
 (UI-6 finished at 471). Caught-up path after the fix: **145 ms**, against 288 ms
 for the default digest — the two queries it gained cost little on a path that
 does less work.
+
+**Shipped.** `a0f9af5` pushed; Railway polled until `window_sessions` — a field
+that did not exist in the previous build — appeared in the payload.
+
+| production check | result |
+|------------------|--------|
+| default digest | every card priced, every line ending on its price; 30/30 rail rows priced, named and sparked; none misanchored |
+| caught-up state | 0 cards, **30 rows kept** with price and line, `change_pct` all `None`, strip session `2026-09-03` |
+| archive | rebuilt from `a0f9af5`, 169 entries; the extracted tree runs `83 passed` |
+
+Two lines in the archive checker are its own known false positives, verified
+individually rather than left ambiguous: `results/latest` is a **symlink**, so
+there is no file entry at `results/latest/metrics.json` but it resolves to a
+7,031-byte file on extraction; and the `signal-*.zip` "hit" is `unzip -l`'s own
+`Archive:` header line, not an entry.
