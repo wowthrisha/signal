@@ -38,6 +38,9 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 PAYLOAD = {
     "since": "2026-09-02",
     "latest_session": "2026-09-03",
+    # How many exchange sessions this digest covers. The page used to type
+    # this as a literal 2; it is the server's number.
+    "window_sessions": 2,
     "funnel": {"watched": 30, "moved": 22, "surfaced": 2},
     "filtered_count": 18,
     "filtered_reasons": {"explained_by_market": 4, "below_threshold": 14,
@@ -1300,6 +1303,46 @@ def test_the_cards_render_in_the_order_the_rail_lists_them(tmp_path):
                      if c["symbol"] == sym) or 0) for sym in rendered]
     assert mags == sorted(mags, reverse=True), (
         f"the cards are not ordered by the size of the move: {list(zip(rendered, mags))}"
+    )
+
+
+def test_both_surfaces_break_a_tie_the_same_way_without_relying_on_the_api(tmp_path):
+    """4b must not rest on the order /api/watchlist happens to return.
+
+    The rail's tie-break was implicit: `Array.sort` is stable and the endpoint
+    orders by symbol, so two equal moves came out alphabetically by accident of
+    an ORDER BY three files away. This feeds the watchlist in reverse and
+    asserts both surfaces still agree."""
+    payload = json.loads(json.dumps(PAYLOAD))
+    for c in payload["cards"]:
+        c["total_return_pct"] = 5.0
+    for r in payload["watchlist_state"]:
+        if r["status"] == "surfaced":
+            r["change_pct"] = 5.0
+    js = tmp_path / "app.js"; js.write_text(_script())
+    harness = tmp_path / "harness.js"; harness.write_text(HARNESS)
+    pj = tmp_path / "p.json"; pj.write_text(json.dumps(payload))
+    wj = tmp_path / "w.json"
+    # Reversed on purpose: the page must not depend on the endpoint's order.
+    wj.write_text(json.dumps(list(reversed(WATCHLIST))))
+    r = subprocess.run([NODE, str(harness), str(js), str(pj), str(wj)],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, (r.stderr or "")[-1200:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    rendered = re.findall(r'data-symbol="([^"]+)"', out["cards_html"])
+    assert len(rendered) > 1, "too few cards to tie-break"
+    assert rendered == sorted(rendered), (
+        f"the cards did not fall back to a symbol tie-break: {rendered}"
+    )
+    table = out["watchlist_html"]
+    by_isin = {x["isin"]: x["symbol"] for x in PAYLOAD["watchlist_state"]}
+    rail = [by_isin[i] for i in re.findall(r'data-wl="([^"]+)"', table)
+            if i in by_isin]
+    surfaced = [s for s in rail if s in rendered]
+    assert len(surfaced) > 1, "too few surfaced rows to tie-break"
+    assert surfaced == [s for s in rendered if s in surfaced], (
+        f"with the watchlist reversed the rail order {surfaced} no longer "
+        f"matches the card order {rendered}"
     )
 
 

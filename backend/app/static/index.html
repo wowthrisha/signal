@@ -1609,12 +1609,21 @@ function renderWatchlist(items) {
 
   // Attention first, then by the size of the move. A watchlist sorted
   // alphabetically buries the four rows the page exists to show.
+  //
+  // The symbol tie-break is explicit, and is the same one `render` applies to
+  // the cards. It used to be implicit: `Array.sort` is stable and
+  // /api/watchlist returns rows ordered by symbol, so two equal moves happened
+  // to come out alphabetically — which is the right answer reached by relying
+  // on the ordering of a response this function does not control. 4b's whole
+  // point is that the two surfaces sort identically; that must not rest on an
+  // ORDER BY three files away.
   const rank = { surfaced: 0, filtered: 1, quiet: 2 };
   shown = [...shown].sort((a, b) => {
     const sa = wlState[a.isin] || {}, sb = wlState[b.isin] || {};
     const r = (rank[sa.status] ?? 3) - (rank[sb.status] ?? 3);
     if (r) return r;
-    return Math.abs(sb.change_pct || 0) - Math.abs(sa.change_pct || 0);
+    return Math.abs(sb.change_pct || 0) - Math.abs(sa.change_pct || 0)
+        || String(a.symbol).localeCompare(String(b.symbol));
   });
 
   // Counts come from every row on the list, not from the filtered view, so a
@@ -1863,8 +1872,14 @@ function render(d) {
   // window the three counts were taken over belongs under the three counts.
   const cs = el('cursor-state');
   if (cs) {
+    // The session count comes from the payload. It was typed here as a
+    // literal 2, which is a number the server owns — `window_sessions` is
+    // counted from the sessions the digest actually covers, so it stays true
+    // in cursor mode as well, where the demo lookback does not apply.
+    const n = d.window_sessions;
     cs.textContent = d.cursor === null || d.cursor === undefined
-      ? 'first visit — showing the last 2 sessions'
+      ? (n ? `first visit — showing the last ${n} session${n === 1 ? '' : 's'}`
+           : 'first visit')
       : 'showing what is new since you last marked everything seen';
   }
 }

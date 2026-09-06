@@ -366,18 +366,39 @@ _SECTOR_INDEX = "SELECT sector_id, name, index_symbol FROM sector WHERE sector_i
 # `change_basis` on the watchlist rows above; the same rule is applied here.
 SPARK_SESSIONS = 20
 
-# The window is the last SPARK_SESSIONS sessions *the exchange had*, taken from
-# the sessions present in `bar` rather than from a weekday count, so holidays
-# are simply absent and every instrument is sampled over the same calendar.
+# The sessions are passed in, not chosen here.
+#
+# This used to select "the last SPARK_SESSIONS sessions overall", which was
+# wrong in two ways that only appear once a user has a cursor. `_EVENTS_SINCE_
+# CURSOR` carries no date bound, so a card can sit on any session in the
+# ledger — 4,264 of the events in this database predate a 20-session window —
+# and such a card got `close = None` while every watchlist row beside it
+# showed a price. The caller now works out which sessions each anchor needs
+# and asks for those.
 _DISPLAY_CLOSES = """
 SELECT isin, session_date, c
 FROM bar
-WHERE isin = ANY(%s) AND c IS NOT NULL
-  AND session_date IN (
-      SELECT session_date FROM bar
-      GROUP BY session_date ORDER BY session_date DESC LIMIT %s)
+WHERE isin = ANY(%s) AND session_date = ANY(%s) AND c IS NOT NULL
 ORDER BY isin, session_date
 """
+
+
+def _window_for(anchors, calendar: list) -> list:
+    """The union of the SPARK_SESSIONS sessions ending at each anchor.
+
+    Taken from the exchange calendar rather than a weekday count, so holidays
+    are simply absent and every instrument is sampled over the same sessions.
+    Bounded by construction: a handful of distinct anchors can only pull a few
+    dozen dates, however far back in the ledger they sit.
+    """
+    index = {d: i for i, d in enumerate(calendar)}
+    needed: set = set()
+    for anchor in anchors:
+        i = index.get(anchor)
+        if i is None:
+            continue
+        needed.update(calendar[max(0, i - SPARK_SESSIONS + 1): i + 1])
+    return sorted(needed)
 
 
 def _closes(rows) -> dict[str, list[tuple[date, float]]]:
@@ -411,13 +432,23 @@ def _price_at(series, session) -> tuple[float | None, str | None]:
     return None, None
 
 
-def _spark(series) -> list[float] | None:
-    """The trend line's points, or `None` when there are not enough of them.
+def _spark(series, session=None) -> list[float] | None:
+    """The trend line's points, ending on `session`, or `None` when there are
+    not enough of them.
 
-    The conditional is the point: two or three points drawn as a polyline look
-    exactly like twenty and read as a trend that was never measured. Below the
-    full window the row renders no graphic at all.
+    **The line ends where the price does.** It used to end at the newest close
+    held, whatever session the card was about, so the dot on the final point
+    was not the figure printed two lines above it — a card on 2026-08-07 read
+    ₹14,037.00 beside a line ending at 12,857.00. Worse, it put post-event
+    price movement on the card face as an unlabelled graphic, which is the
+    thing `outcomes` reports deliberately, separately, and only after the fact.
+
+    The conditional is the other half: two or three points drawn as a polyline
+    look exactly like twenty and read as a trend that was never measured.
+    Below the full window the row renders no graphic at all.
     """
+    if session is not None:
+        series = [(d, c) for d, c in series if d <= session]
     if len(series) < SPARK_SESSIONS:
         return None
     return [round(c, 2) for _, c in series[-SPARK_SESSIONS:]]
@@ -621,8 +652,41 @@ def build_digest(
             # back would resurrect cards the user just dismissed.
             sessions = sorted({r[1] for r in event_rows})
             if not sessions:
+                # Caught up. There is no window, so there are no moves — but a
+                # price is a level, not a move, and it is still a fact about
+                # the world. Leaving these out blanked the price column and
+                # the trend line on all thirty rows the moment someone pressed
+                # "Mark all as seen", which reads as broken data rather than
+                # as "nothing new".
+                cur.execute("SELECT DISTINCT session_date FROM bar "
+                            "ORDER BY session_date")
+                calendar = [r[0] for r in cur.fetchall()]
+                cur.execute(_DISPLAY_CLOSES,
+                            (isins, _window_for({latest_session}, calendar)))
+                closes = _closes(cur.fetchall())
+                rows = []
+                for isin, m in sorted(meta.items(),
+                                      key=lambda kv: kv[1]["symbol"]):
+                    series = closes.get(isin, [])
+                    close, close_session = _price_at(series, latest_session)
+                    rows.append({
+                        "isin": isin,
+                        "symbol": m["symbol"],
+                        "name": m.get("name"),
+                        "sector_id": m.get("sector_id"),
+                        "close": close,
+                        "close_session": close_session,
+                        "spark": _spark(series, latest_session),
+                        # No window means no move to report. None, never 0.0:
+                        # a zero would assert the instrument closed flat.
+                        "change_pct": None,
+                        "change_basis": None,
+                        "session_date": None,
+                        "status": "quiet",
+                        "reason": None,
+                    })
                 return _empty(latest_session, head=head, cursor=cursor,
-                              watched=len(meta))
+                              watched=len(meta), rows=rows)
 
         since, latest = sessions[0], sessions[-1]
 
@@ -637,12 +701,6 @@ def build_digest(
         cur.execute(_INDEX, (MARKET_INDEX, bars_from, latest))
         mkt = _index_returns(cur.fetchall())
 
-        # Display only: the price anchor and the trend line. Read here, in the
-        # same connection as everything else, so the price on a card comes
-        # from the same database read as the return beside it.
-        cur.execute(_DISPLAY_CLOSES, (isins, SPARK_SESSIONS))
-        display_closes = _closes(cur.fetchall())
-
         if cursor is None:
             cur.execute(_EVENTS, (isins, since, latest))
             event_rows = cur.fetchall()
@@ -652,6 +710,22 @@ def build_digest(
     with conn.cursor() as cur:
         cur.execute("SELECT DISTINCT session_date FROM bar ORDER BY session_date")
         all_sessions = [r[0] for r in cur.fetchall()]
+
+    # Display only: the price anchor and the trend line, read in the same
+    # connection as everything else so a card's price comes from the same
+    # database read as the return beside it.
+    #
+    # The anchors are every session a figure will be reported on — one per
+    # event in the window, plus the latest session for the rows that have no
+    # move to point at. Deliberately taken from `event_rows` and not from the
+    # slate: the slate has not selected yet at this point, and a card that is
+    # about to be admitted must not be the one card without a price.
+    anchors = {r[1] for r in event_rows}
+    if latest_session is not None:
+        anchors.add(latest_session)
+    with conn.cursor() as cur:
+        cur.execute(_DISPLAY_CLOSES, (isins, _window_for(anchors, all_sessions)))
+        display_closes = _closes(cur.fetchall())
     policy = fresh_mod.Policy.load()
     # Provenance for the cards, read from the evidence table. No network call
     # and no second fetch that could disagree with the data the card was built
@@ -778,6 +852,14 @@ def build_digest(
     # the same screen.
     card_return = {c.isin: c.total_return for c in cards
                    if c.total_return is not None}
+    # The session each card's figure belongs to, so a surfaced row can anchor
+    # to it. A card can clear every gate on a move below the display threshold
+    # and so never enter `moves` at all — `surfaced_below_display_threshold`
+    # exists to name exactly that population. Such a row reports the card's
+    # return, and without this it took the "no move" branch below: a price
+    # from the latest session, a trend line ending there, and no session date,
+    # beside a percentage measured on some other day.
+    card_session = {c.isin: c.session_date for c in cards}
     watchlist_state = []
     for isin, m in sorted(meta.items(), key=lambda kv: kv[1]["symbol"]):
         move = moves.get(isin)
@@ -788,10 +870,15 @@ def build_digest(
         else:
             status, reason = "quiet", None
         series = display_closes.get(isin, [])
-        # The price is anchored to the session the change describes, so the two
-        # figures on a row are never a day apart. A quiet row has no such
-        # session and falls back to the latest close it has.
-        close, close_session = _price_at(series, move.session if move else None)
+        # One anchor per row, and every figure on the row uses it: the session
+        # the percentage was measured on. A surfaced row takes the card's, a
+        # filtered row its biggest move's, and a quiet row has none and falls
+        # back to the latest close it holds. Derived once so the price, the
+        # trend line and the reported session cannot disagree with each other
+        # or with `change_pct`.
+        anchor = (card_session.get(isin) if isin in card_return
+                  else move.session if move is not None else None)
+        close, close_session = _price_at(series, anchor)
         watchlist_state.append({
             "isin": isin,
             "symbol": m["symbol"],
@@ -806,7 +893,7 @@ def build_digest(
             "close_session": close_session,
             # The last SPARK_SESSIONS closes, or None where the instrument does
             # not have the full window. A short polyline is worse than none.
-            "spark": _spark(series),
+            "spark": _spark(series, anchor or latest_session),
             # None, not 0.0: a symbol that never cleared the display threshold
             # has no "biggest move" in this window, and rendering 0.00% would
             # assert it closed flat.
@@ -821,8 +908,12 @@ def build_digest(
                 "adjusted, as detected" if isin in card_return
                 else "raw close-to-close screen" if move is not None else None
             ),
-            "session_date": move.session.isoformat()
-            if move is not None and move.session else None,
+            # The session `change_pct` was measured on — the card's for a
+            # surfaced row, the move's otherwise. It reported the move's
+            # unconditionally, so a card admitted below the display threshold
+            # showed a percentage with no session attached to it.
+            "session_date": (anchor.isoformat()
+                             if hasattr(anchor, "isoformat") else None),
             "status": status,
             "reason": reason,
         })
@@ -867,6 +958,14 @@ def build_digest(
 
     return {
         "since": since.isoformat(),
+        # How many exchange sessions the digest actually covers. The page said
+        # "showing the last 2 sessions" as a typed literal, which is a number
+        # the server owns — change DEMO_DEFAULT_LOOKBACK_SESSIONS and the page
+        # would have gone on asserting a window it was not showing. Counted
+        # from the sessions in the window rather than echoing the constant, so
+        # it stays true in cursor mode too, where the window is whatever
+        # sessions the unseen events fell in and the constant does not apply.
+        "window_sessions": len(sessions),
         "watchlist_state": watchlist_state,
         "index_context": {
             "tiles": index_tiles,
@@ -997,7 +1096,7 @@ def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None,
         # never a day apart. Raw, not adjusted: see SPARK_SESSIONS above.
         "close": close,
         "close_session": close_session,
-        "spark": _spark(series),
+        "spark": _spark(series, c.session_date),
         "tier": c.tier,
         "total_return_pct": _pct(c.total_return),
         "sector_return_pct": _pct(c.explained_return),
@@ -1022,6 +1121,7 @@ def _empty(
     head: int = 0,
     cursor: int | None = None,
     watched: int = 0,
+    rows: list[dict] | None = None,
 ) -> dict:
     """The caught-up digest. `watched` is still reported because "you follow 30
     things and none of them did anything new" is the message, not "you follow
@@ -1042,8 +1142,19 @@ def _empty(
         # over, so there are no rows and no tiles — but the keys are present,
         # because a client branching on their absence is a client that will
         # eventually branch wrongly.
-        "watchlist_state": [],
-        "index_context": {"tiles": [], "latest_session": None, "next_update": None},
+        # Rows when the caller could build them — a caught-up digest has no
+        # moves but the instruments still have prices. Empty when there is no
+        # watchlist to report at all.
+        "watchlist_state": rows or [],
+        "window_sessions": 0,
+        # The tiles need index reads this branch does not do, but the session
+        # on record is already known and the strip is otherwise a blank bar.
+        "index_context": {
+            "tiles": [],
+            "latest_session": since.isoformat() if since else None,
+            "next_update": ("when the next session's bhavcopy is published"
+                            if since else None),
+        },
     }
 
 

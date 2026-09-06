@@ -4303,3 +4303,136 @@ $ unzip -z signal-v1.0.zip
 | `index.html`, `lab.py`, `digest.py` byte-identical to HEAD | yes, by `shasum` against `git show HEAD:<path>` |
 | `results/latest` | a **symlink** in the archive, and it resolves to a 7,031-byte `metrics.json` on extraction — the first form of this check looked for a file entry at that path and reported it missing, which was the check being wrong, not the archive |
 | the extracted tree runs | `82 passed` for the render, lab, accessibility and runtime guards, from `/tmp/zipcheck/backend` |
+
+---
+
+## [UI-7] — Adversarial pass on UI-6
+
+| Key | Value |
+|-----|-------|
+| Phase | UI-7 |
+| Date | 2026-09-06 IST |
+| Trigger | An unbiased correctness and staleness review of the round above, before calling it done |
+
+Four defects. **Three were introduced by UI-6 and one was pre-existing.** None was
+visible in the markup, and none would have been found by reading the diff —
+every one was caught by driving the API into a state the demo does not reach.
+
+### 1 — a card outside the price window rendered no price
+
+`_DISPLAY_CLOSES` asked for "the last 20 sessions overall". `_EVENTS_SINCE_CURSOR`
+carries **no date bound**, so a card sits on whatever session its event does:
+
+```
+oldest of the last 20 sessions   2026-08-07
+oldest event in the ledger       2026-02-27
+events older than that window    4,264
+```
+
+Forcing a cursor of 1 — the state of a user whose last visit predates most of
+the ledger — produced this:
+
+```
+MARUTI     session=2026-08-07 close=14037.0   COALINDIA  session=2026-07-31 close=None
+GRASIM     session=2026-08-07 close=3323.0    ANANTRAJ   session=2026-07-31 close=None
+```
+
+Two cards with a return and no price, beside thirty watchlist rows that all had
+one. Reachable by any returning user.
+
+**Fix.** The caller now works out which sessions each figure needs —
+`_window_for(anchors, calendar)`, the union of the SPARK_SESSIONS sessions
+ending at each anchor — and asks for exactly those. Bounded by construction: two
+anchors twenty sessions apart pull forty dates, not the span between them.
+
+### 2 — the trend line ended after the price it sat beside
+
+The line ended at the newest close held, whatever session the card was about.
+MARUTI's card printed **₹14,037.00** with a line ending at **12,857.00**. Even
+in the default demo the card session is 09-02 and the line ended 09-03, so the
+dot on the final point was *never* the figure two lines above it.
+
+Worse: it put **post-event price movement on the card face as an unlabelled
+graphic** — which is exactly what `outcomes` reports deliberately, separately,
+and only after the fact. IFCI closed 98.32 on its event session and 95.91 the
+next; the card was drawing the reversal while the outcomes block below it
+reported the same thing as a measured, horizon-labelled result.
+
+**Fix.** One rule everywhere: **the line ends where the price does.**
+
+### 3 — a surfaced row below the display threshold anchored to the wrong session
+
+A card can clear every §7 gate on a move below `MOVED_DISPLAY_THRESHOLD_PCT`
+and so never enter `moves` — `surfaced_below_display_threshold` exists to name
+that population. Such a row took the "no move" branch: a price from the latest
+session, a line ending there, and **no session date at all**, beside a
+percentage measured on a different day. The missing session date was
+pre-existing; the mismatched price and line were new.
+
+**Fix.** One `anchor` per row — the card's session if surfaced, the move's if
+filtered, none if quiet — and the price, the line and the reported session all
+read from it.
+
+This one exposed a **vacuous guard**. The first version asserted over the
+natural rows, where `surfaced_below_display_threshold` is 0 and both branches
+agree, and it passed with the fix reverted. It now raises the display threshold
+so every card falls into that population — legitimate, because the threshold's
+own comment says nothing downstream may read it, and the guard asserts the
+surfaced set is unchanged to prove that.
+
+### 4 — the caught-up state lost every price
+
+`_empty()` returns `watchlist_state: []`, which was right when a row carried
+only a move. Now a row carries a price, a name and a trend line — and a price
+is a **level, not a move**. Pressing "Mark all as seen" blanked the price
+column and the graphic on all thirty rows, which reads as broken data rather
+than as "nothing new". The context strip went blank at the same time although
+the latest session was known.
+
+**Fix.** The caught-up branch builds its rows with price, name and line, and
+`change_pct: None` — never `0.0`, which would assert a flat close. The strip
+gets the session it already knows.
+
+### One stale constant, pre-existing
+
+`'first visit — showing the last 2 sessions'` was typed into the page
+(commit 616e365). Currently correct — the window does span 2 sessions — but it
+is a number the server owns, and changing `DEMO_DEFAULT_LOOKBACK_SESSIONS`
+would have left the page asserting a window it was not showing. The digest now
+reports `window_sessions`, counted from the sessions covered rather than
+echoing the constant, so it stays true in cursor mode where the constant does
+not apply at all.
+
+### One implicit coupling, removed
+
+4b's "one sort, applied to both" rested on an accident: `Array.sort` is stable
+and `/api/watchlist` happens to `ORDER BY i.symbol`, so two equal moves came out
+alphabetically because of an `ORDER BY` three files away. The rail's tie-break
+is explicit now, and its guard feeds the watchlist **reversed** and asserts both
+surfaces still agree.
+
+### Measured, not assumed
+
+| question | answer |
+|----------|--------|
+| cost of the price/trend read | **11.2 ms** of a 244.8 ms `build_digest` (median of 7, measured by neutering `_window_for` in-process) — not the 57 ms a cold `EXPLAIN ANALYZE` suggested |
+| worst case (45-session window, oldest cursor) | 24,572 bytes, 0.298 s — **no worse** than the default, which is what `_window_for` is for |
+| payload growth from price/name/spark | 8,240 bytes of 27,729 (30%) |
+| does that matter in production | **no** — Railway's edge compresses: 25,308 → 6,289 bytes |
+| digest latency, hot | median 289 ms, p95 376 ms over 11 requests |
+| hard rules 4, 6, 7, 8 | re-verified in the current tree, not from memory |
+| engine / detector / normalize / configs touched this round | **none** — `git diff --stat` over those paths is empty for all four commits |
+
+### Guards
+
+Ten added in `test_price_anchor.py`, each proved to fire by reverting the fix it
+covers. The file seeds the watchlist before building a digest, because the
+throwaway database copies `bar` and `event` from the ingested one but not
+`watchlist_item` — without it every assertion runs over `_empty()` and proves
+nothing. That is the same failure `test_no_vacuous_assertions` was written for,
+and it caught two of my guards in this round.
+
+**Full suite:** `481 passed, 2 skipped, 1 xfailed, 2 warnings in 298.95s`
+(UI-6 finished at 471). Caught-up path after the fix: **145 ms**, against 288 ms
+for the default digest — the two queries it gained cost little on a path that
+does less work.
