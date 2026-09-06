@@ -4247,3 +4247,59 @@ Baseline at the start of this round: `434 passed, 2 skipped, 1 xfailed in 294.99
 Thirty-seven guards added across the six blocks, every one proved to fire by
 mutating the code it protects rather than by assertion alone. The two skips are
 the pre-existing ones; the xfail is unchanged.
+
+### Block 5d — pushed, deployed, re-archived
+
+```
+$ git push origin main
+   eee77b3..6a2fac5  main -> main
+
+623be65 feat(ui): price anchor, company name and per-row trend lines
+9e2be7c feat(ui): remove the redundancy, promote the funnel, add watchlist search
+6a2fac5 feat(lab): the Lab as a Model Card, and a guard for the runtime that broke it
+```
+
+**Railway.** Polled until the new build was serving, verified by a payload field
+that did not exist before this round rather than by a 200:
+
+```
+attempt 1: root=200 lab=200 spark_fields=0     <- still the old image
+attempt 2: root=200 lab=200 spark_fields=1     <- new image live
+```
+
+Live, at `https://signal-api-production-7d51.up.railway.app`:
+
+| check | result |
+|-------|--------|
+| `/` and `/lab` | 200 |
+| cards | 4, each with a name, a price and a 20-point series |
+| rail | 30 rows — 30 with a price, 30 with a name, 30 with a sparkline |
+| card order vs rail order | identical (IFCI, ANANTRAJ, RBLBANK, COALINDIA) |
+| funnel block above the cards | present |
+| "Mark all as seen" in the header | present |
+| watchlist filter | present |
+| sigma on the card face | none |
+| sigma in the band's `aria-label` | `…Standardised residual 4.83 sigma against a normal range of plus or minus 3 sigma.` |
+| sigma in the technical rows | `…standardised residual 4.83` |
+| the DRIFT headline, with its CUSUM bar count | `Headline: Sustained one-directional drift over 3 sessions` — in the technical rows, not on the face |
+| the verdict, on the face | stated once; `stock-specific move` absent |
+| horizontal scroll / truncated symbols | none |
+| `/lab` sections | Funnel, Quality, Reliability, Calibration, Evidence; 8 scenario tiles; step chart present; masthead trimmed |
+
+**Archive.** Rebuilt with `git archive --format=zip -o signal-v1.0.zip HEAD`,
+which stamps the commit into the zip comment:
+
+```
+$ unzip -z signal-v1.0.zip
+6a2fac5f74696a4800eaf208840651ea3820362c
+168 entries, 1,238,926 bytes
+```
+
+| check | result |
+|-------|--------|
+| `.git/`, `__pycache__`, `data/cache`, `data/raw`, `.env`, `.DS_Store` | 0 entries each |
+| a copy of the archive inside itself | none — `signal-*.zip` is gitignored for exactly this reason |
+| spec, ops, README, Dockerfile, compose, static, lab, the new guard | all present |
+| `index.html`, `lab.py`, `digest.py` byte-identical to HEAD | yes, by `shasum` against `git show HEAD:<path>` |
+| `results/latest` | a **symlink** in the archive, and it resolves to a 7,031-byte `metrics.json` on extraction — the first form of this check looked for a file entry at that path and reported it missing, which was the check being wrong, not the archive |
+| the extracted tree runs | `82 passed` for the render, lab, accessibility and runtime guards, from `/tmp/zipcheck/backend` |
