@@ -73,16 +73,34 @@ PAYLOAD = {
     },
     # One row per watched instrument, in all three states the table renders.
     "watchlist_state": [
-        {"isin": "INE001", "symbol": "COALINDIA", "sector_id": "oil_gas",
+        {"isin": "INE001", "symbol": "COALINDIA", "name": "COAL INDIA LTD",
+         "sector_id": "oil_gas", "close": 417.85, "close_session": "2026-09-02",
+         "spark": [415.25, 411.0, 412.6, 409.3, 410.5, 407.1, 408.45, 406.9, 400.0, 402.5,
+                      405.2, 406.9, 404.0, 403.5, 400.0, 401.0, 401.75, 401.6, 417.85, 420.05],
          "change_pct": 3.97, "session_date": "2026-09-02",
          "status": "surfaced", "reason": None},
-        {"isin": "INE002", "symbol": "SPARSE", "sector_id": None,
+        # No name, no price and no trend line: the sparse shape a real row
+        # takes when the instrument has neither a name on file nor a full
+        # window of bars. The conditional in 3c must draw nothing here.
+        {"isin": "INE002", "symbol": "SPARSE", "name": None, "sector_id": None,
+         "close": None, "close_session": None, "spark": None,
          "change_pct": None, "session_date": None,
          "status": "quiet", "reason": None},
-        {"isin": "INE003", "symbol": "IFCI", "sector_id": "financial_services",
+        {"isin": "INE003", "symbol": "IFCI", "name": "IFCI LTD",
+         "sector_id": "financial_services",
+         "close": 98.32, "close_session": "2026-09-02",
+         "spark": [73.98, 76.02, 75.7, 73.51, 76.66, 76.94, 78.93, 81.36, 81.68, 81.76,
+                      80.91, 82.48, 83.25, 85.44, 84.27, 89.96, 89.7, 87.26, 98.32, 95.91],
          "change_pct": 11.93, "session_date": "2026-09-02",
          "status": "surfaced", "reason": None},
-        {"isin": "INE004", "symbol": "ADANIPORTS", "sector_id": "services",
+        # The longest company name on the seeded watchlist, 25 characters
+        # against a 22-character cap. It must ellipsise and must not move the
+        # symbol above it.
+        {"isin": "INE004", "symbol": "ADANIPORTS",
+         "name": "BALRAMPUR CHINI MILLS LTD", "sector_id": "services",
+         "close": 1706.5, "close_session": "2026-09-02",
+         "spark": [1693.5, 1681.0, 1668.2, 1665.0, 1658.0, 1700.0, 1691.0, 1682.4, 1681.9, 1696.0,
+                  1700.0, 1672.1, 1702.7, 1691.5, 1714.0, 1707.5, 1593.1, 1647.5, 1672.7, 1706.5],
          "change_pct": 2.02, "session_date": "2026-09-02",
          "status": "filtered", "reason": "below_threshold"},
     ],
@@ -101,7 +119,11 @@ PAYLOAD = {
     "cursor": None,
     "cards": [
         {
-            "symbol": "COALINDIA", "tier": "C", "total_return_pct": 3.97,
+            "symbol": "COALINDIA", "name": "COAL INDIA LTD",
+            "close": 417.85, "close_session": "2026-09-02",
+            "spark": [415.25, 411.0, 412.6, 409.3, 410.5, 407.1, 408.45, 406.9, 400.0, 402.5,
+                      405.2, 406.9, 404.0, 403.5, 400.0, 401.0, 401.75, 401.6, 417.85, 420.05],
+            "tier": "C", "total_return_pct": 3.97,
             "sector_return_pct": 0.37, "residual_pct": 3.67, "market_pct": 0.09,
             "sector_only_pct": 0.28, "gate": "C>=0.5 AND U>=0.99",
             "session_date": "2026-09-02", "u_score": 1.0, "i_score": 0,
@@ -132,7 +154,11 @@ PAYLOAD = {
             # bands, outcome vocabulary, forward horizons, the derived reasons
             # in "Why this?" — was never once executed by this file. A guard
             # that only ever sees nulls proves the null branch and nothing else.
-            "symbol": "IFCI", "tier": "C", "total_return_pct": 11.93,
+            "symbol": "IFCI", "name": "BALRAMPUR CHINI MILLS LTD",
+            "close": 98.32, "close_session": "2026-09-02",
+            "spark": [73.98, 76.02, 75.7, 73.51, 76.66, 76.94, 78.93, 81.36, 81.68, 81.76,
+                      80.91, 82.48, 83.25, 85.44, 84.27, 89.96, 89.7, 87.26, 98.32, 95.91],
+            "tier": "C", "total_return_pct": 11.93,
             "sector_return_pct": -0.87, "residual_pct": 12.39,
             "market_pct": -0.87, "sector_only_pct": 0.0,
             "gate": "C>=0.5 AND U>=0.99", "session_date": "2026-09-02",
@@ -164,7 +190,9 @@ PAYLOAD = {
         },
         {
             # Every optional field null: the shape that breaks naive templates.
-            "symbol": "SPARSE", "tier": "C", "total_return_pct": None,
+            "symbol": "SPARSE", "name": None, "close": None,
+            "close_session": None, "spark": None,
+            "tier": "C", "total_return_pct": None,
             "sector_return_pct": None, "residual_pct": None, "market_pct": None,
             "sector_only_pct": None, "gate": None, "session_date": None,
             "u_score": None, "i_score": None, "confidence": None,
@@ -839,3 +867,200 @@ def test_the_filtered_bar_is_absent_when_the_payload_omits_it(tmp_path):
     )
     # The Pareto itself still renders; only the bar is absent.
     assert "Below threshold" in out["pareto"] or "below" in out["pareto"].lower()
+
+
+# --- the price anchor and the company name ---------------------------------
+#
+# Every competitor examined — Groww, Kite, TradingView, Moneycontrol,
+# Robinhood — leads a watchlist row with an absolute price and a company name.
+# Signal showed a percentage against a ticker, so a reader could not tell a
+# ₹9.57 stock from a ₹21,500 one, and RELIANCE from Reliance Industries. Both
+# data points were already in the database.
+
+
+def _watchlist(tmp_path) -> str:
+    r = _run(tmp_path, _script())
+    assert r.returncode == 0, (r.stderr or "")[-1500:]
+    return json.loads(r.stdout.strip().splitlines()[-1])["watchlist_html"]
+
+
+def test_a_card_renders_its_price(tmp_path):
+    """1a. The price is the anchor. Indian digit grouping, two decimals, and
+    the rupee sign — a bare `1322.00` beside a percentage is a quantity with
+    no unit."""
+    html = _cards(tmp_path)
+    priced = [c for c in PAYLOAD["cards"] if c.get("close") is not None]
+    assert priced, "the fixture must carry at least one priced card"
+    for c in priced:
+        card = [a for a in html.split("<article") if c["symbol"] in a][0]
+        assert "\u20b9" in card, f"{c['symbol']}: no rupee sign on the card"
+        assert 'class="price' in card, f"{c['symbol']}: the price is not styled as a figure"
+        # The value itself, grouped. 417.85 and 98.32 group to themselves;
+        # the assertion is that the digits reached the page at all.
+        digits = f"{c['close']:.2f}"
+        assert digits.split(".")[1] in card, f"{c['symbol']}: {digits} is not rendered"
+    # And a card with no close prints nothing rather than a zero or a dash
+    # that would read as a price of nothing.
+    sparse = [a for a in html.split("<article") if "SPARSE" in a][0]
+    assert 'class="price' not in sparse, (
+        "a card with no close on record still rendered a price element"
+    )
+
+
+def test_a_card_renders_a_company_name_distinct_from_its_symbol(tmp_path):
+    """1b. `instrument.name` was populated for all 3,044 rows and reached the
+    page only as a `title` attribute — invisible to everyone not hovering."""
+    html = _cards(tmp_path)
+    named = [c for c in PAYLOAD["cards"] if c.get("name")]
+    assert named, "the fixture must carry at least one named card"
+    for c in named:
+        card = [a for a in html.split("<article") if c["symbol"] in a][0]
+        assert 'class="co-name"' in card, f"{c['symbol']}: no company name element"
+        assert c["name"] in card, f"{c['symbol']}: {c['name']!r} is not rendered"
+        assert c["name"] != c["symbol"]
+        # Rendered as stored. Title-casing is lossy on M&M, ITC LTD and BSE
+        # LIMITED, and a mangled name is a worse error than an uppercase one.
+        visible = re.search(r'class="co-name"[^>]*>([^<]*)<', card)
+        assert visible and visible.group(1).strip() == c["name"], (
+            f"{c['symbol']}: the name was transformed on the way to the page: "
+            f"{visible.group(1) if visible else None!r}"
+        )
+    sparse = [a for a in html.split("<article") if "SPARSE" in a][0]
+    assert "co-name" not in sparse, "a nameless card rendered an empty name element"
+
+
+def test_a_long_company_name_cannot_overflow_or_shorten_the_symbol():
+    """1c. BALRAMPUR CHINI MILLS LTD is 25 characters and the longest name on
+    the seeded watchlist. The symbol is the one thing on a card that may never
+    shorten — losing a ticker's last letters is losing which company the card
+    is about — so the name is capped in CSS and truncates itself."""
+    css = STATIC.read_text().split("</style>")[0]
+    block = css.split(".co-name")[1].split("}")[0]
+    assert "max-width" in block, "the company name has no width cap"
+    assert "text-overflow: ellipsis" in block, "a long name will not ellipsise"
+    assert "white-space: nowrap" in block, "a long name will wrap instead of truncating"
+    # The rail's name is capped by its grid track rather than by ch, and must
+    # ellipsise the same way.
+    rail = css.split(".wl-name")[1].split("}")[0]
+    assert "text-overflow: ellipsis" in rail and "overflow: hidden" in rail
+
+
+def test_the_name_cap_is_actually_exercised_by_a_25_character_name(tmp_path):
+    """R-27: a cap that no fixture ever reaches is a cap nobody has tested."""
+    longest = max((c.get("name") or "" for c in PAYLOAD["cards"]), key=len)
+    assert len(longest) >= 25, (
+        f"the fixture's longest name is {len(longest)} characters; the cap is "
+        "22 and this guard proves nothing below it"
+    )
+    html = _cards(tmp_path)
+    assert longest in html, "the long name never reached the render"
+
+
+def test_a_rail_row_carries_the_symbol_the_name_and_the_price(tmp_path):
+    """1a/1b, the rail half. Three columns down the list: what it is, what it
+    costs, what it did."""
+    table = _watchlist(tmp_path)
+    rows = [r for r in PAYLOAD["watchlist_state"] if r.get("close") is not None]
+    assert rows, "the fixture must carry at least one priced row"
+    for r in rows:
+        assert "\u20b9" in table, f"{r['symbol']}: no price in the rail"
+        assert r["name"] in table, f"{r['symbol']}: no company name in the rail"
+    assert 'class="wl-name"' in table and "wl-price" in table
+    # The quiet, nameless, priceless row still renders — as a row with empty
+    # cells, not as a row with fabricated ones.
+    assert "SPARSE" in table
+    sparse = [x for x in table.split("<button") if "SPARSE" in x][0]
+    assert "\u20b9" not in sparse, "a row with no close on record printed a price"
+
+
+# --- the trend line --------------------------------------------------------
+
+
+def test_every_row_with_a_full_window_gets_a_trend_line(tmp_path):
+    """3a/3b. Tufte's sparkline: word-sized, axis-free, one polyline and a dot
+    on the last point."""
+    table = _watchlist(tmp_path)
+    with_spark = [r for r in PAYLOAD["watchlist_state"] if r.get("spark")]
+    assert with_spark, "the fixture must carry at least one full window"
+    assert table.count("<polyline") == len(with_spark), (
+        f"expected {len(with_spark)} trend lines in the rail, "
+        f"found {table.count('<polyline')}"
+    )
+    assert 'stroke-width="1.5"' in table
+    assert "var(--text-2)" in table, "the stroke is not on the audited token"
+    # A dot on the final point, one per line.
+    assert table.count("<circle") == len(with_spark)
+
+
+def test_a_short_series_renders_no_trend_line_at_all(tmp_path):
+    """3c, the conditional. A two-point polyline looks exactly like a twenty
+    -point one and reads as a trend that was never measured. Where the window
+    is short the row draws nothing."""
+    table = _watchlist(tmp_path)
+    sparse = [x for x in table.split("<button") if "SPARSE" in x][0]
+    assert "<svg" not in sparse, (
+        "a row with no full window still drew a trend line"
+    )
+    # And the client refuses a short series even if the server sends one.
+    short = json.loads(json.dumps(PAYLOAD))
+    for row in short["watchlist_state"]:
+        if row.get("spark"):
+            row["spark"] = row["spark"][:3]
+    js = tmp_path / "app.js"
+    js.write_text(_script())
+    harness = tmp_path / "harness.js"
+    harness.write_text(HARNESS)
+    payload = tmp_path / "short.json"
+    payload.write_text(json.dumps(short))
+    watch = tmp_path / "watchlist.json"
+    watch.write_text(json.dumps(WATCHLIST))
+    r = subprocess.run([NODE, str(harness), str(js), str(payload), str(watch)],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, (r.stderr or "")[-1500:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert "<polyline" not in out["watchlist_html"], (
+        "a three-point series was drawn as a trend line"
+    )
+
+
+def test_the_trend_line_is_normalised_per_row_not_across_the_list(tmp_path):
+    """3b. Absolute scaling across thirty differently-priced instruments —
+    ₹9.57 beside ₹21,500 — renders every row but the most expensive flat. Each
+    line must use its own extremes, which means each must reach both the top
+    and the bottom of its own box."""
+    table = _watchlist(tmp_path)
+    lines = re.findall(r'<polyline points="([^"]+)"', table)
+    assert lines, "no trend lines rendered"
+    for pts in lines:
+        ys = [float(p.split(",")[1]) for p in pts.split()]
+        assert min(ys) < 3.0, f"the line never reaches its top: min y {min(ys)}"
+        assert max(ys) > 17.0, f"the line never reaches its bottom: max y {max(ys)}"
+
+
+def test_the_trend_line_is_announced_in_words_with_both_ends_of_its_range(tmp_path):
+    """3d. Never an empty or unlabelled SVG. The label says how many sessions,
+    what the range was in rupees, and which way it went."""
+    table = _watchlist(tmp_path)
+    labels = re.findall(r'<svg[^>]*aria-label="([^"]*)"', table)
+    assert labels, "no labelled trend line in the rail"
+    for lab in labels:
+        assert re.search(r"\d+-session price trend", lab), lab
+        assert lab.count("\u20b9") == 2, f"the range is not stated in rupees: {lab}"
+        assert any(w in lab for w in ("rising", "falling", "flat")), lab
+    # IFCI ran 73.51 to 98.32 over the window and closed above where it opened.
+    ifci = [l for l in labels if l.startswith("IFCI")]
+    assert ifci, "the IFCI row lost its label"
+    assert "rising" in ifci[0] and "\u20b973.51" in ifci[0], ifci[0]
+
+
+def test_the_card_carries_a_larger_trend_line_than_the_rail(tmp_path):
+    """3b. 120x32 on the card, 64x20 in the rail — the same graphic at the
+    size its surface affords."""
+    html = _cards(tmp_path)
+    card = [a for a in html.split("<article") if "IFCI" in a][0]
+    m = re.search(r'<svg width="(\d+)" height="(\d+)"[^>]*class="spark"', card)
+    assert m, "no trend line on the card"
+    assert (int(m.group(1)), int(m.group(2))) == (120, 32)
+    table = _watchlist(tmp_path)
+    r = re.search(r'<svg width="(\d+)" height="(\d+)"[^>]*class="spark"', table)
+    assert r and (int(r.group(1)), int(r.group(2))) == (64, 20)

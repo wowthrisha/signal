@@ -3901,3 +3901,110 @@ no bar rather than an empty one.
   inside the comment. A comment must not impersonate a structural marker.
 
 Full suite: `434 passed, 2 skipped, 1 xfailed in 196.09s`.
+
+---
+
+## [UI-6] — Price, company name, trend lines
+
+| Key | Value |
+|-----|-------|
+| Phase | UI-6 |
+| Date | 2026-09-06 IST |
+| Scope | Presentation only. No threshold, detector, attribution, confidence, evidence or outcome logic touched. |
+
+### Block 1 — the price anchor and the company name
+
+Both data points were already in the database and neither reached the page.
+`instrument.name` is populated for all **3,044** rows and was rendered only
+into a `title` attribute; `bar.c` was read for the funnel's screen and thrown
+away. A percentage with no price behind it cannot tell a reader a ₹9.57 stock
+(PCJEWELLER) from a ₹21,500 one (SOLARINDS) — and both are on the seeded
+watchlist, three rows apart.
+
+**Payload.** `close`, `close_session`, `name` and `spark` on every card and
+every `watchlist_state` row. Read in `build_digest`'s own connection, from
+`bar`, in the same transaction as everything else on the page.
+
+The price is **anchored to the session the change describes**, not to the
+latest session. A rail row and its card must not put a price from one day
+beside a return from another — the repo already had that exact contradiction
+once (IFCI reading +12.67% in the rail and +11.93% on the card) and solved it
+with `change_basis`. Same rule applied: `close_session` travels with `close`,
+and a row with no such session (a quiet row) falls back to the latest close it
+holds and says so in the title. An instrument with no bar on the stated session
+renders **no price** rather than a neighbouring one.
+
+These are **raw closes**, which is what a price screen shows — the figure the
+exchange printed. `total_return_pct` is the corporate-action-adjusted return
+the detector ran on. The two are not two views of one number and the payload
+does not pretend they are.
+
+**Format.** `₹1,322.00`, `en-IN` grouping — `₹12,02,264.50`, not
+`₹1,202,264.50`. Western grouping on a rupee figure is simply wrong for the
+reader this product has.
+
+**Name.** Rendered as stored, uppercase, **not** title-cased. Title-casing is
+lossy on `M&M`, `ITC LTD`, `BSE LIMITED` and `PC JEWELLER`; a mangled company
+name is a worse error than an uppercase one. Capped at `22ch` with a CSS
+ellipsis and the full string in `title`. The cap sits on the name's own
+element, so the symbol above it can never be pushed or shortened — losing a
+ticker's last two letters is losing which company the card is about.
+
+| check | result |
+|-------|--------|
+| longest name on the seeded list | `BALRAMPUR CHINI MILLS LTD` — 25 chars, ellipsises at 22 |
+| symbol displaced by a 25-char name | no — the name is in its own capped block |
+| price column, live | ₹9.57 (PCJEWELLER) to ₹21,500.00 (SOLARINDS) |
+| horizontal scroll at 1440 | none — `documentElement.scrollWidth` equals the viewport |
+
+### Block 3 — sparklines
+
+Word-sized, axis-free, one polyline and a dot on the final point. 64×20 in the
+rail, 120×32 on the card. Stroke 1.5px on `--text-2` (7.58:1 against
+`--surface`, past the 3:1 WCAG 1.4.11 asks of a graphical object). No direction
+colouring.
+
+**Normalised per row on that row's own min/max.** Absolute scaling across
+thirty differently-priced instruments renders every row but the most expensive
+as a flat line. The consequence is that heights are *not* comparable between
+rows — which is why the magnitude bar, scaled against the whole list, is still
+on the row beside it. The two encode different things and neither replaced the
+other.
+
+**The conditional (3c), and the count asked for.** Bar counts were measured
+rather than assumed:
+
+```
+SELECT i.symbol, count(b.*) FROM watchlist_item w JOIN instrument i USING (isin)
+LEFT JOIN bar b ON b.isin = w.isin AND b.session_date IN (last 20 sessions)
+WHERE w.user_id = <demo> GROUP BY i.symbol ORDER BY count;
+```
+
+All 30 watchlist instruments hold the full 20 bars — the minimum over the list
+is 20, not merely the maximum. So **30 of 30 rail rows render a sparkline**,
+and the conditional is currently never the branch taken. It stays in, on both
+sides: the server returns `null` below the window and the page refuses a short
+series independently. A three-point polyline is indistinguishable from a
+twenty-point one and reads as a trend that was never measured.
+
+`role="img"` and a label in words on every line:
+`IFCI: 20-session price trend, ₹73.51 to ₹98.32, rising`.
+
+### Guards
+
+Nine added to `test_render_execution.py`, each proved to fire by mutation
+rather than by assertion:
+
+| mutation | guard that caught it |
+|----------|---------------------|
+| price element renamed off the card | `test_a_card_renders_its_price` |
+| the rail's `sparkHTML` call replaced with `''` | 3 trend-line guards |
+| the company name title-cased on the way to the page | `test_a_card_renders_a_company_name_distinct_from_its_symbol` |
+
+The fixture was rebuilt on real rows: three genuine 20-session close series
+read out of the database, the 25-character name, and a row that carries no
+name, no price and no window — so the "render nothing" branch is executed
+rather than described.
+
+`36 passed` in `test_render_execution.py`. Baseline before this block:
+`434 passed, 2 skipped, 1 xfailed in 294.99s`.

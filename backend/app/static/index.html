@@ -174,12 +174,43 @@ body {
    number, not a replacement for it. */
 .wl-mag { display: block; height: 4px; border-radius: 2px;
           background: var(--surface-2); overflow: hidden; }
+/* Two lines per row. Line 1 is the identity and the two figures — symbol,
+   price, change — line 2 is the company name and the two graphics. Every
+   competitor examined leads with an absolute price; a column of percentages
+   alone cannot tell a ₹9.57 stock from a ₹21,500 one.
+
+   The tracks are fixed so that price and change form real columns down the
+   rail: a right-aligned figure that shifts by a pixel per row is not a column
+   an eye can run down. */
 .wl-row {
-  display: grid; grid-template-columns: 1fr 46px auto 10px 18px;
-  align-items: center; gap: 8px; width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 66px 58px 8px 12px;
+  align-items: center; column-gap: 7px; row-gap: 2px; width: 100%;
   padding: 5px 4px; border-radius: 4px; text-align: left;
   min-height: 0; background: none; border: 0;
 }
+/* The dot and the remove control belong to the whole row, not to its first
+   line, so they centre across both. */
+.wl-row .wl-dot, .wl-row .wl-x { grid-row: 1 / span 2; align-self: center; }
+/* Uppercase as stored. Title-casing is lossy on M&M, ITC LTD, BSE LIMITED and
+   PC JEWELLER, and a mangled company name is a worse error than an uppercase
+   one. Sans, not mono: it is a name, not a figure. */
+.wl-name {
+  font-family: var(--sans); font-size: 9.5px; letter-spacing: 0.01em;
+  color: var(--text-3); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; min-width: 0;
+}
+.wl-price { color: var(--text-2); text-align: right; }
+/* Explicit placement: these three are last in source order so that the dot and
+   the remove control stay adjacent to the row's identity in the accessibility
+   tree, but they belong on line 2. Auto-placement would put them in a third
+   row. */
+.wl-name  { grid-row: 2; grid-column: 1; }
+.wl-spark { grid-row: 2; grid-column: 2; display: flex; justify-content: flex-end; }
+.wl-mag   { grid-row: 2; grid-column: 3; align-self: center; }
+/* Block, not inline: an inline SVG sits on the text baseline and drags a
+   descender's worth of space under every row. */
+.spark { display: block; }
 .wl-row:hover { background: var(--surface-2); }
 .wl-row[aria-current="true"] { background: var(--surface-2); }
 .wl-dot { width: 8px; height: 8px; border-radius: 999px; }
@@ -196,6 +227,24 @@ body {
 .wl-filter { min-height: 0; padding: 3px 7px; border-radius: 4px;
              border: 1px solid transparent; }
 .wl-filter[aria-pressed="true"] { border-color: var(--border); background: var(--surface-2); }
+
+/* The price anchor. Deliberately smaller than the return: the return is the
+   headline, the price is what makes it mean something. Tabular so a column of
+   them aligns, and weight 500 so it reads as a figure rather than a label. */
+.price {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  font-size: 1rem; font-weight: 500; color: var(--text-2); line-height: 1.1;
+}
+/* Capped rather than trusted to the column: BALRAMPUR CHINI MILLS LTD is 25
+   characters and the longest name on the seeded list. Capping here means the
+   symbol above it can never be pushed or shortened by a long name, which is
+   the failure that matters — a ticker is which company the card is about. */
+.co-name {
+  font-family: var(--sans); font-size: 0.75rem; color: var(--text-3);
+  letter-spacing: 0.01em; max-width: 22ch;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 .figure-xl { font-size: 2.75rem; font-weight: 600; line-height: 1.1; }
 .figure-lg { font-size: 1.5rem;  font-weight: 600; line-height: 1.1; }
@@ -433,6 +482,16 @@ const REASON_CLAUSE = {
 const fmtPct = (v) =>
   v === null || v === undefined ? '—' : (v > 0 ? '+' : '') + v.toFixed(2) + '%';
 
+// Indian digit grouping — 12,02,264.50, not 1,202,264.50. These are NSE
+// closes in rupees and a reader who prices Indian equities reads them in
+// lakhs and crores; western grouping on a rupee figure is simply wrong.
+// `en-IN` is resolved once, because building a formatter per row costs more
+// than the render it sits inside.
+const INR = new Intl.NumberFormat('en-IN',
+  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtINR = (v) =>
+  v === null || v === undefined ? '' : '\u20B9' + INR.format(v);
+
 const el = (id) => document.getElementById(id);
 
 // Per-visitor demo state. The shared demo row was emptied within a day of
@@ -473,6 +532,52 @@ function sinceLabel(iso) {
 // carries at any scroll depth — the same three numbers, in one place. No count
 // was lost: the header has all three, the evidence chain's first row still
 // reads "22 moved more than 1%", and the Pareto still totals 18.
+
+// --- the trend line --------------------------------------------------------
+//
+// A sparkline in Tufte's sense: word-sized, axis-free, data-intense. It answers
+// the one question a percentage cannot — *where has this been* — and it is the
+// only price-history visual on the page.
+//
+// The server decides whether a row gets one; this constant mirrors its window
+// so a client that is handed a short series draws nothing rather than a
+// two-point line, which reads as a trend that was never measured.
+const SPARK_MIN_POINTS = 20;
+
+function sparkHTML(points, symbol, w, h) {
+  if (!Array.isArray(points) || points.length < SPARK_MIN_POINTS) return '';
+  const lo = Math.min(...points), hi = Math.max(...points);
+  // Normalised per row on that row's own extremes. Absolute scaling across
+  // thirty differently-priced instruments — ₹9.57 beside ₹21,500 — renders
+  // every row but the most expensive as a flat line, which is not a scale
+  // problem but a rendering that shows nothing. The consequence is that
+  // heights are NOT comparable between rows, which is why the magnitude bar
+  // beside it, scaled against the whole list, is still there.
+  const pad = 2.5;
+  const x = (i) => pad + (i / (points.length - 1)) * (w - 2 * pad);
+  // A series with no range has no shape. The midline is the honest drawing of
+  // it, and it also keeps the divisor away from zero.
+  const y = (v) => (hi === lo ? h / 2
+    : h - pad - ((v - lo) / (hi - lo)) * (h - 2 * pad));
+  const pts = points.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const last = points[points.length - 1];
+  const dir = last > points[0] ? 'rising' : last < points[0] ? 'falling' : 'flat';
+  // In words, and with both ends of the range in rupees. An unlabelled
+  // graphic is information a screen reader cannot reach; "chart" is not a
+  // label, it is the name of the thing being described.
+  const label = `${symbol}: ${points.length}-session price trend, ${
+    fmtINR(lo)} to ${fmtINR(hi)}, ${dir}`;
+  // Stroke on --text-2: 7.58:1 against --surface, well past the 3:1 that
+  // WCAG 1.4.11 asks of a graphical object. No direction colouring — the
+  // figures beside it carry the sign.
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img"
+       aria-label="${label}" class="spark">
+    <polyline points="${pts}" fill="none" stroke="var(--text-2)"
+              stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
+    <circle cx="${x(points.length - 1).toFixed(1)}" cy="${y(last).toFixed(1)}"
+            r="1.75" fill="var(--text)"></circle>
+  </svg>`;
+}
 
 function confidenceDots(c) {
   // Five dots, filled to the nearest fifth. C is a display state, never an
@@ -1241,13 +1346,24 @@ function cardHTML(c, i, ctx = {}) {
     <div class="flex items-baseline justify-between gap-3">
       <div class="flex items-baseline gap-2.5 min-w-0">
         <span class="dot shrink-0" title="${t.label}" aria-hidden="true"></span>
-        <h2 class="num symbol t1 tracking-wide">${c.symbol}</h2>
+        <div class="min-w-0">
+          <h2 class="num symbol t1 tracking-wide">${c.symbol}</h2>
+          ${c.name ? `<p class="co-name" title="${c.name}">${c.name}</p>` : ''}
+        </div>
+        ${c.close === null || c.close === undefined ? '' : `<span class="price shrink-0"
+          title="Close on ${c.close_session || 'this session'}, in rupees. The traded price the exchange printed, not the corporate-action-adjusted series the detector ran on.">${
+          fmtINR(c.close)}</span>`}
       </div>
       <div class="num figure-lg t1 shrink-0">${fmtPct(c.total_return_pct)}</div>
     </div>
 
-    <!-- Line 2. -->
-    <p class="mt-1 t3" style="font-size:0.75rem">${meta}</p>
+    <!-- Line 2. The meta row, with the trend line at its right: where this
+         instrument has been over the last twenty sessions, beside how old the
+         card's own session is. -->
+    <div class="mt-1 flex items-end justify-between gap-3">
+      <p class="t3" style="font-size:0.75rem">${meta}</p>
+      ${sparkHTML(c.spark, c.symbol, 120, 32)}
+    </div>
 
     <!-- Line 3. The hero: the one object that varies across the slate. -->
     ${extremityBand(c, ctx)}
@@ -1404,23 +1520,33 @@ function wlRowHTML(w, maxAbs) {
     : status === 'filtered' ? 'Moved, and did not survive the gates'
     : 'No move past the display threshold in this window';
   const w2 = known && maxAbs ? Math.abs(chg) / maxAbs * 100 : 0;
+  // Name and price come from the digest's own row, so a rail figure and the
+  // card figure beside it are two renders of one server-side read.
+  const name = st.name || w.name || '';
+  const price = fmtINR(st.close);
   return `
-  <button class="wl-row num text-[11px] ${dim}" data-wl="${w.isin}"
+  <button class="wl-row text-[11px] ${dim}" data-wl="${w.isin}"
           data-status="${status}"
-          aria-label="${w.symbol}${!known ? ''
+          data-search="${(w.symbol + ' ' + name).toUpperCase()}"
+          aria-label="${w.symbol}${name ? `, ${name}` : ''}${
+            price ? `, ${price}` : ''}${!known ? ''
             : `, ${chg > 0 ? 'up' : 'down'} ${Math.abs(chg).toFixed(2)} percent`}, ${dotTitle}"
-          title="${w.name || w.symbol}">
-    <span class="t1 truncate text-left">${w.symbol}</span>
-    <span class="wl-mag" aria-hidden="true">${w2
-      ? `<span class="block h-full rounded-sm ${
-          status === 'surfaced' ? 'bar-accent' : 'bar-quiet'}"
-          style="width:${w2.toFixed(1)}%"></span>` : ''}</span>
-    <span class="text-right">${shown}</span>
+          title="${name || w.symbol}">
+    <span class="num t1 truncate text-left">${w.symbol}</span>
+    <span class="num wl-price" title="${price ? `Close on ${
+      st.close_session || 'the latest session held'}` : ''}">${price || ''}</span>
+    <span class="num text-right">${shown}</span>
     <span class="wl-dot ${status}" title="${dotTitle}" aria-hidden="true"></span>
     <span data-remove="${w.isin}" role="button" tabindex="0"
           title="Remove ${w.symbol}" aria-label="Remove ${w.symbol} from watchlist"
           class="wl-x t3 hover:warn-fg transition-colors text-center leading-none"
           style="min-height:0"><span aria-hidden="true">&times;</span></span>
+    <span class="wl-name" title="${name}">${name}</span>
+    <span class="wl-spark">${sparkHTML(st.spark, w.symbol, 64, 20)}</span>
+    <span class="wl-mag" aria-hidden="true">${w2
+      ? `<span class="block h-full rounded-sm ${
+          status === 'surfaced' ? 'bar-accent' : 'bar-quiet'}"
+          style="width:${w2.toFixed(1)}%"></span>` : ''}</span>
   </button>`;
 }
 

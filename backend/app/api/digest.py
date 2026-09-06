@@ -335,6 +335,78 @@ ORDER BY session_date DESC LIMIT 2
 # it does not enumerate all twenty.
 _SECTOR_INDEX = "SELECT sector_id, name, index_symbol FROM sector WHERE sector_id = ANY(%s)"
 
+# -- the price anchor and the trend line ------------------------------------
+#
+# **Presentation only.** Nothing below this line feeds detection, attribution,
+# salience or the funnel. It exists because a percentage with no price behind
+# it cannot tell a reader a 9-rupee stock from a 21,000-rupee one, and because
+# a watchlist row with no history has no shape.
+#
+# These are RAW closes off `bar`, which is what a price screen shows: the
+# figure the exchange printed. They are deliberately not the adjusted series
+# the detector ran on — `normalize.adjust` applies corporate actions on the way
+# into the engine and never writes back — so `close` is a traded price and
+# `total_return_pct` is an adjusted return, and the two are not two views of
+# one number. That distinction is already established for `change_pct` /
+# `change_basis` on the watchlist rows above; the same rule is applied here.
+SPARK_SESSIONS = 20
+
+# The window is the last SPARK_SESSIONS sessions *the exchange had*, taken from
+# the sessions present in `bar` rather than from a weekday count, so holidays
+# are simply absent and every instrument is sampled over the same calendar.
+_DISPLAY_CLOSES = """
+SELECT isin, session_date, c
+FROM bar
+WHERE isin = ANY(%s) AND c IS NOT NULL
+  AND session_date IN (
+      SELECT session_date FROM bar
+      GROUP BY session_date ORDER BY session_date DESC LIMIT %s)
+ORDER BY isin, session_date
+"""
+
+
+def _closes(rows) -> dict[str, list[tuple[date, float]]]:
+    out: dict[str, list[tuple[date, float]]] = {}
+    for isin, session, c in rows:
+        out.setdefault(isin, []).append((session, float(c)))
+    return out
+
+
+def _price_at(series, session) -> tuple[float | None, str | None]:
+    """The close that belongs to a stated session, and the session it came from.
+
+    A row's price and a row's percentage must describe the same day or the pair
+    is a contradiction a reader can do arithmetic on. So the anchor is the
+    close of the session the change was measured on, and only a row with no
+    such session — one that never moved past the display threshold — falls back
+    to the latest close it has.
+
+    `None` rather than a substituted price when the stated session has no bar:
+    an instrument that did not trade that day has no close, and printing a
+    neighbouring one would assert a price that was never quoted.
+    """
+    if not series:
+        return None, None
+    if session is None:
+        d, c = series[-1]
+        return c, d.isoformat()
+    for d, c in series:
+        if d == session:
+            return c, d.isoformat()
+    return None, None
+
+
+def _spark(series) -> list[float] | None:
+    """The trend line's points, or `None` when there are not enough of them.
+
+    The conditional is the point: two or three points drawn as a polyline look
+    exactly like twenty and read as a trend that was never measured. Below the
+    full window the row renders no graphic at all.
+    """
+    if len(series) < SPARK_SESSIONS:
+        return None
+    return [round(c, 2) for _, c in series[-SPARK_SESSIONS:]]
+
 
 @dataclass
 class _Move:
@@ -550,6 +622,12 @@ def build_digest(
         cur.execute(_INDEX, (MARKET_INDEX, bars_from, latest))
         mkt = _index_returns(cur.fetchall())
 
+        # Display only: the price anchor and the trend line. Read here, in the
+        # same connection as everything else, so the price on a card comes
+        # from the same database read as the return beside it.
+        cur.execute(_DISPLAY_CLOSES, (isins, SPARK_SESSIONS))
+        display_closes = _closes(cur.fetchall())
+
         if cursor is None:
             cur.execute(_EVENTS, (isins, since, latest))
             event_rows = cur.fetchall()
@@ -694,10 +772,26 @@ def build_digest(
             status, reason = "filtered", _reason(by_isin.get(isin), move)
         else:
             status, reason = "quiet", None
+        series = display_closes.get(isin, [])
+        # The price is anchored to the session the change describes, so the two
+        # figures on a row are never a day apart. A quiet row has no such
+        # session and falls back to the latest close it has.
+        close, close_session = _price_at(series, move.session if move else None)
         watchlist_state.append({
             "isin": isin,
             "symbol": m["symbol"],
+            # Rendered as stored, in the exchange's own casing. Title-casing is
+            # lossy on M&M, ITC LTD and BSE LIMITED, and a mangled company name
+            # is a worse error than an uppercase one.
+            "name": m.get("name"),
             "sector_id": m.get("sector_id"),
+            # Raw close, in rupees. Presentation only: this is the traded price
+            # the exchange printed, never an input to anything upstream.
+            "close": close,
+            "close_session": close_session,
+            # The last SPARK_SESSIONS closes, or None where the instrument does
+            # not have the full window. A short polyline is worse than none.
+            "spark": _spark(series),
             # None, not 0.0: a symbol that never cleared the display threshold
             # has no "biggest move" in this window, and rendering 0.00% would
             # assert it closed flat.
@@ -777,7 +871,10 @@ def build_digest(
         # this line has seen them, which is the property the leakage guard
         # asserts mechanically.
         "cards": [_card(c, all_sessions, policy, evidence_by_key,
-                        conn if with_outcomes else None) for c in cards],
+                        conn if with_outcomes else None,
+                        name=(meta.get(c.isin) or {}).get("name"),
+                        series=display_closes.get(c.isin, []))
+                  for c in cards],
         "filtered_count": sum(reasons.values()),
         "filtered_reasons": reasons,
         # Full-size only where the proportion still discriminates. On a card it
@@ -847,7 +944,11 @@ def build_digest(
 
 
 def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None,
-          outcome_conn=None) -> dict:
+          outcome_conn=None, *, name: str | None = None, series=()) -> dict:
+    """`name` and `series` are display-only and are threaded in rather than
+    carried on `Candidate`: the slate ranks on tier and U and must not grow a
+    field it does not read. Both come from the same rows the rest of the
+    digest was built from."""
     state, behind = fresh_mod.classify(
         c.session_date, calendar, status=c.status, policy=policy)
     # An empty list is a truthful answer, not a failure: most price-detected
@@ -869,12 +970,21 @@ def _card(c: slate_mod.Candidate, calendar=(), policy=None, evidence=None,
         # Attached alongside the outcome, and equally display-only.
         outcome["base_rates"] = outcomes_mod.base_rates(
             outcome_conn, c.event_type, c.tier, max(pol.horizons), pol)
+    close, close_session = _price_at(series, c.session_date)
     return {
         "evidence": ev,
         "outcomes": outcome,
         "freshness": state,
         "sessions_behind": behind,
         "symbol": c.symbol,
+        # The company behind the ticker, exactly as the exchange records it.
+        "name": name,
+        # The close of the session this card is about — the price that move
+        # produced, not today's — so the price and the return on one card are
+        # never a day apart. Raw, not adjusted: see SPARK_SESSIONS above.
+        "close": close,
+        "close_session": close_session,
+        "spark": _spark(series),
         "tier": c.tier,
         "total_return_pct": _pct(c.total_return),
         "sector_return_pct": _pct(c.explained_return),
