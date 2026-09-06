@@ -81,8 +81,15 @@ body {
   font-feature-settings: "tnum" 1;
   line-height: 1.1;
 }
+/* 2d. Sans, not mono. A label is a word — "Detector", "Historically",
+   "Data quality" — and setting words in a typeface designed to align columns
+   of digits is the single largest source of the "developer tool" read. Groww
+   and TradingView both set labels and prose proportionally and reserve mono
+   for figures; so does this page now. Mono survives on returns, prices,
+   counts, dates, and on verbatim machine tokens like a gate expression, where
+   fixed width is the point. */
 .label {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 0.75rem;
   font-weight: 500;
   text-transform: uppercase;
@@ -159,7 +166,7 @@ body {
 /* --- the watchlist table ------------------------------------------------ */
 /* A table because a table is scannable. Thirty chips in a cloud have no
    column to run an eye down; thirty rows do. */
-.wl-head { font-family: var(--mono); font-size: 9px; text-transform: uppercase;
+.wl-head { font-family: var(--sans); font-size: 9px; text-transform: uppercase;
             letter-spacing: 0.12em; color: var(--text-3);
             margin: 12px 0 3px; padding-top: 6px;
             border-top: 1px solid var(--border); }
@@ -246,6 +253,24 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* 4a. The funnel, promoted. It is the one thing no competitor examined
+   presents — none of them shows you what it filtered out — and it was a
+   small stacked list in a rail while four research reports held the column.
+   Two cards and a visible funnel say what this product is; four cards with
+   the funnel off-screen do not. The cost is real and is accepted: at a 259px
+   collapsed card the column below this block shows two cards, not four. */
+.funnel { margin-bottom: calc(var(--step) * 3); }
+.funnel-row { display: grid; grid-template-columns: 4ch 1fr; column-gap: 12px;
+              align-items: baseline; margin-top: 10px; }
+.funnel-n { font-family: var(--mono); font-variant-numeric: tabular-nums;
+            font-size: 1.75rem; font-weight: 600; line-height: 1;
+            text-align: right; }
+/* Proportional to the first stage, so the narrowing is the shape of the
+   block and not something a reader has to compute from three integers. */
+.funnel-bar { display: block; height: 10px; border-radius: 3px;
+              background: var(--surface-2); overflow: hidden; margin-top: 5px; }
+.funnel-bar > span { display: block; height: 100%; border-radius: 3px; }
+
 .figure-xl { font-size: 2.75rem; font-weight: 600; line-height: 1.1; }
 .figure-lg { font-size: 1.5rem;  font-weight: 600; line-height: 1.1; }
 .symbol    { font-size: 1.25rem; font-weight: 600; line-height: 1.1; }
@@ -283,7 +308,7 @@ body {
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--accent); }
 
 .pill { border: 1px solid var(--border); border-radius: 4px;
-        padding: 2px 6px; font-family: var(--mono); font-size: 0.6875rem;
+        padding: 2px 6px; font-family: var(--sans); font-size: 0.6875rem;
         text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
 .pill-accent { color: var(--accent); }
 .pill-warn   { color: var(--warn); }
@@ -320,11 +345,19 @@ input::placeholder { color: var(--text-3); }
       <span class="text-[11px] t3 truncate hidden sm:inline">since you last
         looked <span class="num" id="since">&mdash;</span></span>
     </div>
-    <!-- The centre. Always visible, never a link: this is the funnel's three
-         numbers, and they are the reason the page exists. -->
+    <!-- The centre. One number, not three. All three are now the funnel
+         block at the top of the column, drawn at the size of the claim they
+         make; restating them here would be the same fact in two simultaneous
+         forms, which is the redundancy this round is removing everywhere
+         else. What survives a scroll is the count that says whether there is
+         anything to do — and it is beside the control that clears it. -->
     <div id="head-summary"
-         class="num text-xs t2 flex-1 text-center truncate"></div>
+         class="text-xs t2 flex-1 text-center truncate"></div>
     <div class="flex items-center gap-2 shrink-0">
+      <button id="ack-btn" style="min-height:30px"
+              class="text-xs px-3 py-1.5 rounded border bd t2
+                     hover:surface-2 hover:t1 transition-colors
+                     disabled:opacity-30">Mark all as seen</button>
       <!-- Not a modal and not shown on load: a first-time reader who wants
            the vocabulary asks for it, and a returning one is never made to
            dismiss it. -->
@@ -384,7 +417,7 @@ input::placeholder { color: var(--text-3); }
              aria-label="Add a symbol to your watchlist"
              placeholder="Add a symbol — e.g. TCS"
              autocomplete="off" spellcheck="false"
-             class="num flex-1 min-w-0 surface-2 border bd rounded
+             class="flex-1 min-w-0 surface-2 border bd rounded
                     px-2 py-1.5 text-sm t1 placeholder:t3 uppercase"
              style="min-height:34px">
       <button id="add-btn" style="min-height:34px"
@@ -393,13 +426,30 @@ input::placeholder { color: var(--text-3); }
     </div>
     <p id="add-error" class="hidden mt-2 text-xs warn-fg"></p>
 
+    <!-- 5a. Thirty rows is already past scannable and the list is a user's to
+         grow. Filters on symbol OR company name, because a reader who cannot
+         remember whether Mahindra is M&M or MAHINDRA should not have to.
+         Purely client-side over rows already rendered — no request, so it
+         cannot fail, and the counts above stay the counts of the whole list
+         rather than of the selection. -->
+    <div class="mt-3 relative">
+      <input id="wl-search" type="search"
+             aria-label="Filter your watchlist by symbol or company name"
+             aria-controls="watchlist"
+             placeholder="Filter — symbol or company"
+             autocomplete="off" spellcheck="false"
+             class="w-full surface-2 border bd rounded px-2 py-1
+                    text-[11px] t1 placeholder:t3"
+             style="min-height:28px">
+    </div>
+
     <!-- Each count is a filter toggle, and each is derived from
          `watchlist_state` — the same partition the funnel counts. -->
     <div id="wl-filters" class="mt-3 flex flex-wrap gap-1 text-[11px]"></div>
     <div id="wl-note" class="mt-2 text-[11px] t3" hidden></div>
     <div id="watchlist" class="mt-2"></div>
     <div class="mt-3 flex items-center justify-between">
-      <span id="wl-count" class="num text-[10px] t3"></span>
+      <span id="wl-count" class="text-[10px] t3"></span>
       <button id="mute-toggle" style="min-height:0"
               class="text-[10px] uppercase tracking-wider t3
                      hover:t2 transition-colors">show muted</button>
@@ -410,6 +460,8 @@ input::placeholder { color: var(--text-3); }
   <main class="min-w-0">
     <div id="api-banner" hidden
          class="mb-4 rounded border bd surface-2 px-3 py-2 text-xs accent"></div>
+    <!-- 4a. Above the cards, in the column, at the size of the claim. -->
+    <div id="funnel"></div>
     <p id="shared-state" hidden class="mb-3 text-xs t2"></p>
     <section id="cards" aria-live="polite" aria-busy="true"></section>
   </main>
@@ -420,18 +472,17 @@ input::placeholder { color: var(--text-3); }
       <h2 class="text-[10px] uppercase tracking-[0.2em] t3 mb-3">What was filtered</h2>
       <div id="chain"></div>
       <div id="filtered-body" class="mt-4"></div>
+      <!-- 4c. "Mark all as seen" used to sit here, below three paragraphs at
+           the bottom of a rail. It is the only action on this page that
+           changes state the user owns, and it was the least reachable control
+           on the screen. It is in the fixed header now, beside the count it
+           clears; the window it applies to is stated under the funnel, which
+           is the block that counts it. -->
       <p class="mt-4 text-[11px] t2 leading-relaxed">
         Movement is measured from one close to the next. A movement gets your
         attention only if it survives being compared against the market and its
         sector, against the stock's own history, and against a data-quality gate.
       </p>
-      <div class="mt-4 flex flex-col gap-2 items-start">
-        <button id="ack-btn" style="min-height:30px"
-                class="text-xs px-3 py-1.5 rounded border bd t2
-                       hover:surface-2 hover:t1 transition-colors
-                       disabled:opacity-30">Mark all as seen</button>
-        <span id="cursor-state" class="num text-[11px] t3"></span>
-      </div>
     </section>
   </aside>
 
@@ -728,15 +779,15 @@ function evidenceItemHTML(e, compact) {
   return `
     <div>
       <p class="text-xs t1">${e.title}</p>
-      <p class="num mt-1 text-[11px] t3">
+      <p class="mt-1 text-[11px] t3">
         ${e.source_name} · ${e.document_type} ·
         <span title="Source tiers run 1 to 3, most authoritative first: 1 the exchange, 2 the company's own investor relations, 3 a regulator's filing.">${TIER_SOURCE[e.source_tier] || ('tier ' + e.source_tier)}</span>
       </p>
-      <p class="num mt-0.5 text-[11px] t3">
-        published ${e.published_at.slice(0, 10)}
+      <p class="mt-0.5 text-[11px] t3">
+        published <span class="num">${e.published_at.slice(0, 10)}</span>
         <span class="t3">(${BASIS_PLAIN[e.published_at_basis]
           || e.published_at_basis.toLowerCase().replace('_', ' ')})</span>
-        · retrieved ${e.retrieved_at.slice(0, 10)}
+        · retrieved <span class="num">${e.retrieved_at.slice(0, 10)}</span>
       </p>
       ${temporalHTML(e)}
       <p class="mt-1.5">${link}</p>
@@ -761,7 +812,7 @@ function evidenceHTML(c) {
   return `
     <div class="mt-3 pt-3 bdt">
       <p class="label evidence-fg mb-2">Evidence${
-        ev.length > 1 ? ` <span class="num t3">${ev.length} filings</span>` : ''}</p>
+        ev.length > 1 ? ` <span class="t3"><span class="num">${ev.length}</span> filings</span>` : ''}</p>
       ${evidenceTimeline(c)}
       <div class="mt-2">${evidenceItemHTML(first, false)}</div>
       ${rest.length ? `<ul class="mt-2">${
@@ -897,7 +948,7 @@ function outcomesRow(c) {
             rows.map((k) => `${k.toLowerCase()} ${br.counts[k]}${
               br.percentages ? ` (${br.percentages[k]} percent)` : ''}`).join(', ')
             }, out of ${br.n} past events.">${bars}</span>
-          <span class="num t3 block mt-1">(out of ${br.n} past events)</span>
+          <span class="t3 block mt-1">(out of <span class="num">${br.n}</span> past events)</span>
           <span class="block t3 mt-0.5" style="font-size:11px">
             After past ${br.event_type ? br.event_type.replace('_', ' ').toLowerCase() : 'events'}
             at tier ${br.tier}, measured ${br.horizon} sessions later, drawn from
@@ -954,10 +1005,14 @@ function whyHTML(c, i, ctx = {}) {
   if (c.i_score !== null && c.i_score !== undefined && c.i_score >= 2) {
     reasons.push('A material filing was published for this session.');
   }
-  const v = verdictText(c);
-  if (v && v.term === 'stock-specific move') {
-    reasons.push('The market and its sector barely moved.');
-  }
+  // "The market and its sector barely moved." used to sit here, and
+  // "The market barely moved. This stock did. — stock-specific move" sat
+  // directly above it. Both restate the sentence on the card face, which
+  // carries the actual proportion: "68% of this move was the company, not the
+  // market." Three renderings of one fact is the redundancy effect — the same
+  // information in several simultaneous forms impairs comprehension rather
+  // than reinforcing it. The share sentence is the one that survives, because
+  // it is the only one of the three that carries a number.
   if (c.confidence !== null && c.confidence !== undefined
       && ctx.cGate !== undefined && c.confidence >= ctx.cGate) {
     reasons.push("It passed Signal's data-quality check.");
@@ -987,6 +1042,17 @@ function whyHTML(c, i, ctx = {}) {
     ? `${c.event_type.replace('_', ' ').toLowerCase()} on session <span class="num">${c.session_date || '—'}</span>`
       + (c.z === null || c.z === undefined ? '' : `, standardised residual <span class="num">${c.z.toFixed(2)}</span>`)
     : na]);
+  // The template headline, moved here from the top of the drawer.
+  //
+  // On a JUMP it read "Single-session move well outside this stock's own
+  // recent range" — which is the band, in words, three inches under the band.
+  // Deleting it outright was not an option: the DRIFT template carries the
+  // CUSUM's own `bars` count and the corporate-action headline is the
+  // exchange's own `purpose` line passed through verbatim, and both are
+  // numbers-or-source that exist nowhere else on the card. So it moved into
+  // the technical record rather than being dropped, and the card face now
+  // states its verdict exactly once.
+  if (c.headline) rows.push(['Headline', c.headline]);
   const th = [];
   if (ctx.d1Threshold) th.push(`D1 fires at <span class="num">${ctx.d1Threshold}&#963;</span>`);
   if (ctx.d2Threshold) th.push(`D2 at <span class="num">${ctx.d2Threshold}&#963;</span>`);
@@ -1005,14 +1071,10 @@ function whyHTML(c, i, ctx = {}) {
   // per card rather than a "Why this?" toggle nested inside an evidence
   // toggle, which is how the drawer ended up with two chevrons and two ids.
   //
-  // The detector's headline and the verdict sentence live here. The band does
-  // NOT: it is the card's hero, drawn once on the face. Drawing it again three
-  // inches lower is the duplication this section exists to remove.
-  const verdict = verdictText(c);
+  // Neither the band nor the verdict is redrawn here. The band is the card's
+  // hero, drawn once on the face; the verdict is the share sentence beneath
+  // it, stated once. The headline is a Technical details row.
   return `
-    ${c.headline ? `<p class="text-xs t2 mb-2">${c.headline}</p>` : ''}
-    ${verdict ? `<p class="text-xs accent mb-2">${verdict.plain}
-      <span class="t3" style="font-size:11px">&mdash; ${verdict.term}</span></p>` : ''}
     ${reasons.length ? `<ol class="text-xs t2 space-y-1 mb-2">${reasons.map((r, n) => `
       <li><span class="num t3">${n + 1}.</span> ${r}</li>`).join('')}</ol>` : ''}
     <details class="tech">
@@ -1021,59 +1083,11 @@ function whyHTML(c, i, ctx = {}) {
     </details>${extra}`;
 }
 
-function decompositionHTML(c) {
-  // The whole engine exists to produce this split, so it is the visual centre
-  // of the card rather than three numbers in a row. Every value comes from the
-  // pipeline's stored attribution; nothing here is recomputed, and a component
-  // the model never estimated renders as "not available" rather than as a
-  // zero we did not measure.
-  const parts = [
-    { label: 'Market',         v: c.market_pct,      accent: false },
-    { label: 'Sector',         v: c.sector_only_pct, accent: false },
-    { label: 'Stock-specific', v: c.residual_pct,    accent: true  },
-  ];
-  const known = parts.filter((p) => p.v !== null && p.v !== undefined);
-  if (!known.length) {
-    return `<p class="mt-4 text-xs t3">Decomposition not available</p>`;
-  }
-  // Widths are proportional to absolute contribution, so a large negative
-  // component reads as large. Sign is carried by the number, not the bar.
-  const max = Math.max(...known.map((p) => Math.abs(p.v)));
-
-  const rows = parts.map((p) => {
-    if (p.v === null || p.v === undefined) {
-      return `
-      <div class="flex items-center gap-3">
-        <span class="text-[11px] t3 w-28 shrink-0">${p.label}</span>
-        <span class="num text-xs t3 w-16 text-right">not available</span>
-      </div>`;
-    }
-    const w = max ? (Math.abs(p.v) / max * 100).toFixed(1) : 0;
-    return `
-      <div class="flex items-center gap-3">
-        <span class="text-[11px] ${p.accent ? 't2' : 't3'} w-28 shrink-0">${p.label}</span>
-        <span class="num text-xs ${p.accent ? 't1 font-medium' : 't2'} w-16 text-right">${fmtPct(p.v)}</span>
-        <span class="flex-1 h-2 surface-2 rounded-sm overflow-hidden">
-          <span class="block h-full rounded-sm ${p.accent ? 'bar-accent' : 'bar-quiet'}"
-                style="width:${w}%"></span>
-        </span>
-      </div>`;
-  }).join('');
-
-  // The verdict is the largest component by magnitude — a description of the
-  // decomposition, not a second judgement layered on top of it.
-  const biggest = known.reduce((a, b) => (Math.abs(b.v) > Math.abs(a.v) ? b : a));
-  const verdict = biggest.label === 'Stock-specific'
-    ? 'Stock-specific move'
-    : biggest.label === 'Sector' ? 'Explained by sector' : 'Explained by the market';
-  const strong = biggest.label === 'Stock-specific';
-
-  return `
-    <div class="mt-4 space-y-1.5">${rows}</div>
-    <p class="mt-3 text-[11px] uppercase tracking-[0.15em] ${strong ? 'accent' : 't3'}">
-      <span aria-hidden="true">&rarr;</span> ${verdict}
-    </p>`;
-}
+// `decompositionHTML` is gone. It was a second, full-size renderer of the same
+// three components `attributionRow` draws — dead since the attribution bar was
+// demoted, called by nothing, and the last prose left on the page still set in
+// mono. A dead renderer of a number the card already shows is a way for the
+// two to disagree later.
 
 const FRESHNESS = {
   // Age, not quality. "DELAYED" read as a fault beside `conf 1.00`, and the
@@ -1218,16 +1232,19 @@ function extremityBand(c, ctx) {
               stroke="var(--text-3)" stroke-width="1"></line>
         <line x1="${x(h1)}" y1="${H / 2 - 6}" x2="${x(h1)}" y2="${H / 2 + 6}"
               stroke="var(--text-3)" stroke-width="1"></line>
-        <!-- The threshold, marked. The band had two unlabelled ticks; at this
-             size there is room to say what they are, and h1 comes from the
-             detector rather than from a number typed here. -->
-        <text x="${x(h1)}" y="${H / 2 - 9}" text-anchor="middle" fill="var(--text-3)"
-              style="font-size:9px;font-family:var(--mono)" aria-hidden="true">${h1}&#963;</text>
-        <text x="${x(-h1)}" y="${H / 2 - 9}" text-anchor="middle" fill="var(--text-3)"
-              style="font-size:9px;font-family:var(--mono)" aria-hidden="true">-${h1}&#963;</text>
+<!-- The bounds are drawn — the two ticks and the shaded interval
+             between them — and no longer labelled in sigma. A sigma is a unit
+             a reader who does not already know it cannot use, and the card
+             stated one fact four ways: these tick labels, the axis ends, the
+             verdict word beside the band, and a prose line under it. The
+             number is not lost — the aria-label below still carries it, and
+             the drawer's technical rows carry both it and the threshold.
+             This comment deliberately avoids naming that section: a comment
+             that impersonates a structural marker breaks every guard that
+             splits the rendered markup on one. -->
         ${marker}
         <text x="6" y="${H - 2}" fill="var(--text-3)"
-              style="font-size:9px" aria-hidden="true">normal for this stock</text>
+              style="font-size:9px" aria-hidden="true">normal</text>
         <text x="${W - 6}" y="${H - 2}" text-anchor="end" fill="var(--text-3)"
               style="font-size:9px" aria-hidden="true">unusual</text>
       </svg>
@@ -1281,27 +1298,6 @@ function attributionRow(c) {
     </div>`;
 }
 
-function verdictText(c) {
-  // The plain sentence leads and the technical term follows as a caption, so
-  // a reader learns the vocabulary rather than being handed it cold.
-  const parts = [
-    { key: 'Market', v: c.market_pct }, { key: 'Sector', v: c.sector_only_pct },
-    { key: 'Stock-specific', v: c.residual_pct },
-  ].filter((p) => p.v !== null && p.v !== undefined);
-  if (!parts.length) return null;
-  const biggest = parts.reduce((a, b) => (Math.abs(b.v) > Math.abs(a.v) ? b : a));
-  if (biggest.key === 'Stock-specific') {
-    return { plain: 'The market barely moved. This stock did.',
-             term: 'stock-specific move' };
-  }
-  if (biggest.key === 'Sector') {
-    return { plain: 'Most of this was its sector, not the company.',
-             term: 'explained by sector' };
-  }
-  return { plain: 'Most of this was the market, not the company.',
-           term: 'explained by the market' };
-}
-
 function cardHTML(c, i, ctx = {}) {
   const t = TIER[c.tier] || { label: c.tier };
   // Collapsed by default. Four expanded research reports is a wall, and a
@@ -1347,7 +1343,7 @@ function cardHTML(c, i, ctx = {}) {
       <div class="flex items-baseline gap-2.5 min-w-0">
         <span class="dot shrink-0" title="${t.label}" aria-hidden="true"></span>
         <div class="min-w-0">
-          <h2 class="num symbol t1 tracking-wide">${c.symbol}</h2>
+          <h2 class="symbol t1 tracking-wide">${c.symbol}</h2>
           ${c.name ? `<p class="co-name" title="${c.name}">${c.name}</p>` : ''}
         </div>
         ${c.close === null || c.close === undefined ? '' : `<span class="price shrink-0"
@@ -1393,6 +1389,43 @@ function cardHTML(c, i, ctx = {}) {
   </article>`;
 }
 
+// 4a. The three counts, at the size of the claim they make. Every figure is
+// the server's — `funnel.watched`, `funnel.moved`, `funnel.surfaced` — and the
+// bar widths are those same figures over the first of them. Nothing here is
+// recomputed; the evidence chain in the rail re-partitions the middle step and
+// its first row is this block's second row, which is where the two meet.
+//
+// The label for "moved" is the server's own evidence-chain label rather than a
+// restatement of the display threshold, which is exactly the kind of number
+// that goes stale in a template.
+function funnelHTML(f, chain) {
+  if (!f || f.watched === undefined) return '';
+  const movedStage = (chain || []).find((st) => st.stage === 'moved');
+  const rows = [
+    { n: f.watched, label: 'on your watchlist', accent: false },
+    { n: f.moved,
+      label: movedStage ? movedStage.label : 'moved', accent: false },
+    { n: f.surfaced, label: 'left after the market, the stock\'s own history '
+      + 'and the data-quality gate', accent: true },
+  ];
+  const top = Math.max(1, f.watched || 0);
+  return `
+    <section class="funnel" aria-label="What Signal looked at, and what it filtered">
+      <p class="text-[10px] uppercase tracking-[0.2em] t3">What Signal looked at</p>
+      ${rows.map((r) => `
+        <div class="funnel-row">
+          <span class="funnel-n ${r.accent ? 'accent' : 't1'}">${r.n}</span>
+          <span class="min-w-0">
+            <span class="text-xs ${r.accent ? 't2' : 't3'}">${r.label}</span>
+            <span class="funnel-bar" aria-hidden="true"><span
+              class="${r.accent ? 'bar-accent' : 'bar-quiet'}"
+              style="width:${((r.n || 0) / top * 100).toFixed(1)}%"></span></span>
+          </span>
+        </div>`).join('')}
+      <p id="cursor-state" class="mt-3 text-[11px] t3"></p>
+    </section>`;
+}
+
 function chainHTML(chain) {
   // Every count comes from the server. Nothing is recomputed here — the chain
   // is monotonic by construction on the server side, and a JS re-derivation
@@ -1434,10 +1467,17 @@ function filteredBarHTML(a) {
   const total = mkt + own;
   if (!total) return '';
   const w = (v) => (v / total * 100).toFixed(2);
+  // 2e. `a.basis` — "total close-to-close move against the market's, summed
+  // over the bucket — the screen the funnel ran, not a card's attribution" —
+  // used to be printed under this bar. It is the longest string the product
+  // surface carried and it is written for whoever wrote the query. It has not
+  // been deleted: `/api/digest` still ships it, it is still the hover title
+  // here, and `/lab#funnel` now sets out both splits side by side. What the
+  // reader gets on this screen is the one sentence they can act on.
   return `
     <div class="mt-2 attr-bar flex" role="img"
          aria-label="Across these ${a.n} movements, the market accounted for ${
-           (mkt / total * 100).toFixed(0)} percent of the total move. ${a.basis}."
+           (mkt / total * 100).toFixed(0)} percent of the total move, measured on closing prices against the index."
          title="${a.basis}">
       <span class="bar-quiet seg" style="width:${w(mkt)}%">
         <span class="seg-l">market</span>
@@ -1448,7 +1488,10 @@ function filteredBarHTML(a) {
         <span class="seg-v num">${(own / total * 100).toFixed(0)}%</span>
       </span>
     </div>
-    <p class="text-[11px] t3 mt-1">${a.basis}.</p>`;
+    <p class="text-[11px] t3 mt-1">Measured on closing prices against the
+      index, across these <span class="num">${a.n}</span> movements.
+      <a href="/lab#funnel" class="evidence-fg">How this differs from a card's
+      split <span aria-hidden="true">&rarr;</span></a></p>`;
 }
 
 function filteredHTML(reasons, total, attribution) {
@@ -1490,6 +1533,8 @@ function filteredHTML(reasons, total, attribution) {
 // the funnel counts, so a row can never disagree with the numbers above it.
 let wlState = {};
 let wlFilter = null;
+// The search term, upper-cased once here rather than per row per keystroke.
+let wlQuery = '';
 
 // The three states, in the order a reader wants them: what needs attention,
 // what moved and was explained away, what did nothing.
@@ -1532,7 +1577,7 @@ function wlRowHTML(w, maxAbs) {
             price ? `, ${price}` : ''}${!known ? ''
             : `, ${chg > 0 ? 'up' : 'down'} ${Math.abs(chg).toFixed(2)} percent`}, ${dotTitle}"
           title="${name || w.symbol}">
-    <span class="num t1 truncate text-left">${w.symbol}</span>
+    <span class="t1 truncate text-left">${w.symbol}</span>
     <span class="num wl-price" title="${price ? `Close on ${
       st.close_session || 'the latest session held'}` : ''}">${price || ''}</span>
     <span class="num text-right">${shown}</span>
@@ -1581,9 +1626,20 @@ function renderWatchlist(items) {
   }
   el('wl-filters').innerHTML = '';
 
-  const visible = wlFilter
+  let visible = wlFilter
     ? shown.filter((w) => ((wlState[w.isin] || {}).status || 'quiet') === wlFilter)
     : shown;
+  // Symbol OR company name, case-insensitive, substring. The name comes from
+  // the digest row where it exists and the watchlist row otherwise, which is
+  // the same pair `wlRowHTML` renders — so a row can never be findable by a
+  // name it does not display, or hidden by one it does.
+  if (wlQuery) {
+    visible = visible.filter((w) => {
+      const st = wlState[w.isin] || {};
+      return (w.symbol + ' ' + (st.name || w.name || ''))
+        .toUpperCase().includes(wlQuery);
+    });
+  }
 
   // Grouped, with a heading per state. Ungrouped, BALRAMCHIN at +5.17% sat
   // below COALINDIA at +3.97% with nothing on screen explaining why — the sort
@@ -1614,10 +1670,16 @@ function renderWatchlist(items) {
       </button>
       ${rows.map((w) => wlRowHTML(w, maxAbs)).join('')}`;
   }).join('');
-  el('watchlist').innerHTML = groups
-    || '<p class="text-[11px] t3 py-2">No symbols in this state.</p>';
+  el('watchlist').innerHTML = groups || (wlQuery
+    ? `<p class="text-[11px] t3 py-2">Nothing on your watchlist matches
+         <span class="t2">${wlQuery}</span>. Press Escape to clear.</p>`
+    : '<p class="text-[11px] t3 py-2">No symbols in this state.</p>');
+  // Counts the whole list, and names the selection separately when one is
+  // applied — a count that silently became the size of a filter result would
+  // report the filter rather than the watchlist.
   el('wl-count').textContent =
-    `${shown.length} watched${muted ? ` · ${muted} muted` : ''}`;
+    `${shown.length} watched${muted ? ` · ${muted} muted` : ''}`
+    + (wlQuery ? ` · ${visible.length} shown` : '');
   const btn = el('mute-toggle');
   btn.textContent = showMuted ? 'hide muted' : 'show muted';
   btn.hidden = muted === 0;
@@ -1686,12 +1748,9 @@ function render(d) {
     '<span class="t3" aria-hidden="true">·</span>');
 
   const f = d.funnel || {};
-  el('head-summary').innerHTML = (f.watched === undefined) ? ''
-    : [[f.watched, 'watched'], [f.moved, 'moved'],
-       [f.surfaced, 'need attention']]
-      .map(([n, w], i) => `<span class="${i === 2 ? 'accent' : 't2'}">`
-        + `<span class="num ${i === 2 ? 'accent' : 't1'}">${n}</span> ${w}</span>`)
-      .join('<span class="t3" aria-hidden="true"> · </span>');
+  el('funnel').innerHTML = funnelHTML(f, d.evidence_chain);
+  el('head-summary').innerHTML = (f.surfaced === undefined) ? ''
+    : `<span class="accent"><span class="num accent">${f.surfaced}</span> need attention</span>`;
 
   const movedStage = (d.evidence_chain || []).find((st) => st.stage === 'moved');
   el('cards').setAttribute('aria-busy', 'false');
@@ -1748,7 +1807,23 @@ function render(d) {
   el('shared-state').innerHTML = sharedBits.join('<br>');
   el('shared-state').hidden = sharedBits.length === 0;
   ctx.sharedAdmission = !!sa;
-  el('cards').innerHTML = d.cards.map((c, i) => cardHTML(c, i, ctx)).join('') || (caughtUp
+  // 4b. One sort, applied to both surfaces.
+  //
+  // The rail ranks by the size of the move; the slate ranks by tier then U,
+  // and with every card at tier C and U saturated at 1.0 that key is a tie
+  // broken by event_id — which put IFCI, the largest move on the list and the
+  // first row in the rail, third in the column. Clicking the top row and
+  // finding its card third reads as a bug.
+  //
+  // This reorders what the slate ALREADY SELECTED and nothing else. The
+  // selection — the §7 gates, the per-sector cap, MAX_CARDS — happens on the
+  // server and is untouched; `slate.build`'s ranking is still what decides
+  // which five survive. Symbol is the final tie-break so the order is total
+  // and a re-render cannot shuffle two equal moves.
+  const ordered = [...d.cards].sort((a, b) =>
+    Math.abs(b.total_return_pct || 0) - Math.abs(a.total_return_pct || 0)
+    || String(a.symbol).localeCompare(String(b.symbol)));
+  el('cards').innerHTML = ordered.map((c, i) => cardHTML(c, i, ctx)).join('') || (caughtUp
     ? `<div class="py-20 text-center card-in">
          <div class="mx-auto w-8 h-8 rounded-full border bd
                      flex items-center justify-center t3 text-xs" aria-hidden="true">&check;</div>
@@ -1784,10 +1859,14 @@ function render(d) {
   // -time reader on the primary surface. What a reader needs is which window
   // they are looking at and whether they have marked anything seen; the raw
   // id stays in /api/digest for anyone who wants it.
-  el('cursor-state').textContent =
-    d.cursor === null || d.cursor === undefined
+  // Written after `funnelHTML` lands, because the element is inside it: the
+  // window the three counts were taken over belongs under the three counts.
+  const cs = el('cursor-state');
+  if (cs) {
+    cs.textContent = d.cursor === null || d.cursor === undefined
       ? 'first visit — showing the last 2 sessions'
       : 'showing what is new since you last marked everything seen';
+  }
 }
 
 // Whether a good render has ever landed. On a later failure the last good
@@ -1918,6 +1997,22 @@ el('cards').addEventListener('click', (e) => {
   }
 });
 
+// Escape clears rather than blurs: a filter left applied on a rail the
+// reader has scrolled away from is a watchlist that has silently lost rows.
+el('wl-search').addEventListener('input', (e) => {
+  wlQuery = e.target.value.trim().toUpperCase();
+  renderWatchlist(lastWatchlist);
+});
+el('wl-search').addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  // Stops the page-level Escape handler from also closing the legend, which
+  // the reader did not ask to close.
+  e.stopPropagation();
+  e.target.value = '';
+  wlQuery = '';
+  renderWatchlist(lastWatchlist);
+});
+
 el('mute-toggle').addEventListener('click', () => {
   showMuted = !showMuted;
   load();
@@ -1982,11 +2077,11 @@ el('watchlist').addEventListener('click', (e) => {
     return;
   }
   note.innerHTML = st.status === 'filtered'
-    ? `<span class="num t2">${st.symbol}</span> moved `
+    ? `<span class="t1">${st.symbol}</span> moved `
       + `<span class="num t2">${(st.change_pct > 0 ? '+' : '')}${
           (st.change_pct ?? 0).toFixed(2)}%</span> — filtered: `
       + `${REASON_DETAIL[st.reason] || st.reason || 'did not clear the gates'}.`
-    : `<span class="num t2">${st.symbol}</span> did not move past the display `
+    : `<span class="t1">${st.symbol}</span> did not move past the display `
       + `threshold in this window.`;
   note.hidden = false;
 });

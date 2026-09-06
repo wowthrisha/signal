@@ -4008,3 +4008,126 @@ rather than described.
 
 `36 passed` in `test_render_execution.py`. Baseline before this block:
 `434 passed, 2 skipped, 1 xfailed in 294.99s`.
+
+### Block 2 — the redundancy, removed
+
+Cognitive Load Theory's redundancy effect: the same information in several
+simultaneous forms impairs comprehension rather than reinforcing it. The card
+said "this move was unusual" four times and "this was the company, not the
+market" three times.
+
+| what was said several times | what survives | where the rest went |
+|------|------|------|
+| `-3σ` / `3σ` tick labels, axis ends, the verdict word, a prose line | the band graphic, its two word-labelled axis ends, and one verdict word beside it | σ is in the band's `aria-label` and in two technical rows — the card's own standardised residual and D1's threshold |
+| the template headline, three inches under the band it restates | — | a `Headline` row in Technical details |
+| the share sentence, a verdict paragraph, a numbered reason | `93% of this move was the company, not the market.` | deleted — all three said one thing and only the survivor carries a number |
+
+The headline could not simply be dropped. `_JUMP` restates the band, but
+`_DRIFT` carries the CUSUM's own `bars` count and `CORP_ACTION` is the
+exchange's own `purpose` line passed through verbatim (`templates/headlines.py`),
+and neither exists anywhere else on the card. Moving it is what keeps hard rule
+7's templates intact while removing the duplication.
+
+**2d — monospace for numerals only.** Three CSS rules were putting words in a
+digit face: `.label`, `.pill` and `.wl-head`. Eleven elements carried `.num`
+around text rather than a figure — the header summary, the symbol input, the
+watchlist count, the cursor line, the card's `<h2>`, the rail's symbol, the
+evidence provenance lines and the ticker in the rail's note. All are sans now.
+Mono is kept on returns, prices, counts, dates, and on verbatim machine tokens
+(a gate expression, `I=0`, an exception name), where fixed width is the point.
+A structural guard now parses the stylesheet and asserts the only rules naming
+`var(--mono)` are `.num`, `.price` and `.funnel-n`.
+
+`decompositionHTML` was deleted. It was a second, full-size renderer of the
+three components `attributionRow` already draws, dead since the attribution bar
+was demoted, called by nothing, and the last prose in the file still set in
+mono. A dead renderer of a number the card shows is a way for the two to
+disagree later.
+
+**2e.** The basis line — *"total close-to-close move against the market's,
+summed over the bucket — the screen the funnel ran, not a card's attribution"*
+— was the longest string on the product surface and is written in the
+vocabulary of whoever wrote the query. It is now `FILTERED_ATTRIBUTION_BASIS`
+in `digest.py`, still shipped in `filtered_attribution.basis`, still the hover
+title, and `/lab#funnel` is a new section that sets both splits out as a table:
+which components, which series, computed by what. `lab.py` imports the constant
+rather than restating it, so the payload and the page cannot drift.
+
+The digest keeps a plain caption in its place: *"Measured on closing prices
+against the index, across these 4 movements"*, with a link to the definition.
+
+### Block 4 — the funnel above the fold, and one sort
+
+**4a.** The funnel is the one thing none of the products examined presents —
+Groww, Kite, TradingView, Moneycontrol and Robinhood all show what moved, none
+shows what it filtered out. It was three words of 12px text in a fixed header.
+It is now the first block in the centre column: three counts at 1.75rem with a
+proportional bar each, widths taken from `funnel.watched`.
+
+The header keeps one number rather than three. Restating all three would be the
+same duplication this round removed everywhere else; what survives a scroll is
+the count that says whether there is anything to do, and it now sits beside the
+control that clears it.
+
+**4b.** The rail ranked by the size of the move; the slate ranks by tier then
+`U`, and with every card at tier C and `U` saturated at 1.0 that key is a tie
+broken by `event_id` — which put IFCI, the largest move on the list and the
+first row in the rail, third in the column. One sort now, by magnitude,
+symbol as a total tie-break.
+
+This reorders what the slate **already selected** and nothing else. §7's gates,
+the per-sector cap and `MAX_CARDS` are untouched on the server; a guard asserts
+the set of rendered symbols is unchanged and a second asserts the order is
+stable when two moves are equal.
+
+**4c.** "Mark all as seen" moved from the bottom of the right rail — below
+three paragraphs, the least reachable control on the screen — into the fixed
+header. `cursor-state`, which says which window the counts were taken over,
+moved under the counts it describes.
+
+### Block 5a — watchlist search
+
+Filters on symbol **or** company name, case-insensitive, substring, entirely
+client-side over rows already rendered. Escape clears and calls
+`stopPropagation`, because the page's other Escape handler closes the legend
+and a reader clearing a filter did not ask to close it.
+
+Live checks against the running page:
+
+| query | rows |
+|-------|------|
+| `mahindra` | `M&M` — found by name, which the symbol does not contain |
+| `rbl` | `RBLBANK` |
+| `zzz` | none, with "Nothing on your watchlist matches ZZZ. Press Escape to clear." |
+| Escape | 30 rows back, legend still closed |
+
+The footer count stays the count of the whole list and names the selection
+separately (`30 watched · 1 shown`); a count that silently became the size of a
+filter result would be reporting the filter rather than the watchlist.
+
+### Guards
+
+Nineteen added or rewritten. Three existing guards asserted the pre-Block-2
+behaviour and were **inverted rather than loosened**:
+`test_the_card_face_carries_words_not_sigma` required the σ ticks to be on the
+face and now requires them to be absent *and* present in the drawer;
+`test_the_header_carries_the_funnels_three_numbers` became
+`test_the_funnel_is_above_the_fold_at_the_size_of_its_claim`; the verdict guard
+became `test_the_stock_specific_verdict_is_stated_exactly_once`.
+
+The search guards drive the page's **real listeners**. The page's state lives in
+`let` bindings inside the evaluated script, which a direct `eval` keeps out of
+the harness's scope, so the filter cannot be poked from outside — a new harness
+records `addEventListener` callbacks by element id and fires synthetic `input`
+and `keydown` events, which means what is under test is the wiring and not a
+predicate called directly.
+
+Two authoring bugs worth recording:
+
+  * An HTML comment I wrote inside the band's template contained the literal
+    `Technical details`, so the guards that split rendered markup on that
+    marker landed inside the comment. This is the second time — the comment now
+    says so in itself.
+  * Five new guards iterated `PAYLOAD["cards"]` without first asserting it was
+    non-empty. `test_no_vacuous_assertions` caught all five in the full run and
+    nothing else did.

@@ -263,6 +263,7 @@ HARNESS = textwrap.dedent("""
       context_strip: store['context:html'] || '',
       watchlist_html: store['watchlist:html'] || '',
       wl_filters: store['wl-filters:html'] || '',
+      funnel: store['funnel:html'] || '',
       chain: store['chain:html'] || '',
       pareto: store['filtered-body:html'] || '',
     };
@@ -485,37 +486,62 @@ def test_confidence_renders_a_value_and_its_gate(tmp_path):
 
 
 def test_the_card_face_carries_words_not_sigma(tmp_path):
-    """2a. The band's axis says normal/unusual; sigma moved one layer down but
-    was not deleted, and the screen-reader label still carries it."""
+    """2a, tightened. The card said "this move was unusual" four times: the
+    band's two sigma tick labels, the axis ends, the verdict word beside the
+    band, and a prose line under it. The redundancy effect says the same
+    information in several simultaneous forms impairs comprehension rather
+    than reinforcing it, so the face keeps the graphic and the words and
+    nothing else.
+
+    Sigma is not deleted. It is in the band's own aria-label and in the
+    drawer's technical rows, and this asserts both — the previous version of
+    this guard required the opposite, that the ticks be *on* the face, and it
+    is inverted here deliberately rather than loosened."""
     html = _cards(tmp_path)
     # The card that actually has a residual to band. A card with z=None
     # correctly renders no band at all, so asserting on it proves nothing.
     card = [a for a in html.split("<article") if "IFCI" in a][0]
     face = card.split("Technical details")[0]
     visible = re.sub(r"<[^>]+>", " ", face)
-    # The band is the card's hero and carries its bound as a marked threshold,
-    # which is a sigma on the face on purpose. What must NOT be there is the
-    # card's own standardised residual — the number a reader cannot use.
     z = PAYLOAD["cards"][1]["z"]
     assert f"{z:.2f}" not in visible, (
         f"the card's own z value is still on its face: {visible[:400]}"
     )
-    # BOTH bounds, not either. The band is two-sided and this accepted a
-    # half-marked axis: deleting the +h1 label left the -h1 label behind and
-    # the guard passed.
-    h1 = PAYLOAD["salience_config"]["d1_threshold"]
-    marked = sorted(float(m) for m in re.findall(r"(-?[\d.]+)&#963;", face))
-    assert marked == [-h1, h1], (
-        f"the band must mark both bounds of the detector's interval "
-        f"(expected {[-h1, h1]}, found {marked})"
+    # No sigma anywhere on the face — neither the card's own value nor the
+    # detector's bound. The unit is what a reader cannot use.
+    assert "&#963;" not in face and "\u03c3" not in face, (
+        "a sigma tick label is back on the card face"
     )
+    h1 = PAYLOAD["salience_config"]["d1_threshold"]
+    assert str(h1) not in visible, (
+        f"the threshold {h1} is still printed on the face: {visible[:400]}"
+    )
+    # The axis still says which end is which, in words.
     for w in ("normal", "unusual"):
-        assert w in visible
+        assert w in visible, f"the band lost its {w!r} axis end"
+    # And the graphic itself is unchanged: the interval is still drawn, with
+    # both of its bounds ticked. Deleting the labels must not have deleted the
+    # marks under them.
+    band = re.search(r"<svg[^>]*aria-label=\"[^\"]*normal range[^\"]*\".*?</svg>",
+                     card, re.S)
+    assert band, "the extremity band is gone from the face"
+    assert band.group(0).count("<line") >= 3, (
+        "the band lost the ticks that marked its bounds"
+    )
+    # Nothing was deleted, only moved.
     assert re.search(r"Standardised residual [-\d.]+ sigma", card), (
         "the aria-label lost the standardised residual"
     )
-    assert "standardised residual" in card.split("Technical details")[1], (
+    tech = card.split("Technical details")[1]
+    assert "standardised residual" in tech, (
         "sigma was deleted rather than moved down a layer"
+    )
+    # JS renders 3.0 as "3", so the bound is matched as a number rather than
+    # as the JSON literal's spelling.
+    assert re.search(r"D1 fires at[^<]*<[^>]*>%g&#963;" % h1, tech) \
+        or f">{h1:g}&#963;" in tech, (
+        "the detector's threshold left the face and did not arrive in the "
+        f"technical rows: {tech[:400]}"
     )
 
 
@@ -551,11 +577,52 @@ def test_the_tier_letter_left_the_face_but_not_the_page(tmp_path):
     )
 
 
-def test_the_verdict_leads_in_plain_english(tmp_path):
-    """2b. The technical term survives as a caption; it does not lead."""
+def test_the_stock_specific_verdict_is_stated_exactly_once(tmp_path):
+    """2c. It was on the card three times: the share sentence on the face
+    ("68% of this move was the company, not the market."), a verdict paragraph
+    in the drawer ("The market barely moved. This stock did. — stock-specific
+    move"), and a numbered reason under it ("The market and its sector barely
+    moved."). Three renderings of one fact.
+
+    The one that survives is the share sentence, because it is the only one of
+    the three that carries a number."""
     html = _cards(tmp_path)
-    assert "This stock did." in html or "not the company." in html
-    assert "stock-specific move" in html or "explained by" in html
+    card = [a for a in html.split("<article") if "COALINDIA" in a][0]
+    visible = re.sub(r"<[^>]+>", " ", card)
+    assert visible.count("was the company, not the market") == 1, (
+        "the stock-specific verdict is not stated exactly once"
+    )
+    for gone in ("This stock did.", "The market and its sector barely moved.",
+                 "stock-specific move"):
+        assert gone not in visible, f"a duplicate verdict is back: {gone!r}"
+    # And the number it carries is still the measured share, not a word.
+    c = PAYLOAD["cards"][0]
+    total = sum(abs(c[k]) for k in ("market_pct", "sector_only_pct", "residual_pct"))
+    assert f'{abs(c["residual_pct"]) / total * 100:.0f}%' in card
+
+
+def test_the_template_headline_moved_rather_than_was_deleted(tmp_path):
+    """2b. On a JUMP the headline read "Single-session move well outside this
+    stock's own recent range" — the band, in words, three inches under the
+    band. It could not simply be dropped: the DRIFT template carries the
+    CUSUM's own bar count and the corporate-action headline is the exchange's
+    own `purpose` line passed through verbatim, and neither exists anywhere
+    else on the card. So it is a technical row now, not a second verdict."""
+    html = _cards(tmp_path)
+    with_headline = [c for c in PAYLOAD["cards"] if c.get("headline")]
+    assert len(with_headline) > 0, (
+        "the fixture carries no headline, so this guard proves nothing"
+    )
+    for c in with_headline:
+        card = [a for a in html.split("<article") if c["symbol"] in a][0]
+        assert c["headline"] in card, f"{c['symbol']}: the headline was deleted"
+        tech = card.split("Technical details")[1]
+        assert c["headline"] in tech, (
+            f"{c['symbol']}: the headline is still outside the technical rows"
+        )
+        assert card.count(c["headline"]) == 1, (
+            f"{c['symbol']}: the headline is rendered twice"
+        )
 
 
 def test_why_this_opens_on_plain_reasons(tmp_path):
@@ -564,7 +631,10 @@ def test_why_this_opens_on_plain_reasons(tmp_path):
     assert "Investigate" in html, "the card has no disclosure control"
     # The populated card, not the null one: a reason that cannot be derived
     # is correctly absent, and asserting on the null card would prove nothing.
-    why = [x for x in html.split("<article") if "IFCI" in x][0].split("Investigate")[1]
+    # Split on the drawer body, not on the button's label: the first card in
+    # the column opens on load and its control reads "Close", and which card
+    # is first is now decided by the size of the move (4b).
+    why = [x for x in html.split("<article") if "IFCI" in x][0].split("data-whybody")[1]
     plain = why.split("Technical details")[0]
     assert "It moved much more than this stock usually does." in plain
     assert "data-quality check" in plain
@@ -597,11 +667,11 @@ def test_the_orientation_line_and_legend_are_derived(tmp_path):
     # said them a third time. The header is now the single home, so THAT is
     # what has to carry them.
     assert not out["funnel_lede"], (
-        "the orientation prose line is back; the header already says this"
+        "the orientation prose line is back; the funnel block already says this"
     )
     missing = [k for k in ("watched", "moved", "surfaced")
-               if str(f[k]) not in out["head_summary"]]
-    assert not missing, f"the header lost {missing}: {out['head_summary']}"
+               if str(f[k]) not in out["funnel"]]
+    assert not missing, f"the funnel block lost {missing}: {out['funnel'][:300]}"
     missing = [t for t in ("Watchlist", "Moved", "Attention", "Evidence",
                            "After the move") if t not in help_body]
     assert not missing, f"the legend is missing {missing}"
@@ -647,16 +717,42 @@ def test_the_context_strip_is_built_from_the_payload(tmp_path):
     )
 
 
-def test_the_header_carries_the_funnels_three_numbers(tmp_path):
-    """1a. The centre zone survives any scroll depth, so it must hold the
-    count rather than a label."""
+def test_the_funnel_is_above_the_fold_at_the_size_of_its_claim(tmp_path):
+    """4a. The funnel is the one thing none of the products examined presents
+    — Groww, Kite, TradingView, Moneycontrol and Robinhood all show you what
+    moved and none of them shows you what it filtered out. It was three words
+    of 12px text in a fixed header while four research reports held the
+    column. It is now the first block in the column, with a proportional bar
+    per stage.
+
+    This guard replaces `test_the_header_carries_the_funnels_three_numbers`,
+    which asserted the opposite location. The header keeps one number — the
+    one that says whether there is anything to do — and this asserts that
+    split rather than allowing either surface to quietly drop a count."""
     r = _run(tmp_path, _script())
     out = json.loads(r.stdout.strip().splitlines()[-1])
-    head, f = out["head_summary"], PAYLOAD["funnel"]
+    block, f = out["funnel"], PAYLOAD["funnel"]
+    assert block, "the funnel block rendered nothing"
     missing = [k for k in ("watched", "moved", "surfaced")
-               if str(f[k]) not in head]
-    assert not missing, f"the header summary is missing {missing}: {head}"
-    assert "need attention" in head
+               if f">{f[k]}<" not in block]
+    assert not missing, f"the funnel block is missing {missing}: {block[:400]}"
+    # Proportional bars, one per stage, widths taken from the counts.
+    widths = [float(w) for w in re.findall(r"width:([\d.]+)%", block)]
+    assert len(widths) == 3, f"expected three bars, found {len(widths)}"
+    assert widths[0] == 100.0, "the first stage does not fill its track"
+    expected = [round(f[k] / f["watched"] * 100, 1)
+                for k in ("watched", "moved", "surfaced")]
+    assert widths == expected, (
+        f"the bars are not proportional to the counts: {widths} vs {expected}"
+    )
+    # And at the size of the claim: the counts are not body text.
+    assert "funnel-n" in block, "the funnel's figures are not the block's hero"
+    # The header keeps the actionable count and drops the other two, which
+    # now live above it rather than beside it.
+    head = out["head_summary"]
+    assert str(f["surfaced"]) in head and "need attention" in head, (
+        f"the header lost the count that survives a scroll: {head}"
+    )
 
 
 def test_the_watchlist_is_a_table_with_a_row_per_symbol(tmp_path):
@@ -889,8 +985,9 @@ def test_a_card_renders_its_price(tmp_path):
     the rupee sign — a bare `1322.00` beside a percentage is a quantity with
     no unit."""
     html = _cards(tmp_path)
+    assert len(PAYLOAD["cards"]) > 0, "the fixture carries no cards"
     priced = [c for c in PAYLOAD["cards"] if c.get("close") is not None]
-    assert priced, "the fixture must carry at least one priced card"
+    assert len(priced) > 0, "the fixture must carry at least one priced card"
     for c in priced:
         card = [a for a in html.split("<article") if c["symbol"] in a][0]
         assert "\u20b9" in card, f"{c['symbol']}: no rupee sign on the card"
@@ -911,8 +1008,9 @@ def test_a_card_renders_a_company_name_distinct_from_its_symbol(tmp_path):
     """1b. `instrument.name` was populated for all 3,044 rows and reached the
     page only as a `title` attribute — invisible to everyone not hovering."""
     html = _cards(tmp_path)
+    assert len(PAYLOAD["cards"]) > 0, "the fixture carries no cards"
     named = [c for c in PAYLOAD["cards"] if c.get("name")]
-    assert named, "the fixture must carry at least one named card"
+    assert len(named) > 0, "the fixture must carry at least one named card"
     for c in named:
         card = [a for a in html.split("<article") if c["symbol"] in a][0]
         assert 'class="co-name"' in card, f"{c['symbol']}: no company name element"
@@ -1064,3 +1162,364 @@ def test_the_card_carries_a_larger_trend_line_than_the_rail(tmp_path):
     table = _watchlist(tmp_path)
     r = re.search(r'<svg width="(\d+)" height="(\d+)"[^>]*class="spark"', table)
     assert r and (int(r.group(1)), int(r.group(2))) == (64, 20)
+
+
+# --- 2d: monospace is for numerals -----------------------------------------
+#
+# Groww and TradingView both set labels and prose proportionally and reserve
+# mono for figures. Setting words in a typeface designed to align columns of
+# digits is the single largest source of the "developer tool" read, and it is
+# a type rule rather than a string, so the guard is structural: the CSS class
+# that carries mono is checked against what it is actually applied to.
+
+
+def _css() -> str:
+    return STATIC.read_text().split("</style>")[0]
+
+
+def test_only_the_figure_class_is_monospaced():
+    """`.num` is the one rule that may name the mono stack. A label, a pill or
+    a table heading that reaches for it is a word in a digit face."""
+    css = _css()
+    blocks = re.findall(r"([.#][\w-]+)\s*\{([^}]*)\}", css)
+    mono = sorted({sel for sel, body in blocks if "var(--mono)" in body})
+    # `.num` is the general figure face; `.price` and `.funnel-n` are two
+    # figures with their own size and weight and nothing else. No rule that
+    # sets words may appear here.
+    assert mono == [".funnel-n", ".num", ".price"], (
+        f"these rules set the monospace stack and should not: {mono}"
+    )
+
+
+def test_the_ticker_and_the_prose_are_not_set_in_a_digit_face(tmp_path):
+    """The ticker is an identifier, not a figure, and the sentences around it
+    are sentences. Both used to carry `.num`."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    card = [a for a in out["cards_html"].split("<article") if "IFCI" in a][0]
+    h2 = re.search(r"<h2 class=\"([^\"]*)\"", card)
+    assert h2 and "num" not in h2.group(1).split(), (
+        f"the card's symbol is still monospaced: {h2.group(1) if h2 else None}"
+    )
+    matches = [x for x in out["watchlist_html"].split("<button") if "IFCI" in x]
+    assert len(matches) == 1, f"expected exactly one IFCI row, got {len(matches)}"
+    row = matches[0]
+    sym = re.search(r'<span class="([^"]*)">IFCI</span>', row)
+    assert sym and "num" not in sym.group(1).split(), (
+        f"the rail's symbol is still monospaced: {sym.group(1) if sym else None}"
+    )
+    # The figures beside it are untouched — this is a substitution, not a
+    # removal, and a page with no mono at all would have lost the alignment
+    # the class exists for.
+    assert 'class="num wl-price"' in row, "the price lost its tabular figures"
+    # The change column's cell carries the tabular face; the span inside it
+    # carries only the colour, so the enclosing cell is what is checked.
+    assert 'class="num text-right"' in row, "the change column lost its tabular figures"
+    assert "11.93" in row
+
+
+def test_the_figures_that_must_stay_monospaced_still_are(tmp_path):
+    """The other half of 2d. Returns, prices, counts and dates keep the
+    tabular face; a sweep that took mono off everything would pass the guard
+    above and be just as wrong."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    articles = [a for a in out["cards_html"].split("<article") if "IFCI" in a]
+    assert len(articles) == 1, f"expected one IFCI card, got {len(articles)}"
+    card = articles[0]
+    assert 'class="num figure-lg' in card, "the return is no longer tabular"
+    assert 'class="price' in card, "the price is no longer a figure"
+    chain = out["chain"]
+    assert 'class="num' in chain, "the evidence chain's counts lost mono"
+
+
+# --- 2e: engineering prose is not product surface --------------------------
+
+
+def test_the_funnel_basis_prose_is_not_on_the_digest(tmp_path):
+    """It was the longest string the product surface carried, and it is
+    written in the vocabulary of whoever wrote the query. It is not deleted:
+    /api/digest still ships it, it is still the hover title, and /lab#funnel
+    sets both splits out side by side."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    pareto = out["pareto"]
+    basis = PAYLOAD["filtered_attribution"]["basis"]
+    visible = " ".join(re.sub(r"<[^>]+>", " ", pareto).split())
+    assert "the screen the funnel ran" not in visible, (
+        "the engineering basis line is still rendered as visible prose"
+    )
+    # Still reachable, and still says which split this is.
+    assert basis in pareto, "the basis was deleted rather than moved to a title"
+    assert "/lab#funnel" in pareto, "the digest does not point at the definition"
+    assert "Measured on closing prices against the index" in visible, (
+        "the bar lost its plain-language caption entirely"
+    )
+
+
+# --- 4b: one sort, applied to both surfaces --------------------------------
+
+
+def test_the_cards_render_in_the_order_the_rail_lists_them(tmp_path):
+    """The rail ranks by the size of the move; the slate ranks by tier then U,
+    and with every card at tier C and U saturated at 1.0 that key is a tie
+    broken by event_id. IFCI — the largest move on the list and the first row
+    in the rail — came third in the column. Clicking the top row and finding
+    its card third reads as a bug.
+
+    The reorder applies to what the slate ALREADY SELECTED. Which cards
+    survive is still the server's decision and is untouched."""
+    r = _run(tmp_path, _script())
+    assert r.returncode == 0, (r.stderr or "")[-1500:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+
+    rendered = re.findall(r'data-symbol="([^"]+)"', out["cards_html"])
+    assert len(rendered) == len(PAYLOAD["cards"]), (
+        f"a card was lost or duplicated by the reorder: {rendered}"
+    )
+    assert set(rendered) == {c["symbol"] for c in PAYLOAD["cards"]}, (
+        "the reorder changed which cards are on the slate"
+    )
+
+    # The rail's own order, for the rows that have cards.
+    table = out["watchlist_html"]
+    rail = re.findall(r'data-wl="([^"]+)"[^>]*\n?[^>]*data-status="surfaced"',
+                      table)
+    by_isin = {r["isin"]: r["symbol"] for r in PAYLOAD["watchlist_state"]}
+    rail_symbols = [by_isin[i] for i in rail if i in by_isin]
+    assert rail_symbols, "no surfaced rows in the rail to compare against"
+    # Every surfaced symbol that has a card must appear in the same relative
+    # order in both.
+    common = [x for x in rail_symbols if x in rendered]
+    assert common, "the rail and the column share no symbol"
+    assert common == [x for x in rendered if x in common], (
+        f"rail order {common} does not match card order {rendered}"
+    )
+    # And the sort really is by the size of the move, descending.
+    mags = [abs(next(c["total_return_pct"] for c in PAYLOAD["cards"]
+                     if c["symbol"] == sym) or 0) for sym in rendered]
+    assert mags == sorted(mags, reverse=True), (
+        f"the cards are not ordered by the size of the move: {list(zip(rendered, mags))}"
+    )
+
+
+def test_the_reorder_is_stable_for_two_equal_moves(tmp_path):
+    """A total order, not a partial one. Two cards with the same magnitude
+    must not swap between renders — a column that reshuffles on a background
+    refresh is worse than one in the wrong order."""
+    payload = json.loads(json.dumps(PAYLOAD))
+    for c in payload["cards"]:
+        c["total_return_pct"] = 5.0
+    js = tmp_path / "app.js"; js.write_text(_script())
+    harness = tmp_path / "harness.js"; harness.write_text(HARNESS)
+    pj = tmp_path / "p.json"; pj.write_text(json.dumps(payload))
+    wj = tmp_path / "w.json"; wj.write_text(json.dumps(WATCHLIST))
+    seen = set()
+    for _ in range(2):
+        r = subprocess.run([NODE, str(harness), str(js), str(pj), str(wj)],
+                           capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, (r.stderr or "")[-1200:]
+        out = json.loads(r.stdout.strip().splitlines()[-1])
+        seen.add(tuple(re.findall(r'data-symbol="([^"]+)"', out["cards_html"])))
+    assert len(seen) == 1, f"the order is not deterministic: {seen}"
+    assert list(seen)[0] == tuple(sorted(list(seen)[0])), (
+        "equal moves do not fall back to a symbol tie-break"
+    )
+
+
+# --- 4c: the primary action is not at the bottom of a rail ------------------
+
+
+def test_mark_all_as_seen_is_in_the_header_not_the_rail_footer():
+    """It is the only control on this page that changes state the user owns,
+    and it sat below three paragraphs at the bottom of the right rail — the
+    least reachable position on the screen. It belongs beside the count it
+    clears."""
+    markup = STATIC.read_text()
+    head = markup[markup.index("<header"):markup.index("</header>")]
+    assert 'id="ack-btn"' in head, "the primary action is not in the header"
+    rail = markup[markup.index("RIGHT RAIL"):markup.index("<!-- 5. Persistent footer")]
+    assert 'id="ack-btn"' not in rail, "the button is still in the rail too"
+    assert markup.count('id="ack-btn"') == 1, "there are two ack buttons"
+
+
+def test_the_window_the_counts_cover_moved_with_the_counts(tmp_path):
+    """`cursor-state` said which window the funnel was taken over, from the
+    bottom of a rail three columns away from the funnel. It is under the
+    counts now — and it is still derived from `cursor`, never typed."""
+    r = _run(tmp_path, _script())
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert 'id="cursor-state"' in out["funnel"], (
+        "the window line is not with the counts it describes"
+    )
+    markup = STATIC.read_text()
+    rail = markup[markup.index("RIGHT RAIL"):markup.index("<!-- 5. Persistent footer")]
+    assert 'id="cursor-state"' not in rail
+
+
+# --- 5a: watchlist search --------------------------------------------------
+
+
+# The page's state lives in `let` bindings inside the evaluated script, which a
+# direct `eval` keeps out of the harness's own scope — so the filter cannot be
+# poked from outside. That is a feature here: this harness records the real
+# listeners and fires the real events, so what is under test is the wiring
+# between the input and the table and not a predicate called directly.
+SEARCH_HARNESS = textwrap.dedent("""
+    const fs = require('fs');
+    const noop = () => {};
+    const store = {};
+    const handlers = {};
+    const mk = (id) => ({
+      addEventListener: (evt, fn) => { (handlers[id + ':' + evt] ||= []).push(fn) },
+      setAttribute: noop, removeAttribute: noop,
+      classList: { toggle: noop, contains: () => true, add: noop, remove: noop },
+      style: {}, dataset: {}, value: '', disabled: false,
+      closest: () => null, querySelector: () => mk('q'),
+      set textContent(v) { store[id + ':text'] = v },
+      get textContent() { return store[id + ':text'] || '' },
+      set innerHTML(v) { store[id + ':html'] = v },
+      get innerHTML() { return store[id + ':html'] || '' },
+      set hidden(v) { store[id + ':hidden'] = v },
+      get hidden() { return store[id + ':hidden'] !== false },
+    });
+    global.document = {
+      getElementById: mk, querySelector: () => mk('q'),
+      querySelectorAll: () => [], addEventListener: noop,
+      visibilityState: 'visible',
+    };
+    global.window = { addEventListener: noop };
+    global.fetch = () => Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    global.setInterval = () => 0;
+    global.clearInterval = noop;
+    global.localStorage = { getItem: () => null, setItem: noop };
+    global.crypto = { randomUUID: () => '11111111-1111-4111-8111-111111111111' };
+
+    eval(fs.readFileSync(process.argv[2], 'utf8'));
+
+    render(JSON.parse(fs.readFileSync(process.argv[3], 'utf8')));
+    renderWatchlist(JSON.parse(fs.readFileSync(process.argv[4], 'utf8')));
+
+    const query = process.argv[5];
+    const escape = process.argv[6] === 'escape';
+    let stopped = false;
+    const fire = (key, evt) => {
+      for (const fn of handlers[key] || []) fn(evt);
+    };
+    fire('wl-search:input', { target: { value: query } });
+    const filtered = store['watchlist:html'] || '';
+    if (escape) {
+      fire('wl-search:keydown', {
+        key: 'Escape',
+        stopPropagation: () => { stopped = true },
+        target: { value: query },
+      });
+    }
+    console.log(JSON.stringify({
+      handlers: Object.keys(handlers),
+      watchlist_html: filtered,
+      after_escape: store['watchlist:html'] || '',
+      wl_count: store['wl-count:text'] || '',
+      stopped,
+    }));
+""").strip()
+
+
+def _render_with_query(tmp_path, query: str, escape: bool = False) -> dict:
+    js = tmp_path / "app.js"; js.write_text(_script())
+    h = tmp_path / "search.js"; h.write_text(SEARCH_HARNESS)
+    pj = tmp_path / "p.json"; pj.write_text(json.dumps(PAYLOAD))
+    wj = tmp_path / "w.json"; wj.write_text(json.dumps(WATCHLIST))
+    r = subprocess.run(
+        [NODE, str(h), str(js), str(pj), str(wj), query,
+         "escape" if escape else "no"],
+        capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, (r.stderr or "")[-1500:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert "wl-search:input" in out["handlers"], (
+        "nothing is listening to the filter input"
+    )
+    return out
+
+
+def _rows(table: str) -> list[str]:
+    return re.findall(r'data-wl="([^"]+)"', table)
+
+
+def test_the_watchlist_filters_on_the_symbol():
+    """Every product examined has one, and 31 rows is already past scannable."""
+    markup = STATIC.read_text()
+    assert 'id="wl-search"' in markup, "the watchlist has no filter"
+    assert 'aria-label="Filter your watchlist by symbol or company name"' in markup
+
+
+def test_the_filter_matches_a_symbol(tmp_path):
+    out = _render_with_query(tmp_path, "ifci")
+    assert _rows(out["watchlist_html"]) == ["INE003"], (
+        f"expected only the IFCI row: {_rows(out['watchlist_html'])}"
+    )
+
+
+def test_the_filter_matches_a_company_name_the_symbol_does_not_contain(tmp_path):
+    """The point of matching on the name: a reader who remembers Balrampur
+    should not have to know it is BALRAMCHIN. The fixture's ADANIPORTS row
+    carries BALRAMPUR CHINI MILLS LTD precisely so the two cannot be confused
+    for each other by a substring."""
+    out = _render_with_query(tmp_path, "balrampur")
+    table = out["watchlist_html"]
+    assert _rows(table) == ["INE004"], (
+        f"the row was not found by its company name: {_rows(table)}"
+    )
+    assert "ADANIPORTS" in table, "the matched row lost its symbol"
+
+
+def test_the_filter_is_case_insensitive(tmp_path):
+    lower = _render_with_query(tmp_path, "coal india")["watchlist_html"]
+    upper = _render_with_query(tmp_path, "COAL INDIA")["watchlist_html"]
+    mixed = _render_with_query(tmp_path, "Coal India")["watchlist_html"]
+    assert lower == upper == mixed
+    # Matched on the company name in three casings, and only that row.
+    assert _rows(lower) == ["INE001"]
+
+
+def test_a_filter_that_matches_nothing_says_so_and_how_to_clear_it(tmp_path):
+    """An empty rail with no explanation is indistinguishable from a watchlist
+    that lost its rows."""
+    out = _render_with_query(tmp_path, "zzzznotasymbol", escape=True)
+    table = out["watchlist_html"]
+    assert not _rows(table)
+    assert "matches" in table and "Escape" in table, (
+        f"the empty result does not explain itself: {table}"
+    )
+    # And Escape really does put every row back — driven through the page's
+    # own keydown listener, not by resetting the variable.
+    assert len(_rows(out["after_escape"])) == len(
+        [w for w in WATCHLIST if not w["muted"]]), (
+        "Escape did not restore the full list"
+    )
+    assert out["stopped"], (
+        "Escape in the filter did not stop propagating, so it also closes the "
+        "legend the reader did not ask to close"
+    )
+
+
+def test_the_count_reports_the_watchlist_not_the_selection(tmp_path):
+    """A footer count that silently became the size of a filter result would
+    report the filter rather than the list."""
+    out = _render_with_query(tmp_path, "ifci")
+    total = len([w for w in WATCHLIST if not w["muted"]])
+    assert f"{total} watched" in out["wl_count"], (
+        f"the count became the size of the selection: {out['wl_count']!r}"
+    )
+    assert "1 shown" in out["wl_count"], (
+        f"the count does not name the selection: {out['wl_count']!r}"
+    )
+
+
+def test_a_key_that_is_not_escape_leaves_the_filter_alone(tmp_path):
+    """The other half. A keydown handler that cleared on every key would make
+    the filter impossible to type into."""
+    out = _render_with_query(tmp_path, "ifci", escape=False)
+    assert _rows(out["after_escape"]) == ["INE003"], (
+        "the filter was cleared without an Escape"
+    )

@@ -13,6 +13,7 @@ number that drifts in later fails the build rather than the reader.
 
 Four sections, matching the four claims the project makes about itself:
 
+  FUNNEL       what the two attribution splits on the digest are splits of
   QUALITY      the benchmark and ablation, from `results/latest`
   RELIABILITY  the fault-injection matrix and the risk register, rendered from
                the files rather than retyped
@@ -29,6 +30,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
+from app.api import digest as digest_mod
 from app.api.digest import connect
 
 router = APIRouter()
@@ -232,6 +234,53 @@ def _evidence(conn) -> str:
               "a post-close announcement attaches to the next session.</p>")
 
 
+def _funnel() -> str:
+    """What the digest's two attribution splits are splits of.
+
+    This is the definition of a measurement, and it belongs to whoever asks
+    "which number am I looking at?" — an engineer's question. It used to be
+    printed under the bar on the digest itself, as the longest string on the
+    product surface, written in the vocabulary of the query rather than of the
+    reader. The distinction is real and had to survive; it just does not belong
+    on the first screen.
+
+    The basis line is imported, not retyped: `/api/digest` still ships it in
+    `filtered_attribution.basis`, and this renders the same constant, so the
+    payload and the page cannot drift apart.
+    """
+    return (
+        "<p class='note'>Two different attribution splits appear on the digest, "
+        "and they are not two views of one number.</p>"
+        + _table(
+            ["where", "components", "series", "computed by"],
+            [
+                ["A card's bar",
+                 "market, sector, stock-specific",
+                 "corporate-action adjusted",
+                 "the detector, persisted on the event"],
+                ["The filtered bucket's bar",
+                 "market, its own",
+                 "raw closes",
+                 "the funnel's screen, at request time"],
+            ],
+            # Every cell here is words, so none of them takes the tabular
+            # figure face. Four columns, so a mono column index of 4 is past
+            # the last one.
+            mono_from=4,
+        )
+        + "<p class='note'>The filtered bar's own wording, as shipped in "
+        + "<code>filtered_attribution.basis</code>: "
+        + f"&ldquo;{escape(digest_mod.FILTERED_ATTRIBUTION_BASIS)}&rdquo;.</p>"
+        + "<p class='note'>A filtered mover has no stored attribution at all. "
+        "Attribution is computed inside the detector and persisted only on an "
+        "event, and a symbol the detector never fired on has none — which is "
+        "why the funnel screens on the raw excess over the index instead. "
+        "That is a weaker test than attribution, it carries no beta, and it is "
+        "only ever used to sort an already-filtered symbol into a bucket, "
+        "never to admit one.</p>"
+    )
+
+
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -276,6 +325,7 @@ a {{ color:var(--evidence); }}
 <p class="sub">The engine, inspectable. Every figure on this page is read at
 request time from a committed artifact or a live query — nothing is typed into
 the template. <a href="/">Back to the digest</a>.</p>
+<h2 id="funnel">Funnel</h2>{funnel}
 <h2>Quality</h2>{quality}
 <h2>Reliability</h2>{reliability}
 <h2>Calibration</h2>{calibration}
@@ -292,6 +342,7 @@ def lab() -> HTMLResponse:
     except Exception:  # noqa: BLE001 - the lab degrades, it does not 500
         evidence = "<p class='miss'>Database unavailable.</p>"
     return HTMLResponse(_PAGE.format(
+        funnel=_funnel(),
         quality=_quality(m),
         reliability=_reliability(m),
         calibration=_calibration(m),

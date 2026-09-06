@@ -141,6 +141,21 @@ MARKET_INDEX = "Nifty 50"
 # Expressed in percent, matching `total_return_pct` on the card, so the number
 # in the constant is the number a reader would compare against.
 MOVED_DISPLAY_THRESHOLD_PCT = 1.0
+# What the funnel's explained-bucket split is a split *of*.
+#
+# Named here, and read by `/lab`, because it is the definition of a measurement
+# and not a caption. It used to be printed under the bar on the digest itself,
+# where it was the longest single string on the product surface and the only
+# one written for whoever wrote the query rather than for whoever reads the
+# page. The distinction it draws is real and load-bearing — a card's bar is a
+# three-component split of the corporate-action-adjusted series the detector
+# ran on, this is a two-component split of raw closes — so it moved to the Lab
+# rather than being dropped, and the payload still carries it.
+FILTERED_ATTRIBUTION_BASIS = (
+    "total close-to-close move against the market's, summed over the bucket — "
+    "the screen the funnel ran, not a card's attribution"
+)
+
 # A move is "explained by the market" when the stock-specific residual accounts
 # for less than half of it — i.e. most of what the user saw was the index.
 EXPLAINED_RESIDUAL_FRACTION = 0.5
@@ -888,9 +903,7 @@ def build_digest(
                 "n": reasons[slate_mod.REASON_EXPLAINED],
                 "market_pct": _pct(explained_market),
                 "own_pct": _pct(explained_own),
-                "basis": "total close-to-close move against the market's, "
-                         "summed over the bucket — the screen the funnel ran, "
-                         "not a card's attribution",
+                "basis": FILTERED_ATTRIBUTION_BASIS,
             }
             if reasons[slate_mod.REASON_EXPLAINED] and (explained_market + explained_own)
             else None
