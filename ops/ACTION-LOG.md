@@ -4131,3 +4131,119 @@ Two authoring bugs worth recording:
   * Five new guards iterated `PAYLOAD["cards"]` without first asserting it was
     non-empty. `test_no_vacuous_assertions` caught all five in the full run and
     nothing else did.
+
+### Block 5b — measured
+
+Measured in Chromium against the running container. The display available here
+tops out at 1352×878 CSS pixels, so the **vertical** budget is computed against
+a 900px viewport (the chrome above the column is width-independent: a 56px
+fixed header, a 40px context strip and 24px of shell padding = 120px, leaving
+780px) and the **column width** is set to 764px directly — what the centre
+column is at a 1440 viewport, being 1440 less 48px of shell padding, the 280px
+and 300px rails, and two 24px gaps. Card height was then measured at both 661px
+and 764px and is identical, because nothing on a collapsed card wraps at either
+width.
+
+| check | result |
+|-------|--------|
+| collapsed card height | **290px** (was 259px before this round) |
+| funnel block | 230px, plus a 28px shared-admission line |
+| funnel + one card above the fold at 1440×900 | **yes** — 548px against a 780px budget |
+| funnel + two cards | **no** — 854px against 780px, 74px short |
+| rail rows with a sparkline | **30 of 30** |
+| cards with a sparkline | 4 of 4 |
+| card order vs rail order | **identical** — IFCI, ANANTRAJ, RBLBANK, COALINDIA |
+| horizontal scroll | none — `scrollWidth` 1337 against a 1352 viewport |
+| truncated symbols | none — checked by comparing `scrollWidth` to `clientWidth` on every rail symbol and card heading |
+| prices rendered | 30 of 30 rail rows |
+| company names rendered | 30 of 30 rail rows |
+| console errors | none (one pre-existing Tailwind CDN production warning) |
+
+**The two-card target is not met, and the reason is measurable.** The brief
+budgeted for it at a 259px card; the card is 290px now because Block 1 added
+the company name, the price anchor and the trend line the same brief asked for
+— 31px of the things that make a row identifiable. Recovering 74px means either
+shrinking the funnel below "one of the largest elements above the fold", which
+is 4a's own requirement, or removing what Block 1 added. Reporting the number
+rather than quietly trimming one of them.
+
+### Block 6 — /lab as a Model Card
+
+| 6 | before | after |
+|---|--------|-------|
+| a | the masthead documented the implementation | the claim is a footnote; the masthead is a name and a link |
+| b | B0/B1/B2 as a row each in a 7-column table | proportional bars, 3251 → 1038 → 166; every metric one disclosure down |
+| c | ablation A–F as seven table rows | a step chart, each delta annotated |
+| d | 39 risk rows rendered by default | counts by status, the 5 open high-impact rows, the rest behind a disclosure |
+| e | eight 12-character ledger digests in a table | one tile per scenario, digest equality stated in words |
+
+**6c — the brief's premise was wrong, and the chart says so.** The brief
+described A→F as "seven rows describing a monotone decline". It is not:
+
+```
+A 3251 → B 1038 (−2213) → C 340 (−698) → D 470 (+130) → E 237 (−233) → F 166 (−71)
+```
+
+D adds the D2 CUSUM drift detector, and a second detector finds movements the
+first one did not — so the count goes **up**. The step chart draws the
+trajectory the artifact contains, the rise is annotated and accented like every
+other delta, and a guard asserts that a later tidy-up cannot sort the series
+into a descent. A chart forced to decline would have been a picture of a claim
+`results/latest/metrics.json` does not make.
+
+`F_fuzzy` is excluded from the line and kept in the table: it is a challenger
+against F, not a step after it, and drawing it as one asserts an ordering that
+does not exist.
+
+**6e — digest equality is only an invariant for some scenarios.** Two of the
+eight perturb *delivery* and not content — `duplicate` and `out_of_order` — and
+those must land a byte-identical ledger. They do (`f1ffc27a1bcd`, both). The
+rest have genuinely different inputs, so a different digest is the correct
+outcome, and a grid reporting that as a failure would be a lie in the
+reassuring direction. Which category a scenario is in is **derived from the
+artifact** — same observation count, same events emitted, nothing suppressed or
+uncertain, no circuit break — not from a list of names kept in step by hand.
+
+**6d — one register row parses differently from the other 38.** R-23's response
+cell contains `` `|z| > 2` ``, whose pipes split it into 11 markdown fields
+against the usual 9. Read at a fixed index its status is a fragment of the
+response, and it lands in a bucket of its own; the status is taken from the
+last cell instead. A guard finds the ragged row by shape and asserts its status
+is recognised, so it cannot silently regress.
+
+### The deployment break, and the guard that now covers it
+
+`lab.py` was written on Python 3.13 and used `f"class='x{" hot" if last else ""}'"`
+— a nested same-quote expression, legal from 3.12 under PEP 701. **The image is
+`python:3.11-slim`, where that is a `SyntaxError` at import.** Every test
+passed, `ast.parse` succeeded locally, and the container went into a restart
+loop with nothing serving on the port. Caught only by restarting the container
+and reading its log.
+
+`tests/test_runtime_version.py` now covers the class:
+
+  * every module under `app/` is parsed at the minor version **read out of the
+    Dockerfile**, so moving the base image moves the guard;
+  * every f-string is checked for a string quoted with its own delimiter.
+
+The second check is the one that matters and it needed a real tokenizer.
+`ast.parse(feature_version=(3, 11))` **does not catch this** — CPython lexes
+f-strings the 3.12 way regardless, so the exact construct that broke the image
+parses cleanly under it. A regex is no better: scanning for the "next"
+delimiter reproduces the pre-3.12 lexing and therefore, by construction, never
+sees the nesting. `tokenize` emits `FSTRING_START`/`FSTRING_END` from 3.12, so
+the enclosing delimiter is known and every `STRING` token between the two can
+be checked against it. Proved to fire by restoring the exact broken line, and
+proved not to reject either repair — swapping the inner quote, or hoisting the
+expression.
+
+### Block 5c — full suite
+
+```
+471 passed, 2 skipped, 1 xfailed, 2 warnings in 294.69s (0:04:54)
+```
+
+Baseline at the start of this round: `434 passed, 2 skipped, 1 xfailed in 294.99s`.
+Thirty-seven guards added across the six blocks, every one proved to fire by
+mutating the code it protects rather than by assertion alone. The two skips are
+the pre-existing ones; the xfail is unchanged.

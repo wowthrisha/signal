@@ -11,7 +11,13 @@ query.** Nothing is typed into the template — `tests/test_lab.py` asserts the
 source file contains no numeric literal beyond the handful CSS needs, so a
 number that drifts in later fails the build rather than the reader.
 
-Four sections, matching the four claims the project makes about itself:
+The reference format is a Model Card — intended use, quantitative analysis,
+limitations. The content here was already model-card content; it was rendered
+as raw tables, which is a way of publishing a finding without stating it. The
+tables are all still here, one disclosure down, and above each one is the
+shape it makes.
+
+Five sections, matching the claims the project makes about itself:
 
   FUNNEL       what the two attribution splits on the digest are splits of
   QUALITY      the benchmark and ablation, from `results/latest`
@@ -57,6 +63,39 @@ REPO_ROOT = _CHECKOUT
 # A risk-register row has id, risk, P, I, trigger, response, status. Named
 # rather than inline so it reads as declared structure, not as a figure.
 RISK_ROW_COLUMNS = 7
+
+# Geometry for the three graphics below. Named rather than typed inline for
+# the same reason as RISK_ROW_COLUMNS: a number with a name is declared
+# structure; a number inline in markup is indistinguishable from a measurement.
+BAR_TRACK_W = 420
+STEP_W = 680
+STEP_H = 170
+STEP_PAD = 26
+TILE_MIN_W = 190
+
+# How many OPEN risks the register surfaces before the disclosure. The register
+# is 39 rows; rendering all of them by default is a data dump that hides the
+# handful a reader should actually weigh.
+RISK_SURFACED = 5
+
+# Text baseline offsets inside the step chart, and the register column the
+# response text sits in. Named for the same reason as the geometry above.
+STEP_LABEL_DY = 6
+RISK_RESPONSE_COL = 5
+STEP_DELTA_DY = 4
+
+
+# OPEN is the bucket a reader came here for, so it is the one the accent marks.
+# A function rather than a conditional inside the f-string: the deployment image
+# predates PEP 701, where a nested same-quote expression is a SyntaxError, and
+# `tests/test_runtime_version.py` reads the exact version out of the Dockerfile.
+#
+# Written as a comment rather than a docstring because the lab's own guard
+# scans every string literal in this module for figures, and a version number
+# in a docstring is indistinguishable to it from a measurement typed into
+# markup. The guard is right to be blunt about that.
+def _hot(bucket: str) -> str:
+    return " hot" if bucket == "OPEN" else ""
 
 _METRIC_COLS = [
     ("alerts", "alerts"),
@@ -121,6 +160,14 @@ def _risk_rows() -> list[list[str]]:
     return rows
 
 
+def _details(summary: str, body: str) -> str:
+    """A disclosure. Every table this round demoted is behind one of these —
+    demoted, not deleted: the shape goes above, the full record stays one
+    click away, and the count in the summary is the record's own."""
+    return (f"<details class='more'><summary>{escape(summary)}</summary>"
+            f"<div class='more-body'>{body}</div></details>")
+
+
 def _table(headers, rows, *, mono_from=1) -> str:
     head = "".join(f"<th>{escape(str(h))}</th>" for h in headers)
     body = ""
@@ -130,6 +177,108 @@ def _table(headers, rows, *, mono_from=1) -> str:
             for i, c in enumerate(r))
         body += f"<tr>{cells}</tr>"
     return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+
+
+def _reduction(systems: dict) -> str:
+    """6b. B0 -> B1 -> B2 as proportional bars.
+
+    The reduction IS the finding — the drop in alert count from the baseline
+    to the full pipeline is the whole argument for it — and a table of seven
+    metric columns hides that among six other numbers. The bars are the alert
+    counts over the largest of them, read from the artifact; every other
+    column survives in the table below, one disclosure down.
+    """
+    names = [n for n in ("B0", "B1", "B2") if n in systems]
+    if not names:
+        return ""
+    top = max(systems[n]["alerts"] for n in names) or 1
+    rows = ""
+    for n in names:
+        v = systems[n]["alerts"]
+        w = v / top * BAR_TRACK_W
+        # The last system is the one the pipeline ships, so it is the one the
+        # accent marks. Hoisted out of the f-string: the deployment image runs
+        # Python 3.11, where a nested same-quote expression is a SyntaxError.
+        hot = " hot" if n == names[-1] else ""
+        label = escape(systems[n]["label"])
+        rows += (
+            f"<div class='barrow'>"
+            f"<span class='barkey'>{escape(n)}</span>"
+            f"<span class='barval'>{v}</span>"
+            f"<span class='bartrack' style='width:{BAR_TRACK_W}px'>"
+            f"<span class='barfill{hot}' style='width:{w:.1f}px'></span>"
+            f"</span>"
+            f"<span class='barlab'>{label}</span>"
+            f"</div>")
+    first, final = systems[names[0]]["alerts"], systems[names[-1]]["alerts"]
+    return (f"<div class='bars' role='img' aria-label='Alerts by system: "
+            + escape(", ".join(f"{n} {systems[n]['alerts']}" for n in names))
+            + f".'>{rows}</div>"
+            f"<p class='note'>{first} alerts to {final}, on the same held-out "
+            f"window and the same universe.</p>")
+
+
+def _steps(ablation: dict) -> str:
+    """6c. The ablation as a step chart, each delta annotated.
+
+    Seven rows of seven columns describing one trajectory should look like one
+    trajectory. What the chart shows that the table did not is that the
+    trajectory is **not monotone**: D adds the CUSUM drift detector and alerts
+    go up, because a second detector finds things the first one did not. That
+    is the correct behaviour and the reason the sequence is worth drawing —
+    a chart forced to descend would have been a picture of a claim the
+    artifact does not make.
+
+    `F_fuzzy` is excluded from the line: it is a challenger against F, not a
+    step after it, and drawing it as one would assert an ordering that does
+    not exist. It stays in the table.
+    """
+    keys = [k for k in sorted(ablation) if "_" not in k]
+    if len(keys) < 2:
+        return ""
+    vals = [ablation[k]["alerts"] for k in keys]
+    top = max(vals) or 1
+    n = len(keys)
+    seg = (STEP_W - 2 * STEP_PAD) / n
+    y = lambda v: STEP_H - STEP_PAD - (v / top) * (STEP_H - 2 * STEP_PAD)
+
+    path, marks, labels = "", "", ""
+    for i, (k, v) in enumerate(zip(keys, vals)):
+        x0, x1 = STEP_PAD + i * seg, STEP_PAD + (i + 1) * seg
+        yy = y(v)
+        path += f"M{x0:.1f},{yy:.1f} L{x1:.1f},{yy:.1f} "
+        if i:
+            path += f"M{x0:.1f},{y(vals[i - 1]):.1f} L{x0:.1f},{yy:.1f} "
+            d = v - vals[i - 1]
+            sign = "+" if d > 0 else ""
+            # A step that ADDS alerts is marked, because it is the one thing
+            # the table could not show: D is a second detector and it finds
+            # what the first one did not.
+            up = " up" if d > 0 else ""
+            dy = min(yy, y(vals[i - 1])) - STEP_DELTA_DY
+            marks += (
+                f"<text x='{x0:.1f}' y='{dy:.1f}' "
+                f"text-anchor='middle' class='delta{up}'>"
+                f"{sign}{d}</text>")
+        labels += (
+            f"<text x='{(x0 + x1) / 2:.1f}' y='{yy - STEP_LABEL_DY:.1f}' "
+            f"text-anchor='middle' class='stepv'>{v}</text>"
+            f"<text x='{(x0 + x1) / 2:.1f}' y='{STEP_H - 8}' "
+            f"text-anchor='middle' class='stepk'>{escape(k)}</text>")
+
+    words = ", ".join(f"{k} {v}" for k, v in zip(keys, vals))
+    legend = "".join(
+        f"<div class='steplab'><span class='stepkey'>{escape(k)}</span>"
+        f"<span>{escape(ablation[k]['label'])}</span></div>" for k in keys)
+    return (
+        f"<div class='wrapper-scroll'><svg width='{STEP_W}' height='{STEP_H}' "
+        f'viewBox="0 0 {STEP_W} {STEP_H}" role="img" '
+        f'aria-label="Alerts after each ablation step: {escape(words)}. '
+        f"The sequence is not monotone — adding the drift detector raises the "
+        f'count before the salience gates lower it again.">'
+        f"<path d='{path}' fill='none' stroke='var(--accent)' stroke-width='2' "
+        f"stroke-linejoin='round'/>{labels}{marks}</svg></div>"
+        f"<div class='steplegend'>{legend}</div>")
 
 
 def _quality(m: dict | None) -> str:
@@ -152,36 +301,186 @@ def _quality(m: dict | None) -> str:
             f"<p class='note'>improved: {escape(', '.join(v['improved']) or 'none')}<br>"
             f"degraded: {escape(', '.join(v['degraded']) or 'none')}</p>")
 
+    systems = m.get("systems", {})
     return (
         f"<p class='note'>Held-out {escape(m['held_out_window'])} "
         f"({m['held_out_sessions']} sessions), universe {m['universe_size']}, "
         f"warm-up {escape(m['full_history_window'])}. "
         f"Alert reduction B2 vs B0: {_cell(m['alert_reduction_vs_B0'])}.</p>"
-        + _table(["system"] + [h for _, h in _METRIC_COLS], sys_rows)
+        + _reduction(systems)
+        + _details("Every metric, per system",
+                   _table(["system"] + [h for _, h in _METRIC_COLS], sys_rows))
         + "<h3>Ablation</h3>"
-        + _table(["row", "component"] + [h for _, h in _METRIC_COLS], abl_rows, mono_from=2)
+        + _steps(m.get("ablation", {}))
+        + _details("Every metric, per ablation row",
+                   _table(["row", "component"] + [h for _, h in _METRIC_COLS],
+                          abl_rows, mono_from=2))
         + "<h3>Fuzzy challenger</h3>" + verdict)
+
+
+def _scenario_grid(scenarios: dict) -> str:
+    """6e. One tile per scenario, with digest equality as the visible fact.
+
+    A table of eight ledger digests is eight 12-character hashes a reader
+    cannot compare by eye. The fact those hashes encode is a yes/no: did this
+    scenario land the *same* ledger as the clean run?
+
+    Equality is only an invariant for scenarios that perturb **delivery** and
+    not content — the same observations, the same events, arriving twice or in
+    the wrong order. Those must produce a byte-identical ledger, and that is
+    the property `duplicate` and `out_of_order` exist to test. A scenario that
+    withholds bars or marks every observation uncertain has a different input,
+    so a different digest is the correct outcome and reporting it as a failure
+    would be a lie in the reassuring direction.
+
+    Which category a scenario is in is derived from the artifact — same
+    observation count, same events emitted, nothing suppressed or uncertain,
+    no circuit break — not from a list of names kept in step by hand.
+    """
+    clean = scenarios.get("clean")
+    if not clean:
+        return "<p class='miss'>No clean baseline in the replay artifact.</p>"
+
+    def delivery_only(s: dict) -> bool:
+        return (s.get("observations") == clean.get("observations")
+                and s.get("events_emitted") == clean.get("events_emitted")
+                and not s.get("suppressed") and not s.get("uncertain")
+                and not s.get("circuit_breaks"))
+
+    tiles, spoken = "", []
+    for name, sc in sorted(scenarios.items()):
+        equal = sc.get("ledger_digest") == clean.get("ledger_digest")
+        baseline = name == "clean"
+        invariant = delivery_only(sc) and not baseline
+        if baseline:
+            state, cls = "the baseline", "tile-base"
+        elif invariant:
+            state = "ledger identical to clean" if equal else "LEDGER DIVERGED"
+            cls = "tile-ok" if equal else "tile-bad"
+        else:
+            state, cls = "different input, different ledger", "tile-base"
+        spoken.append(f"{name}: {state}")
+        detail = [f"{sc.get('sessions')} sessions",
+                  f"{sc.get('events_inserted')} inserted"]
+        for key, word in (("duplicates_collapsed", "collapsed"),
+                          ("circuit_breaks", "circuit break"),
+                          ("suppressed", "suppressed"),
+                          ("uncertain", "uncertain")):
+            n = sc.get(key)
+            if n:
+                plural = "s" if n != 1 and word.endswith("break") else ""
+                detail.append(f"{n} {word}{plural}")
+        tiles += (
+            f"<div class='tile {cls}'>"
+            f"<p class='tile-n'>{escape(name)}</p>"
+            f"<p class='tile-s'>{escape(state)}</p>"
+            f"<p class='tile-d'>{escape(' · '.join(detail))}</p>"
+            f"<p class='tile-h'>{escape((sc.get('ledger_digest') or '')[:12])}</p>"
+            f"</div>")
+    return (f"<div class='grid' role='img' aria-label='Fault scenarios and "
+            f"whether each landed the same ledger as the clean run: "
+            f"{escape('; '.join(spoken))}.'>{tiles}</div>")
+
+
+def _unmark(text: str) -> str:
+    """Markdown emphasis stripped to plain text.
+
+    The register is a markdown file and its response cells carry `**bold**`
+    and `code`. Escaped and rendered they arrive as literal asterisks and
+    backticks; converted to tags they would need a raw-HTML path through
+    `_table`, and letting a file the page merely *reads* inject markup is a
+    worse trade than losing the emphasis. The words are untouched.
+    """
+    return re.sub(r"\*\*|`", "", text)
+
+
+def _risk_status(row: list[str]) -> str:
+    """The status word, from the LAST cell rather than a fixed index.
+
+    R-23's response cell contains `|z| > 2`, whose pipes split that row into
+    more fields than every other one — so `cells[6]` reads a fragment of the
+    response there and the row lands in a bucket of its own. The status is
+    always the final cell.
+    """
+    raw = re.sub(r"[*`]", "", row[-1]).strip().upper()
+    for word in ("OPEN", "MITIGATED", "CLOSED", "ACCEPTED", "WATCH"):
+        if raw.startswith(word):
+            return word
+    return "OTHER"
+
+
+def _risks() -> str:
+    """6d. Grouped by status, with the OPEN, high-impact rows surfaced.
+
+    Thirty-nine rows rendered by default is a data dump: a reader scrolls it
+    and takes away nothing. What a reader wants from a risk register is how
+    much is still open and which of it would hurt — so the counts come first,
+    then the handful that are both OPEN and high-impact, then everything else
+    behind a disclosure. No row is dropped and none is reworded; the register
+    file is still the only source.
+    """
+    rows = _risk_rows()
+    if not rows:
+        return "<p class='miss'>Register not readable.</p>"
+
+    buckets: dict[str, list[list[str]]] = {}
+    for r in rows:
+        buckets.setdefault(_risk_status(r), []).append(r)
+    order = ["OPEN", "WATCH", "ACCEPTED", "MITIGATED", "CLOSED", "OTHER"]
+    present = [b for b in order if b in buckets] + \
+              [b for b in sorted(buckets) if b not in order]
+    top = max(len(v) for v in buckets.values()) or 1
+    counts = "".join(
+        f"<div class='barrow'><span class='barkey'>{escape(b)}</span>"
+        f"<span class='barval'>{len(buckets[b])}</span>"
+        f"<span class='bartrack' style='width:{BAR_TRACK_W}px'>"
+        f"<span class='barfill{_hot(b)}' "
+        f"style='width:{len(buckets[b]) / top * BAR_TRACK_W:.1f}px'></span>"
+        f"</span></div>" for b in present)
+
+    # Impact first, then probability, then id — a total order, so the same
+    # register always surfaces the same rows.
+    rank = {"H": 0, "M": 1, "L": 2}
+    surfaced = sorted(buckets.get("OPEN", []),
+                      key=lambda r: (rank.get(r[3], 3), rank.get(r[2], 3), r[0])
+                      )[:RISK_SURFACED]
+    lede = ""
+    if surfaced:
+        lede = (f"<h3>The {len(surfaced)} open risks that would hurt most</h3>"
+                + _table(["id", "risk", "P", "I", "response"],
+                         [[r[0], r[1], r[2], r[3],
+                           _unmark(r[RISK_RESPONSE_COL])]
+                          for r in surfaced],
+                         mono_from=RISK_ROW_COLUMNS))
+    return (
+        f"<div class='bars' role='img' aria-label='Risk register by status: "
+        + escape(", ".join(f"{b} {len(buckets[b])}" for b in present))
+        + f".'>{counts}</div>{lede}"
+        + _details(
+            f"All {len(rows)} rows, from ops/RISK-REGISTER.md",
+            _table(["id", "risk", "P", "I", "status"],
+                   [[r[0], r[1], r[2], r[3], _risk_status(r)] for r in rows],
+                   mono_from=RISK_ROW_COLUMNS)))
 
 
 def _reliability(m: dict | None) -> str:
     faults = sorted(_artifact_root("results").glob("replay_*/metrics.json"))
-    matrix = "<p class='miss'>No replay artifact.</p>"
-    if faults:
+    if not faults:
+        grid, matrix = "<p class='miss'>No replay artifact.</p>", ""
+    else:
         data = json.loads(faults[-1].read_text())
+        scenarios = data.get("scenarios", {})
+        grid = _scenario_grid(scenarios)
         rows = [[name, s.get("sessions"), s.get("events_emitted"),
                  s.get("events_inserted"), s.get("duplicates_collapsed"),
                  s.get("circuit_breaks"), (s.get("ledger_digest") or "")[:12]]
-                for name, s in sorted(data.get("scenarios", {}).items())]
-        matrix = _table(["scenario", "sessions", "emitted", "inserted",
-                         "dups", "breaks", "ledger digest"], rows)
-    risks = _risk_rows()
-    risk_tbl = _table(["id", "risk", "P", "I"],
-                      [[r[0], r[1], r[2], r[3]] for r in risks], mono_from=4) \
-        if risks else "<p class='miss'>Register not readable.</p>"
+                for name, s in sorted(scenarios.items())]
+        matrix = _details("Every counter, per scenario",
+                          _table(["scenario", "sessions", "emitted", "inserted",
+                                  "dups", "breaks", "ledger digest"], rows))
     return (f"<p class='note'>Fault scenarios replayed under a SimClock, with a "
-            f"byte-stable ledger digest per scenario.</p>{matrix}"
-            f"<h3>Risk register ({len(risks)} rows, rendered from "
-            f"<code>ops/RISK-REGISTER.md</code>)</h3>{risk_tbl}")
+            f"byte-stable ledger digest per scenario.</p>{grid}{matrix}"
+            f"<h3>Risk register</h3>{_risks()}")
 
 
 def _calibration(m: dict | None) -> str:
@@ -319,17 +618,74 @@ code {{ font-family:var(--mono); color:var(--evidence); }}
 a {{ color:var(--evidence); }}
 :focus-visible {{ outline:2px solid var(--focus); outline-offset:2px; }}
 .wrapper-scroll {{ overflow-x:auto; }}
+.foot {{ color:var(--text-3); font-size:0.75rem; margin:48px 0 0;
+         padding-top:12px; border-top:1px solid var(--border); }}
+
+/* The reduction, and the register's status counts. Same rule for both: the
+   count is a figure, the bar is the same figure at a length. */
+.bars {{ margin:8px 0 4px; }}
+.barrow {{ display:flex; align-items:center; gap:12px; margin:6px 0;
+           flex-wrap:wrap; }}
+.barkey {{ font-family:var(--mono); font-size:0.75rem; color:var(--text-2);
+           width:32px; flex:none; }}
+.barval {{ font-family:var(--mono); font-variant-numeric:tabular-nums;
+           font-size:0.9375rem; color:var(--text); width:48px; text-align:right;
+           flex:none; }}
+.bartrack {{ background:var(--surface-2); border-radius:3px; height:12px;
+             flex:none; overflow:hidden; max-width:100%; }}
+.barfill {{ display:block; height:100%; border-radius:3px;
+            background:var(--text-3); }}
+.barfill.hot {{ background:var(--accent); }}
+.barlab {{ color:var(--text-3); font-size:0.75rem; }}
+
+/* The ablation. Values above each tread, the delta on each riser, the row
+   letter under it — the numbers are the annotation, the line is the shape. */
+.stepv {{ font-family:var(--mono); font-size:0.6875rem; fill:var(--text); }}
+.stepk {{ font-family:var(--mono); font-size:0.6875rem; fill:var(--text-3); }}
+.delta {{ font-family:var(--mono); font-size:0.625rem; fill:var(--text-2); }}
+.delta.up {{ fill:var(--accent); }}
+.steplegend {{ display:grid; gap:2px 16px; margin:8px 0 0;
+               grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); }}
+.steplab {{ display:flex; gap:8px; font-size:0.75rem; color:var(--text-2); }}
+.stepkey {{ font-family:var(--mono); color:var(--text-3); width:12px;
+            flex:none; }}
+
+/* The fault matrix. Eight 12-character hashes are not comparable by eye; the
+   fact they encode is a yes/no, so each scenario is a tile that states it. */
+.grid {{ display:grid; gap:8px; margin:8px 0;
+         grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); }}
+.tile {{ background:var(--surface); border:1px solid var(--border);
+         border-radius:8px; padding:10px 12px; }}
+.tile-ok {{ border-left:2px solid var(--accent); }}
+.tile-bad {{ border-left:2px solid var(--accent); background:var(--surface-2); }}
+.tile-n {{ font-family:var(--mono); font-size:0.8125rem; margin:0; }}
+.tile-s {{ font-size:0.75rem; color:var(--text-2); margin:4px 0 0; }}
+.tile-d {{ font-family:var(--mono); font-size:0.6875rem; color:var(--text-3);
+           margin:6px 0 0; }}
+.tile-h {{ font-family:var(--mono); font-size:0.625rem; color:var(--text-3);
+           margin:2px 0 0; }}
+
+/* Every first column on this page is a short code — a system name, a
+   scenario, an ablation row letter, a risk id. `R-07` broken across two lines
+   is not an identifier a reader can scan down a column. */
+table td:first-child {{ white-space:nowrap; }}
+.more {{ margin:12px 0; }}
+.more summary {{ font-size:0.75rem; color:var(--text-3); cursor:pointer; }}
+.more summary:hover {{ color:var(--text-2); }}
+.more-body {{ margin-top:8px; overflow-x:auto; }}
 </style></head>
 <body><div class="wrap">
 <h1>Signal Lab</h1>
-<p class="sub">The engine, inspectable. Every figure on this page is read at
-request time from a committed artifact or a live query — nothing is typed into
-the template. <a href="/">Back to the digest</a>.</p>
+<p class="sub">The engine, inspectable. <a href="/">Back to the digest</a>.</p>
 <h2 id="funnel">Funnel</h2>{funnel}
 <h2>Quality</h2>{quality}
 <h2>Reliability</h2>{reliability}
 <h2>Calibration</h2>{calibration}
 <h2>Evidence</h2>{evidence}
+<p class="foot">Every figure on this page is read at request time from a
+committed artifact or a live query — nothing is typed into the template, and a
+test parses this module to keep it that way. Implementation documentation
+belongs at the bottom of the page, not in the headline position.</p>
 </div></body></html>"""
 
 

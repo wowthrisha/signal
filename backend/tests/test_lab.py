@@ -11,6 +11,7 @@ test proving this one fires.
 from __future__ import annotations
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -189,3 +190,205 @@ def test_the_digest_page_links_to_the_lab_from_the_footer():
     assert 'href="/lab"' in page
     footer = page[page.index("<footer"):]
     assert 'href="/lab"' in footer, "the lab link belongs in the footer, not the nav"
+
+
+# --- 6: the Model Card restructure -----------------------------------------
+#
+# The audience is a hiring engineer and the right reference is the Model Card
+# format — intended use, quantitative analysis, limitations. The content was
+# already model-card content; it was rendered as raw tables, which is a way of
+# publishing a finding without stating it. Every table is still here, one
+# disclosure down, and above each one is the shape it makes.
+
+
+def _lab() -> str:
+    r = client.get("/lab")
+    assert r.status_code == 200, r.status_code
+    return r.text
+
+
+def test_the_masthead_is_not_implementation_documentation():
+    """6a. "Every figure on this page is read at request time from a committed
+    artifact or a live query — nothing is typed into the template" is a true
+    and load-bearing claim, and it was the first sentence a reader met. It is
+    a footnote now; the claim is not dropped."""
+    body = _lab()
+    sub = body[body.index('class="sub"'):body.index("</p>", body.index('class="sub"'))]
+    assert "read at" not in sub and "typed into the template" not in sub, (
+        f"the masthead is still documenting the implementation: {sub}"
+    )
+    assert "Back to the digest" in sub, "the masthead lost its only link"
+    foot = body[body.index('class="foot"'):]
+    assert "nothing is typed into the template" in foot, (
+        "the claim was deleted rather than moved to a footnote"
+    )
+
+
+def test_the_reduction_is_bars_and_keeps_every_metric():
+    """6b. 3251 to 166 is the whole argument for the pipeline, and a table of
+    seven metric columns hides it among six other numbers."""
+    m = _metrics_or_skip()
+    body = _lab()
+    names = [n for n in ("B0", "B1", "B2") if n in m["systems"]]
+    assert len(names) == 3, f"the artifact is missing a system: {names}"
+    bars = re.search(r'<div class=.bars.[^>]*>(.*?)</div>\s*<p', body, re.S)
+    assert bars, "the reduction is not rendered as bars"
+    top = max(m["systems"][n]["alerts"] for n in names)
+    for n in names:
+        v = m["systems"][n]["alerts"]
+        assert f">{v}<" in body, f"{n}'s alert count is missing"
+        # The width is the figure, at a length. A bar whose width does not
+        # track its count is decoration.
+        want = f"width:{v / top * lab_mod.BAR_TRACK_W:.1f}px"
+        assert want in body, f"{n}'s bar is not proportional to its count"
+    # Nothing was deleted: every metric column is one disclosure down.
+    assert "Every metric, per system" in body
+    for _, header in lab_mod._METRIC_COLS:
+        assert f">{header}</th>" in body, f"the {header} column is gone"
+
+
+def test_the_ablation_is_a_step_chart_with_every_delta_annotated():
+    """6c. Seven rows describing one trajectory should look like one."""
+    m = _metrics_or_skip()
+    body = _lab()
+    keys = [k for k in sorted(m["ablation"]) if "_" not in k]
+    assert len(keys) > 2, f"too few ablation rows to chart: {keys}"
+    vals = [m["ablation"][k]["alerts"] for k in keys]
+    assert "<svg" in body and 'role="img"' in body
+    for k, v in zip(keys, vals):
+        assert f">{v}</text>" in body, f"ablation row {k}'s value is not on the chart"
+        assert f">{k}</text>" in body, f"ablation row {k} is not labelled"
+    for prev, cur in zip(vals, vals[1:]):
+        d = cur - prev
+        sign = "+" if d > 0 else ""
+        assert f">{sign}{d}</text>" in body, f"the delta {sign}{d} is not annotated"
+    # The challenger is not a step after F and must not be drawn as one.
+    fuzzy = [k for k in m["ablation"] if "_" in k]
+    assert fuzzy, "the artifact has no challenger row to exclude"
+    chart = body[body.index("<svg"):body.index("</svg>")]
+    for k in fuzzy:
+        assert f">{k}</text>" not in chart, (
+            f"{k} is drawn as a step, which asserts an ordering it does not have"
+        )
+    assert "Every metric, per ablation row" in body
+
+
+def test_the_ablation_chart_does_not_pretend_the_decline_is_monotone():
+    """The brief for this called the sequence a monotone decline. It is not:
+    D adds the CUSUM drift detector and the alert count goes UP, because a
+    second detector finds what the first one did not. The chart draws the
+    trajectory the artifact actually contains, and this guard exists so that
+    a later "tidy-up" cannot quietly sort it into a descent."""
+    m = _metrics_or_skip()
+    keys = [k for k in sorted(m["ablation"]) if "_" not in k]
+    vals = [m["ablation"][k]["alerts"] for k in keys]
+    rises = [(a, b) for a, b in zip(vals, vals[1:]) if b > a]
+    if not rises:
+        pytest.skip("this artifact's ablation happens to be monotone")
+    body = _lab()
+    for prev, cur in rises:
+        assert f">+{cur - prev}</text>" in body, (
+            f"the step that ADDS {cur - prev} alerts is not annotated as a rise"
+        )
+    assert "not monotone" in body, (
+        "the chart's own description does not admit the sequence rises"
+    )
+
+
+def test_the_risk_register_surfaces_the_open_rows_and_hides_the_rest():
+    """6d. Thirty-nine rows rendered by default is a data dump. What a reader
+    wants is how much is still open and which of it would hurt."""
+    rows = lab_mod._risk_rows()
+    if not rows:
+        pytest.skip("risk register not readable in this checkout")
+    body = _lab()
+    buckets = {}
+    for r in rows:
+        buckets.setdefault(lab_mod._risk_status(r), []).append(r)
+    assert "OPEN" in buckets, "no open risks, so this guard proves nothing"
+    for b, rs in buckets.items():
+        assert f">{b}</span>" in body, f"the {b} bucket has no count"
+        assert f">{len(rs)}</span>" in body, f"the {b} count is missing"
+    # The surfaced rows are OPEN and high-impact, and there are few of them.
+    surfaced = re.search(r"open risks that would hurt most</h3>(.*?)</table>",
+                         body, re.S)
+    assert surfaced, "no open risks are surfaced above the disclosure"
+    ids = re.findall(r"<td[^>]*>(R-\d+)</td>", surfaced.group(1))
+    assert 0 < len(ids) <= lab_mod.RISK_SURFACED, (
+        f"expected at most {lab_mod.RISK_SURFACED} surfaced rows, got {ids}"
+    )
+    by_id = {r[0]: r for r in rows}
+    for rid in ids:
+        assert lab_mod._risk_status(by_id[rid]) == "OPEN", f"{rid} is not open"
+    # And every row is still reachable.
+    assert f"All {len(rows)} rows" in body
+    for r in rows:
+        assert f">{r[0]}</td>" in body, f"{r[0]} was dropped from the register"
+
+
+def test_the_register_status_is_read_from_the_last_cell():
+    """R-23's response contains `|z| > 2`, whose pipes split that row into more
+    fields than every other one. Read at a fixed index its status is a
+    fragment of the response and it lands in a bucket of its own."""
+    rows = lab_mod._risk_rows()
+    if not rows:
+        pytest.skip("risk register not readable in this checkout")
+    odd = [r for r in rows if len(r) != lab_mod.RISK_ROW_COLUMNS]
+    assert odd, "no ragged row in the register, so this guard proves nothing"
+    for r in odd:
+        assert lab_mod._risk_status(r) != "OTHER", (
+            f"{r[0]} has {len(r)} cells and its status was not recognised"
+        )
+
+
+def test_the_fault_matrix_is_a_grid_stating_digest_equality():
+    """6e. Eight 12-character hashes are not comparable by eye. The fact they
+    encode is a yes/no, and the tile says it."""
+    faults = sorted(lab_mod._artifact_root("results").glob("replay_*/metrics.json"))
+    if not faults:
+        pytest.skip("no replay artifact in this checkout")
+    scenarios = json.loads(faults[-1].read_text())["scenarios"]
+    assert "clean" in scenarios, "no baseline to compare against"
+    body = _lab()
+    for name in scenarios:
+        assert f">{name}</p>" in body, f"the {name} scenario has no tile"
+    clean = scenarios["clean"]["ledger_digest"]
+
+    # The invariant, derived the same way the page derives it: a scenario that
+    # perturbs delivery only must land a byte-identical ledger.
+    delivery = [n for n, s in scenarios.items()
+                if n != "clean"
+                and s["observations"] == scenarios["clean"]["observations"]
+                and s["events_emitted"] == scenarios["clean"]["events_emitted"]
+                and not s["suppressed"] and not s["uncertain"]
+                and not s["circuit_breaks"]]
+    assert delivery, "no delivery-only scenario, so the invariant is untested"
+    for name in delivery:
+        assert scenarios[name]["ledger_digest"] == clean, (
+            f"{name} perturbs delivery only and its ledger diverged from clean"
+        )
+    # Counted on the tiles, not on the page: the grid's aria-label repeats
+    # every tile's state so a screen reader gets the same grid.
+    tiles = re.findall(r"<p class='tile-s'>([^<]*)</p>", body)
+    assert tiles, "the grid rendered no tiles"
+    assert sum(t == "ledger identical to clean" for t in tiles) == len(delivery), (
+        f"the grid does not claim the invariant for exactly the scenarios "
+        f"that hold it: {tiles} vs {delivery}"
+    )
+    assert body.count("ledger identical to clean") == 2 * len(delivery), (
+        "the grid's screen-reader label does not describe the same tiles"
+    )
+    # A different input producing a different ledger is correct, not a failure,
+    # and the grid must not report it as one.
+    assert "different input, different ledger" in body
+    assert "LEDGER DIVERGED" not in body, (
+        "a scenario that should be byte-identical to clean is not"
+    )
+    assert "Every counter, per scenario" in body
+
+
+def _metrics_or_skip() -> dict:
+    m = lab_mod._metrics()
+    if not m:
+        pytest.skip("no benchmark artifact in this checkout")
+    return m
