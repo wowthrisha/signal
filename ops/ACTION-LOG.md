@@ -4567,3 +4567,83 @@ el(...).appendChild is not a function` on all 45 tests. That is the harness
 failing to model a DOM call the page now makes; the mock records insertion now,
 which is what `test_a_rerender_returns_the_note_home_before_replacing_the_table`
 reads.
+
+### FIX 3 — duplicate evidence inflates the filing count
+
+**The brief's premise does not hold, and I checked before implementing.**
+
+It said "evidence rows already carry a checksum; dedupe on it at read time".
+`checksum` is `sha1(isin|seq_id|exchdisstime|source)` — an identity for the
+*announcement record*, not a fingerprint of the document:
+
+```
+total evidence rows        48,284
+distinct checksums         48,284
+rows with a null checksum        0
+groups sharing (isin, session, checksum)   0
+```
+
+Deduplicating on it is a **no-op**. Implementing it and reporting a fix would
+have been reporting a fix that does nothing.
+
+**What the real duplicate class is.** Same `(isin, session_date, url)` — the
+exchange re-filing a document it already published, minutes later, under a
+fresh sequence id:
+
+| key | groups | surplus rows |
+|-----|--------|--------------|
+| same `(isin, session, url)` | **7** | **9** |
+| same `(isin, session, title)` | 867 | — |
+| of those 867, sharing one URL | 7 | 9 |
+
+Deduplicating on `title` would have looked right and destroyed 860 groups of
+genuinely distinct documents hiding behind the exchange's boilerplate wording
+("X has informed the Exchange about …"). A guard now asserts that case
+explicitly and fails if the key moves to `title`.
+
+**The key is the URL. The earliest publication survives** — publication is when
+the document first became public and `temporal_relation` is derived from that
+instant, so keeping the later copy could move a filing across the
+PRECEDES/FOLLOWS boundary and change what the card says about ordering. Rows
+with no URL (corporate actions) are never collapsed: nothing about them can
+show two to be one document.
+
+**Corrected counts.**
+
+| instrument | session | rows in table | rendered |
+|-----------|---------|---------------|----------|
+| BINANIIND | 2026-08-05 | 4 | **2** |
+| LLOYDSENGG | 2026-06-18 | 6 | **5** |
+| RMC | 2026-08-13 | 6 | **4** |
+| RSL | 2026-08-14 | 3 | **2** |
+| SASKEN | 2026-07-22 | 4 | **3** |
+| SHANTIGEAR | 2026-06-25 | 2 | **1** |
+| SHREEJISPG | 2026-08-14 | 5 | **4** |
+
+**The four surfaced cards are unchanged** — ANANTRAJ 0, COALINDIA 4, IFCI 0,
+RBLBANK 5 — because none of the seven groups is on the demo watchlist.
+
+**RBLBANK's "5 filings" was not this bug.** Its five rows have five distinct
+URLs. Two of them do hold byte-identical PDFs (`44342fbf08bbf127`), but NSE
+filed that document under **two different announcement categories six minutes
+apart**, with different titles and different `document_type`s:
+
+```
+Analysts/Institutional Investor Meet/Con. Call Updates   09:49:32
+Investor Presentation                                    09:55:19
+```
+
+The only thing that identifies them as one document is a hash of the content,
+which this system never computes — evidence ingest deliberately makes no second
+fetch. Collapsing them would mean asserting two exchange disclosures are one on
+evidence Signal does not have, which is a change to evidence semantics rather
+than to a count. **Left as two, and stated here rather than quietly merged.**
+
+**Guards.** Five in `test_evidence.py`, each proved to fire — no dedupe, keeping
+the latest instead of the earliest, and keying on `title`.
+
+The fixture is built by the test, not read from the ingested data: `evidence`
+is not in conftest's `SEED_TABLES`, so the throwaway database holds none of it
+and the first version of these guards **skipped silently and proved nothing**.
+That is the third time this round that a guard had to be shown to fail before
+it was worth keeping.

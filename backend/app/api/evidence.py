@@ -276,10 +276,38 @@ def load_for(conn, isins, start: date, end: date) -> dict[tuple[str, date], list
     the filing: the card is about the instrument on the day, and the reader
     asking "why did this move?" wants the record that exists, not only one
     matching the detector's label.
+
+    **One row per document per session.** The exchange sometimes lists the same
+    document twice — a re-file minutes after the first, under a fresh sequence
+    id — and a card counting rows then states a filing count that is wrong.
+    Seven such groups exist in this database, nine surplus rows across 48,284.
+
+    The key is the **URL**, not `checksum`. The checksum is
+    `sha1(isin|seq_id|exchdisstime|source)`: an identity for the *announcement
+    record*, not a fingerprint of the document. Every one of the 48,284 rows
+    has a distinct one, so deduplicating on it removes nothing — measured
+    before this was written, because it is the obvious thing to reach for.
+
+    The **earliest** publication survives. Publication is when the document
+    first became public, and `temporal_relation` is derived from exactly that
+    instant — keeping the later copy would move a filing across the boundary
+    between PRECEDES and FOLLOWS and change what the card says about ordering.
+
+    Note what this does *not* collapse: two different URLs that happen to hold
+    identical bytes. RBLBANK filed one PDF twice on 2026-09-03 under two
+    announcement categories six minutes apart, and the only thing that
+    identifies them as one document is a hash of the content, which this
+    system never computes — evidence ingest deliberately makes no second
+    fetch. Those are two disclosures by the exchange and are counted as two.
     """
     if not isins:
         return {}
     out: dict[tuple[str, date], list[dict]] = {}
+    # (isin, session, url) -> (index of the row kept, its publication instant).
+    # The instant is carried here rather than read back off the row, because
+    # `as_dict` has already turned it into an ISO string and comparing that to
+    # a datetime raises rather than ordering.
+    seen: dict[tuple, tuple[int, object]] = {}
     with conn.cursor() as cur:
         cur.execute(_SELECT, (list(isins), start, end))
         for (isin, sd, tier, name, doc, title, pub, basis, ret, url, chk) in cur.fetchall():
@@ -289,5 +317,19 @@ def load_for(conn, isins, start: date, end: date) -> dict[tuple[str, date], list
                 published_at=pub, published_at_basis=basis, retrieved_at=ret,
                 url=url, checksum=chk,
             )
-            out.setdefault((isin, sd), []).append(ev.as_dict())
+            rows = out.setdefault((isin, sd), [])
+            # A row with no URL is not linkable and cannot be shown to be the
+            # same document as anything else, so it is never collapsed.
+            if not url:
+                rows.append(ev.as_dict())
+                continue
+            key = (isin, sd, url)
+            if key not in seen:
+                seen[key] = (len(rows), pub)
+                rows.append(ev.as_dict())
+                continue
+            index, kept_pub = seen[key]
+            if pub is not None and (kept_pub is None or pub < kept_pub):
+                rows[index] = ev.as_dict()
+                seen[key] = (index, pub)
     return out
