@@ -5266,3 +5266,18 @@ The new `addable_instruments` count is **1.3 ms** on the deployment's shape,
 against 39 ms for the `count(DISTINCT isin)` it replaced.
 
 **Full suite after the index: `529 passed, 2 skipped, 1 xfailed in 309.36s`.**
+
+The index recovered part of it — live median **217 → 161 ms** — but not all,
+because `DISTINCT` still HashAggregated the whole table and the calendar is
+read twice on the request path. Replaced with the same loose-walk pattern the
+addable count uses: **9.2 ms → 1.2 ms** on the deployment's shape, for
+byte-identical output (497 sessions, asserted equal to the query it replaced
+rather than assumed equal — a faster calendar that returned different dates
+would move every freshness verdict on the page).
+
+Left alone: the two `DISTINCT session_date` subqueries embedded inside larger
+statements in `outcomes.py`. They are not standalone, rewriting them is risk
+this change does not need, and `build_digest` measures 29 ms *including* the
+outcomes path, so they are not where the time is.
+
+**Full suite: `531 passed, 2 skipped, 1 xfailed in 310.10s`.**

@@ -384,6 +384,30 @@ SELECT count(*) FROM walk WHERE isin IS NOT NULL
 """
 
 
+# The exchange calendar: every session that exists, in order. Walked through
+# `bar_session_date` one entry per distinct date rather than aggregated over
+# every row — `DISTINCT` cannot use an index in Postgres and HashAggregates the
+# whole table, which measured 9.2ms against 1.2ms for this on the deployment's
+# 93k bars, for byte-identical output (497 sessions, asserted in the tests).
+# The difference is the calendar being read twice on the request path.
+_SESSION_CALENDAR = """
+WITH RECURSIVE walk AS (
+    SELECT min(session_date) AS d FROM bar
+    UNION ALL
+    SELECT (SELECT min(b.session_date) FROM bar b WHERE b.session_date > w.d)
+    FROM walk w WHERE w.d IS NOT NULL
+)
+SELECT d FROM walk WHERE d IS NOT NULL ORDER BY d
+"""
+
+
+def session_calendar(conn) -> list:
+    """Every session the exchange actually traded, ascending."""
+    with conn.cursor() as cur:
+        cur.execute(_SESSION_CALENDAR)
+        return [r[0] for r in cur.fetchall()]
+
+
 def addable_instruments(conn) -> int:
     """Instruments with price history, so the add box can say how many."""
     with conn.cursor() as cur:
@@ -723,8 +747,7 @@ def build_digest(
                 # the trend line on all thirty rows the moment someone pressed
                 # "Mark all as seen", which reads as broken data rather than
                 # as "nothing new".
-                cur.execute("SELECT DISTINCT session_date FROM bar "
-                            "ORDER BY session_date")
+                cur.execute(_SESSION_CALENDAR)
                 calendar = [r[0] for r in cur.fetchall()]
                 cur.execute(_DISPLAY_CLOSES,
                             (isins, _window_for({latest_session}, calendar)))
@@ -774,7 +797,7 @@ def build_digest(
     # The exchange calendar, from the sessions that exist rather than a weekday
     # rule, so holidays are simply absent. Freshness is measured against this.
     with conn.cursor() as cur:
-        cur.execute("SELECT DISTINCT session_date FROM bar ORDER BY session_date")
+        cur.execute(_SESSION_CALENDAR)
         all_sessions = [r[0] for r in cur.fetchall()]
 
     # Display only: the price anchor and the trend line, read in the same

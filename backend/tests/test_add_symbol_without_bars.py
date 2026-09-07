@@ -134,3 +134,31 @@ def test_every_watchlist_row_can_show_a_price():
     assert rows, "empty rail, so this guard proves nothing"
     blank = [w["symbol"] for w in rows if w["close"] is None]
     assert not blank, f"rows with no price: {blank}"
+
+
+def test_the_session_calendar_matches_the_query_it_replaced():
+    """The calendar is walked through `bar_session_date` one entry per distinct
+    date instead of aggregated over every row: `DISTINCT` cannot use an index
+    and HashAggregates the whole table, which is 9.2ms against 1.2ms on the
+    deployment's 93k bars. A faster query that returned a different calendar
+    would move every freshness verdict on the page, so the two are asserted
+    equal rather than assumed equal."""
+    from app.api.digest import connect, session_calendar
+    with psycopg.connect(database_url()) as conn, conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT session_date FROM bar ORDER BY session_date")
+        plain = [r[0] for r in cur.fetchall()]
+    assert plain, "no sessions, so this guard proves nothing"
+    with connect() as conn:
+        walked = session_calendar(conn)
+    assert walked == plain, "the walked calendar differs from DISTINCT"
+    assert walked == sorted(set(walked)), "the calendar is not ascending and unique"
+
+
+def test_the_session_date_index_exists():
+    """`bar_pkey` leads on isin, so a query about a session across all
+    instruments has nothing to use without this. It is what took a full
+    `build_digest` from 59ms to 29ms once the seed reached 93k bars."""
+    with psycopg.connect(database_url()) as conn, conn.cursor() as cur:
+        cur.execute("SELECT indexdef FROM pg_indexes WHERE tablename = 'bar'")
+        defs = " ".join(d for (d,) in cur.fetchall())
+    assert "bar_session_date" in defs, f"missing bar(session_date) index: {defs}"
