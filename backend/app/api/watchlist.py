@@ -20,7 +20,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.digest import DEMO_USER_ID, connect, resolve_user, seed_watchlist
+from app.api.digest import (DEMO_USER_ID, connect, resolve_user,
+                            resolve_writer, seed_watchlist)
 
 router = APIRouter(prefix="/api/watchlist")
 
@@ -53,7 +54,7 @@ class MuteRequest(BaseModel):
 # broken on the latest session each ISIN has a bar for: the live instrument is
 # the one still trading.
 _RESOLVE = """
-SELECT r.isin FROM (
+SELECT r.isin, b.last_bar FROM (
     SELECT a.isin, 0 AS rank
     FROM symbol_alias a
     WHERE upper(a.symbol) = %(sym)s AND a.valid_to IS NULL
@@ -101,7 +102,22 @@ _EXISTS = "SELECT 1 FROM watchlist_item WHERE user_id = %s AND isin = %s"
 
 
 def resolve_symbol(conn, symbol: str) -> str:
-    """Ticker -> ISIN. Case-insensitive, whitespace stripped."""
+    """Ticker -> ISIN. Case-insensitive, whitespace stripped.
+
+    An instrument with no bar is refused rather than added. `instrument` is
+    ingested whole — 3,044 rows on the deployment — while `bar` carries only
+    the demo's own instruments, so a ticker can resolve perfectly and still
+    have no price series behind it. Added anyway, it produced a watchlist row
+    with no price, no change and no sparkline: three empty cells that read as a
+    broken page rather than as absent data, and the one thing a reader is most
+    likely to try, because the add box invites it.
+
+    Two distinct refusals, because they are two different facts about the
+    world. "Unknown symbol" means the exchange has no such ticker. "No price
+    history in this deployment" means we know the instrument and do not hold
+    its bars — which is a property of the demo's seed, not of the company, and
+    saying so is the honest version.
+    """
     sym = (symbol or "").strip().upper()
     if not sym:
         raise HTTPException(status_code=404, detail="Unknown symbol: ")
@@ -110,7 +126,15 @@ def resolve_symbol(conn, symbol: str) -> str:
         row = cur.fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail=f"Unknown symbol: {sym}")
-    return row[0]
+    isin, last_bar = row[0], row[1]
+    if last_bar is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(f"{sym} has no price history in this deployment, so there "
+                    "would be nothing to show. The demo carries daily bars for "
+                    "its own watchlist only."),
+        )
+    return isin
 
 
 def _rows(conn, user_id: str = DEMO_USER_ID) -> list[dict]:
@@ -135,7 +159,7 @@ def list_items(x_signal_session: str | None = Header(default=None)) -> list[dict
 def add_item(req: AddRequest,
              x_signal_session: str | None = Header(default=None)) -> dict:
     """Add by ticker. Already present -> 200 no-op, `added: false`."""
-    user_id = resolve_user(x_signal_session)
+    user_id = resolve_writer(x_signal_session)
     with connect() as conn:
         seed_watchlist(conn, user_id)
         isin = resolve_symbol(conn, req.symbol)
@@ -153,7 +177,7 @@ def remove_item(isin: str,
     """Idempotent: removing something absent is a success, not a 404. The
     caller's intent — "this should not be on my list" — is satisfied either
     way, and a retried DELETE must not start failing."""
-    user_id = resolve_user(x_signal_session)
+    user_id = resolve_writer(x_signal_session)
     with connect() as conn:
         seed_watchlist(conn, user_id)
         with conn.cursor() as cur:
@@ -169,7 +193,7 @@ def mute_item(isin: str, req: MuteRequest,
     """Mute keeps the instrument on the list and out of the digest. It is the
     difference between "I no longer hold this" and "I hold this and do not want
     to hear about it this week", which deleting cannot express."""
-    user_id = resolve_user(x_signal_session)
+    user_id = resolve_writer(x_signal_session)
     with connect() as conn:
         seed_watchlist(conn, user_id)
         with conn.cursor() as cur:

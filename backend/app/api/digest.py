@@ -33,8 +33,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 import psycopg
-from fastapi import APIRouter, Header
-from pydantic import BaseModel
+from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, Field
 
 from app.api import evidence as evidence_mod
 from app.api import freshness as fresh_mod
@@ -86,6 +86,42 @@ def resolve_user(session_id: str | None) -> str:
     if str(parsed) == DEMO_USER_ID:
         return DEMO_USER_ID
     return str(parsed)
+
+def resolve_writer(session_id: str | None) -> str:
+    """Session header -> user_id, for a request that CHANGES state.
+
+    The read path degrades a missing or malformed header to the template, which
+    is right: an anonymous reader should see the public demo. A writer must not.
+    `DEMO_USER_ID` is the row every new visitor is cloned from, so a write that
+    lands on it is not one visitor's change — it is a change to what everybody
+    who arrives later starts with.
+
+    That was not enforced, only asserted in a comment, and both halves were
+    reachable with a header-less POST:
+
+      * `ack` advanced the template cursor, and the header-less digest went to
+        `surfaced 0, cards 0` — R-17's outage exactly, reached through a
+        different door;
+      * `add` put a 31st instrument on the template, and every subsequently
+        minted session cloned it. Persistent, and invisible from the browser
+        that caused it.
+
+    So a writer resolves strictly. No fallback: a state change without a
+    session is refused rather than redirected somewhere harmless, because a
+    silent no-op would report success for a write that did not happen. The
+    page mints a uuid before its first request and falls back to a per-tab id
+    if localStorage is unavailable, so a browser never reaches this.
+    """
+    user_id = resolve_user(session_id)
+    if user_id == DEMO_USER_ID:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"{SESSION_HEADER} must carry a session uuid to change "
+                    "state. The demo watchlist is a shared template and is "
+                    "read-only."),
+        )
+    return user_id
+
 
 DEFAULT_DATABASE_URL = "postgresql://signal:signal@localhost:5433/signal"
 
@@ -1173,7 +1209,11 @@ def _empty(
 
 
 class AckRequest(BaseModel):
-    cursor_head: int
+    # A cursor is a position in the ledger, so it cannot be negative. Bounded
+    # here rather than in `LedgerWriter.advance_cursor`, which is the ledger
+    # primitive and correctly does one thing: GREATEST. The range check belongs
+    # where the number stops being trusted, which is the request boundary.
+    cursor_head: int = Field(ge=0)
 
 
 @router.get("/api/digest")
@@ -1200,9 +1240,16 @@ def ack(req: AckRequest,
     upsert, so a stale tab acking an older head is absorbed rather than
     rewinding anyone. The clock is injected, as everywhere else.
     """
-    user_id = resolve_user(x_signal_session)
+    user_id = resolve_writer(x_signal_session)
     with connect() as conn:
+        # Clamped to the ledger's own head. The advance is GREATEST and
+        # therefore irreversible, so an ack past the last event that exists
+        # would leave that visitor permanently caught up on events not yet
+        # written — every later digest empty, with nothing to undo it. The
+        # page only ever echoes the `cursor_head` it was given, so this bounds
+        # a hand-made request, not the UI.
+        head = cursor_head(conn)
         writer = LedgerWriter(conn, WallClock())
-        value = writer.advance_cursor(user_id, req.cursor_head)
+        value = writer.advance_cursor(user_id, min(req.cursor_head, head))
         conn.commit()
-        return {"cursor": value, "requested": req.cursor_head}
+        return {"cursor": value, "requested": req.cursor_head, "head": head}

@@ -5024,3 +5024,95 @@ rendered anywhere.
 every product row is present (derived from the field on both sides, so it
 cannot be satisfied by hiding a product risk), every row declares a valid
 scope, and scope resolves on the ragged rows.
+
+---
+
+## Pre-review sweep of the deployment — three defects, all reachable from the UI
+
+Brief: a reviewer will click the Railway link and navigate. Find what breaks.
+Probed every route, then the reachable state transitions, then ran the shipped
+page against live production payloads in node.
+
+**What was already sound.** All seven routes 200 in under a second. Malformed
+`X-Signal-Session` values — unparseable, empty, SQL, path traversal — all
+degrade to the template on reads, none error. Write payloads are validated:
+empty, oversized, wrong-type, missing-key and non-JSON bodies all 422; unknown
+tickers 404; `DELETE` of an absent isin is idempotent. Freshness is measured
+against the exchange calendar rather than wall clock, so the cards do not rot
+as days pass. The caught-up state renders and says so in words. The shipped
+render path throws on none of the four live payloads (populated, header-less,
+caught-up, post-add).
+
+### 1. The demo template was writable — R-17 through a different door
+
+`digest.py` stated *"`DEMO_USER_ID` is a **template**, never written to by a
+visitor"* and nothing enforced it. `resolve_user` degrades a missing or
+malformed header to the template, which is correct for a read and wrong for a
+write, and every writer used it. Measured, locally:
+
+| header-less request | effect |
+|---|---|
+| `POST /api/digest/ack` | template cursor advanced to 5962; the header-less digest went to **`surfaced 0, cards 0`** |
+| `POST /api/watchlist {"symbol":"TCS"}` | template gained a 31st row, and **every session minted afterwards cloned it** |
+
+The second is the worse one: persistent, cross-visitor, and invisible from the
+browser that caused it. This is R-17's outage — *"someone pressed Mark all as
+seen and every later arrival saw an empty digest"* — reached through the API
+instead of the UI.
+
+Fixed with `resolve_writer`, used by `ack`, `add`, `remove` and `mute`. A state
+change resolves strictly and is refused with 400 if it lands on the template;
+reads keep the permissive path, because an anonymous reader *should* see the
+public demo. No silent redirect to a scratch user: that would report success
+for a write that did not happen. The page mints a uuid before its first request
+and falls back to a per-tab id when localStorage is unavailable, so a browser
+never reaches the refusal.
+
+### 2. An ack past the ledger head could not be undone
+
+`POST /api/digest/ack {"cursor_head": 10**18}` returned 200 and stored it. The
+advance is `GREATEST` and therefore irreversible, so that visitor was
+permanently caught up on events not yet written — every later digest empty,
+with nothing able to lower it again. Now clamped to `cursor_head(conn)` at the
+request boundary, and negatives are rejected by the model. `LedgerWriter.
+advance_cursor` is untouched: it is the ledger primitive and correctly does one
+thing.
+
+### 3. Adding any symbol outside the seeded 30 rendered a blank row
+
+The most likely thing a reviewer does — type a ticker into the add box.
+`instrument` is ingested whole (3,044 rows) while `bar` carries the demo's own
+instruments only, so a real ticker resolves and has no series behind it.
+Measured on production:
+
+| ticker | added | close | change | spark |
+|---|---|---|---|---|
+| RELIANCE, INFY, ITC, HDFCBANK, SBIN | already present | ✓ | ✓ | ✓ |
+| **TCS, WIPRO** | **yes** | **null** | **null** | **none** |
+
+Three empty cells that read as a broken page rather than as absent data. It
+never showed up locally because every instrument in the dev database has bars.
+
+`resolve_symbol` now refuses an instrument with no bar, and the two refusals
+stay distinct: *"Unknown symbol"* means the exchange has no such ticker;
+*"NOBARSCO has no price history in this deployment"* means we know it and do
+not hold its prices — a property of the seed, not of the company. The add box
+already renders `detail`, so the message lands in the UI.
+
+**Not fixed, deliberately.** Removing *all thirty* rows re-clones the template
+on the next request: `seed_watchlist` seeds when the count is zero, and its own
+docstring claims the opposite ("someone who removes a symbol does not get it
+silently put back"). Removing one row persists correctly; only the empty
+boundary re-seeds. The fix needs a *seeded* marker to distinguish "never
+seeded" from "emptied on purpose", and the obvious cheap version — seed only
+when the `app_user` insert reported `rowcount == 1` — reintroduces the exact
+race `test_first_visit_race.py` exists to prevent, where the losing request
+skips the seed and renders an empty rail **on a first visit, which is every
+visit a reviewer makes**. Trading a 30-deletion edge case for a first-paint
+race the day before a review is the wrong trade. Logged, not shipped.
+
+**Full suite: `525 passed, 2 skipped, 1 xfailed in 311.78s`** — 26 new tests.
+Both guards are parametrised over every writer × every non-session header, and
+each asserts the template is byte-identical afterwards. Each new guard also has
+a companion test that the feature it protects still works, so none of them can
+be satisfied by simply breaking the thing.
