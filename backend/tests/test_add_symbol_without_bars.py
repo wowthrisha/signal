@@ -96,6 +96,36 @@ def test_a_symbol_with_bars_is_still_added():
     assert row[0]["close"] is not None, "added symbol renders with no price"
 
 
+def test_the_stated_count_is_the_boundary_the_refusal_uses(instrument_without_bars):
+    """3a. The add box says "N instruments available". If N were counted over a
+    different set than the one `resolve_symbol` admits, the hint would promise
+    something the next click refuses — so both come from "holds at least one
+    bar", and this asserts they agree rather than trusting that they do."""
+    h = _session()
+    stated = client.get("/api/digest", headers=h).json()["addable_instruments"]
+    with psycopg.connect(database_url()) as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM (SELECT DISTINCT isin FROM bar) q")
+        actual = cur.fetchone()[0]
+    assert stated == actual, f"add box says {stated}, {actual} instruments have bars"
+    # And the instrument with no bars is outside that count, which is the whole
+    # reason the number is not simply `count(*) FROM instrument`.
+    with psycopg.connect(database_url()) as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM instrument")
+        assert cur.fetchone()[0] > stated, (
+            "every instrument has bars, so this guard proves nothing")
+
+
+def test_the_caught_up_payload_carries_the_count_too():
+    """The add box is on screen in the caught-up state as well, and a client
+    branching on a missing key is one that will eventually branch wrongly."""
+    h = _session()
+    d = client.get("/api/digest", headers=h).json()
+    client.post("/api/digest/ack", json={"cursor_head": d["cursor_head"]}, headers=h)
+    e = client.get("/api/digest", headers=h).json()
+    assert e["cards"] == [], "not the caught-up state, so this guard proves nothing"
+    assert e["addable_instruments"] == d["addable_instruments"]
+
+
 def test_every_watchlist_row_can_show_a_price():
     """The property the refusal exists to keep true, asserted over the whole
     rail rather than over the one symbol the test added."""

@@ -61,6 +61,9 @@ PAYLOAD = {
         {"stage": "surfaced", "count": 2, "label": "surfaced"},
     ],
     "surfaced_below_display_threshold": 0,
+    # The add box states the size of the universe behind it. In the fixture so
+    # the render path is exercised with the key present, as production sends it.
+    "addable_instruments": 200,
     # The four cut points the plain-language labels are drawn from. They are
     # the detectors' and §7's own numbers; a card that renders a band without
     # them has invented it.
@@ -282,6 +285,7 @@ HARNESS = textwrap.dedent("""
       funnel: store['funnel:html'] || '',
       note_rehomed: !!store['wl-note-home:appended'],
       chain: store['chain:html'] || '',
+      add_hint: store['add-hint:text'] || '',
       pareto: store['filtered-body:html'] || '',
     };
     render({ ...payload, cards: [], cursor: 12, all_cards_lack_evidence: false });
@@ -325,6 +329,29 @@ def test_the_render_path_executes_without_throwing(tmp_path):
     out = json.loads(r.stdout.strip().splitlines()[-1])
     assert out["ok"] is True
     assert out["cards_html_len"] > 0, "render produced no card markup"
+
+
+def test_the_add_box_states_how_many_instruments_it_can_reach(tmp_path):
+    """3a. The hint is written from the payload, never typed into the page: the
+    deployment seeds a curated universe and a full ingest holds thousands, so a
+    literal would be wrong in one of those two places."""
+    r = _run(tmp_path, _script())
+    assert r.returncode == 0, (r.stderr or "")[-1500:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    hint = out.get("add_hint", "")
+    assert str(PAYLOAD["addable_instruments"]) in hint, (
+        f"the add hint does not carry the payload's count: {hint!r}")
+    assert "instruments available" in hint, hint
+
+
+def test_the_add_hint_is_not_a_literal_in_the_page():
+    """The number must come from the payload. A hardcoded one would survive
+    every render test and be wrong on the first reseed."""
+    page = _script()
+    n = str(PAYLOAD["addable_instruments"])
+    assert f"{n} instruments available" not in page, (
+        "the add hint's count is hardcoded in the page")
+    assert "addable_instruments" in page, "the page never reads the count"
 
 
 def test_the_evidence_chain_actually_renders(tmp_path):

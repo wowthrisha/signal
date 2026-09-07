@@ -518,6 +518,13 @@ input::placeholder { color: var(--text-3); }
                      hover:surface-2 hover:t1 transition-colors">Add</button>
     </div>
     <p id="add-error" class="hidden mt-2 text-xs warn-fg"></p>
+    <!-- The size of the universe behind this box, so the boundary is stated
+         before a reader discovers it by being refused. Written by `render`
+         from `addable_instruments` in the payload, which is a live count of
+         instruments holding at least one bar — the same condition the add
+         endpoint admits on. Hidden until that number arrives rather than
+         shipping a placeholder that could be wrong. -->
+    <p id="add-hint" class="hidden mt-2 text-xs t3"></p>
 
     <!-- 5a. Thirty rows is already past scannable and the list is a user's to
          grow. Filters on symbol OR company name, because a reader who cannot
@@ -1887,6 +1894,18 @@ function render(d) {
   el('funnel').innerHTML = funnelHTML(f, d.evidence_chain);
   el('head-summary').innerHTML = (f.surfaced === undefined) ? ''
     : `<span class="accent"><span class="num accent">${f.surfaced}</span> need attention</span>`;
+
+  // The add box states how many instruments it can reach. Never hardcoded:
+  // the deployment seeds a curated universe and a full ingest holds thousands,
+  // and a number typed here would be wrong in one of those two places.
+  const addable = d.addable_instruments;
+  const hint = el('add-hint');
+  if (typeof addable === 'number' && addable > 0) {
+    hint.textContent = `${addable.toLocaleString('en-IN')} instruments available in this demo`;
+    hint.classList.remove('hidden');
+  } else {
+    hint.classList.add('hidden');
+  }
 
   const movedStage = (d.evidence_chain || []).find((st) => st.stage === 'moved');
   el('cards').setAttribute('aria-busy', 'false');

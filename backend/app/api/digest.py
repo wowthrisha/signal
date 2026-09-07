@@ -363,6 +363,33 @@ _READ_CURSOR = "SELECT last_seen_event_id FROM visit_cursor WHERE user_id = %s"
 # watchlist would leave a symbol added tomorrow replaying events from last week.
 _CURSOR_HEAD = "SELECT coalesce(max(event_id), 0) FROM event"
 
+# How many instruments a visitor can actually add — those holding at least one
+# bar, which is exactly the condition `watchlist.resolve_symbol` admits on. The
+# add box states this number, so it has to be the same boundary the refusal
+# uses or the hint tells a lie the next click disproves.
+#
+# A loose index scan over `bar_pkey (isin, session_date)` rather than
+# `count(DISTINCT isin)`: the plain aggregate reads every one of the ~93k bar
+# rows and measured **760 ms**, against a digest p95 of 88 ms. This walks one
+# index entry per distinct isin — 17 ms locally over 3,044 instruments, and
+# less on the deployment, which holds 200.
+_ADDABLE_COUNT = """
+WITH RECURSIVE walk AS (
+    SELECT min(isin) AS isin FROM bar
+    UNION ALL
+    SELECT (SELECT min(b.isin) FROM bar b WHERE b.isin > w.isin)
+    FROM walk w WHERE w.isin IS NOT NULL
+)
+SELECT count(*) FROM walk WHERE isin IS NOT NULL
+"""
+
+
+def addable_instruments(conn) -> int:
+    """Instruments with price history, so the add box can say how many."""
+    with conn.cursor() as cur:
+        cur.execute(_ADDABLE_COUNT)
+        return int(cur.fetchone()[0])
+
 _LATEST_SESSION = "SELECT max(session_date) FROM bar"
 
 _INDEX = """
@@ -671,13 +698,15 @@ def build_digest(
         cursor = None if row is None else int(row[0])
 
         if not isins or latest_session is None:
-            return _empty(latest_session, head=head, cursor=cursor)
+            return _empty(latest_session, head=head, cursor=cursor,
+                          addable=addable_instruments(conn))
 
         if cursor is None:
             cur.execute(_SESSIONS, (lookback,))
             sessions = sorted(r[0] for r in cur.fetchall())
             if not sessions:
-                return _empty(latest_session, head=head, cursor=cursor)
+                return _empty(latest_session, head=head, cursor=cursor,
+                              addable=addable_instruments(conn))
             event_rows = []
         else:
             cur.execute(_EVENTS_SINCE_CURSOR, (isins, cursor))
@@ -722,7 +751,8 @@ def build_digest(
                         "reason": None,
                     })
                 return _empty(latest_session, head=head, cursor=cursor,
-                              watched=len(meta), rows=rows)
+                              watched=len(meta), rows=rows,
+                              addable=addable_instruments(conn))
 
         since, latest = sessions[0], sessions[-1]
 
@@ -1098,6 +1128,7 @@ def build_digest(
         ),
         "freshness_policy": fresh_mod.Policy.load().as_dict(),
         "latest_session": all_sessions[-1].isoformat() if all_sessions else None,
+        "addable_instruments": addable_instruments(conn),
         "evidence_chain": chain,
         # Cards admitted on a move below the display threshold, and therefore
         # outside the chain's population. Named rather than silently dropped.
@@ -1172,6 +1203,7 @@ def _empty(
     cursor: int | None = None,
     watched: int = 0,
     rows: list[dict] | None = None,
+    addable: int = 0,
 ) -> dict:
     """The caught-up digest. `watched` is still reported because "you follow 30
     things and none of them did anything new" is the message, not "you follow
@@ -1180,6 +1212,10 @@ def _empty(
         "since": since.isoformat() if since else None,
         "funnel": {"watched": watched, "moved": 0, "surfaced": 0},
         "cards": [],
+        # Same key in both payloads. A client branching on its absence is a
+        # client that will eventually branch wrongly, and the add box is on
+        # screen in the caught-up state too.
+        "addable_instruments": addable,
         "filtered_count": 0,
         "filtered_reasons": {
             slate_mod.REASON_EXPLAINED: 0,

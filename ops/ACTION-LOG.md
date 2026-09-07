@@ -5116,3 +5116,120 @@ Both guards are parametrised over every writer × every non-session header, and
 each asserts the template is byte-identical afterwards. Each new guard also has
 a companion test that the feature it protects still works, so none of them can
 be satisfied by simply breaking the thing.
+
+---
+
+## Seed expansion — the add box now reaches 200 instruments
+
+Adding a symbol is not a fetch. A card needs ~250 sessions for the exceedance
+CDF, a 120-session beta, a 60-session EWMA warm-up and a detector pass, so
+every addable instrument costs its full 497-session bar history in the
+committed seed. That makes this a seed-size decision, and it was measured
+before anything changed.
+
+### Task 1 — the numbers
+
+**NIFTY 100 / 200 membership is not available.** The database holds index
+*price series* — `index_bar`, 168 of them including `Nifty 100` and
+`Nifty 200` — and **no constituent table**. Resolving membership would need a
+network call the export is specified not to make. Fell back to the brief's own
+allowance and to the rule the demo watchlist already uses: turnover
+(`v × c`) on the latest session, restricted to instruments carrying a sector.
+Eligible pool: **744**.
+
+| universe | instruments | bars | gzipped | uncompressed | seed load | boot |
+|---|---|---|---|---|---|---|
+| 30 *(before)* | 30 | 13,996 | 0.67 MB | 6.9 MB | 0.8s | **8s** |
+| 100 | 100 | 46,006 | 1.60 MB | 16.3 MB | 2.0s | |
+| 150 | 150 | 69,370 | 2.36 MB | 23.1 MB | 2.9s | |
+| **200** | **200** | **92,767** | **3.05 MB** | **29.9 MB** | **3.7s** | **13s** |
+| 250 | 250 | 116,683 | 3.79 MB | 37.1 MB | 4.7s | |
+
+Sizes are measured, not estimated: each was generated with the real exporter
+and gzipped. Load times are into a fresh database. Boot is container start to
+`/healthz`, image already built. **Neither budget is close to binding** — 3.05
+MB against 25 MB, 13s against 90s — so the abort rule does not fire and the
+deciding factor is coverage, not cost.
+
+**1b — the fourteen tickers a reviewer is most likely to type.** Before: 8
+findable, 6 refused (`TCS`, `WIPRO`, `TATASTEEL`, `AXISBANK`, `LT`,
+`SUNPHARMA`).
+
+Turnover rank decides the universe size, and one symbol decides it alone:
+
+| rank | symbols |
+|---|---|
+| 2–42 | HDFCBANK 2, ICICIBANK 5, RELIANCE 7, SBIN 14, BHARTIARTL 16, INFY 18, ITC 26, MARUTI 27, TCS 31, AXISBANK 34, TATASTEEL 35, LT 42 |
+| 99 | SUNPHARMA |
+| **189** | **WIPRO** |
+
+Top 100 covers 13/14. Top 150 covers 13/14. **Top 200 covers 14/14** — WIPRO
+at 189 is the only reason to go past 150, and it is on the reviewer's own test
+list. 200 is the smallest round universe that covers all of them.
+
+### Task 2 — what changed
+
+`scripts/seed_demo.py` grew `SEED_UNIVERSE_SIZE = 200` and a `_UNIVERSE` query;
+`bar`, `corp_action`, `event` and `evidence` follow it instead of the
+watchlist. The universe is **unioned with the watchlist** so the default 30 can
+never fall out of their own seed. `instrument` is still exported whole, which
+is what keeps the two refusals distinguishable.
+
+The watchlist stays at 30 and the universe is 200 on purpose: the digest is
+what the demo opens on and 200 instruments is a wall; the universe is only what
+the add box can reach.
+
+Still one committed artifact, still loaded by `boot.sh` on an empty volume,
+still no runtime fetch, no migration step and no manual command.
+
+| | before | after |
+|---|---|---|
+| seed, gzipped | 0.69 MB | **3.05 MB** |
+| bars | 13,996 | **92,767** |
+| events / evidence | 89 / 938 | **575 / 5,364** |
+| addable instruments | 30 | **200** |
+| boot to healthy | 8s | **13s** |
+
+### Task 3 — the boundary, stated
+
+The add box now carries *"200 instruments available in this demo"*, written by
+`render` from `addable_instruments` in the payload. Never hardcoded, and a test
+asserts the literal does not appear in the page while the payload key does.
+
+The count is a **loose index scan** over `bar_pkey`, not `count(DISTINCT
+isin)`: the plain aggregate reads all 93k bar rows and measured **760 ms**
+against a digest p95 of 88 ms. The recursive walk touches one index entry per
+distinct isin — 17 ms locally over 3,044, less on the deployment's 200.
+
+It counts *instruments holding at least one bar*, which is exactly the
+condition `resolve_symbol` admits on, and a test asserts the two agree — a hint
+counted over a different set would promise what the next click refuses. The key
+is in the caught-up payload too, because the add box is on screen there as well.
+
+No autocomplete existed and none was added — out of scope per the brief.
+
+### Task 4 — verification
+
+Clean clone, fresh volume, `docker compose -p signalcheck`, distinct ports so
+the dev stack was untouched: **13s to healthy, 497 sessions, 3,044 instruments,
+200 addable, 4 cards, zero rows with no price.**
+
+All fourteen symbols added and rendered on that container — every one with a
+real close and a 20-point sparkline. Six that were refused before (`TCS`,
+`WIPRO`, `TATASTEEL`, `AXISBANK`, `LT`, `SUNPHARMA`) now resolve. All four
+cards carry a non-null close, return, residual, market share, U score, tier,
+gate and sparkline.
+
+Both refusals still fire and stay distinct: `20MICRONS`, `21STCENMGM` and
+`GOLD360` are in the master and outside the universe → *"has no price history
+in this deployment"*; `ZZZNOPE` → *"Unknown symbol"*.
+
+`change_pct` is null on a *quiet* rail row by design — a symbol that never
+cleared the display threshold has no biggest move in the window, and 0.00%
+would assert it closed flat. Cards are unaffected.
+
+**Nothing in the engine was touched.** No threshold, detector, attribution,
+confidence, evidence or outcome logic changed. This is a data-coverage change.
+
+**Full suite: `529 passed, 2 skipped, 1 xfailed in 319.93s`.** Execution test
+run after the `index.html` change: 61 passed.
