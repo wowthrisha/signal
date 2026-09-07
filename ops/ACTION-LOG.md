@@ -5233,3 +5233,36 @@ confidence, evidence or outcome logic changed. This is a data-coverage change.
 
 **Full suite: `529 passed, 2 skipped, 1 xfailed in 319.93s`.** Execution test
 run after the `index.html` change: 61 passed.
+
+### Latency regression the expansion caused, found and closed
+
+Post-deploy the digest's measured median went **68.3 ms → 217.0 ms** over 107
+samples — not cold start, it held after warming. Measured the cause rather than
+guessing, on a container carrying exactly the deployment's data:
+
+| query | before index | after |
+|---|---|---|
+| `SELECT DISTINCT session_date FROM bar` (the exchange calendar) | 7.9 ms | 9.1 ms |
+| `SELECT max(session_date) FROM bar` | 4.2 ms | **0.1 ms** |
+| addable loose index scan | 1.3 ms | 1.3 ms |
+| **full `build_digest`** | **59 ms** | **29 ms** |
+
+`bar_pkey` leads on `isin`, so anything asking about a *session* across all
+instruments had no index and fell back to a full scan — 1,326 shared buffers
+per call. Invisible at 14k bars; on the deployment, where Postgres is a
+separate service on network storage, 93k bars made it visible.
+
+`CREATE INDEX IF NOT EXISTS bar_session_date ON bar (session_date)` in
+`schema.sql`, applied idempotently by `python -m app.db` at boot. `max` drops
+42×, and a full `build_digest` halves to **29 ms — below the 59 ms it ran at
+before the expansion and well below the 68 ms baseline.**
+
+The `DISTINCT session_date` scan is unchanged: Postgres does not use a loose
+index scan for `DISTINCT`, so it still HashAggregates. Rewriting it as a
+recursive walk would save ~8 ms and was not done — the index alone more than
+recovers the regression, and a query rewrite is risk this change does not need.
+
+The new `addable_instruments` count is **1.3 ms** on the deployment's shape,
+against 39 ms for the `count(DISTINCT isin)` it replaced.
+
+**Full suite after the index: `529 passed, 2 skipped, 1 xfailed in 309.36s`.**

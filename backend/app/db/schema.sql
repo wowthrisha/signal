@@ -33,6 +33,18 @@ CREATE TABLE IF NOT EXISTS bar (
   PRIMARY KEY (isin, session_date)
 );
 
+-- The primary key leads on `isin`, so anything asking about a session across
+-- all instruments -- the exchange calendar the freshness policy is measured
+-- against, and `max(session_date)`, which several digest subqueries call --
+-- had no index to use and fell back to a full scan.
+--
+-- Invisible at 14k bars. The seed now carries 93k, and on the deployment,
+-- where Postgres is a separate service on network storage, the digest's
+-- measured median went 68ms -> 217ms. With this index `max(session_date)`
+-- drops from 4.2ms to 0.1ms and a full `build_digest` halves, 59ms -> 29ms,
+-- measured on a container holding exactly the deployment's data.
+CREATE INDEX IF NOT EXISTS bar_session_date ON bar (session_date);
+
 CREATE TABLE IF NOT EXISTS symbol_state (
   isin         TEXT PRIMARY KEY REFERENCES instrument(isin),
   ewma_var     NUMERIC,
